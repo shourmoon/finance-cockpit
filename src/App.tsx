@@ -11,6 +11,7 @@ import type {
 } from "./domain/types";
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
+import MortgageTab from "./components/MortgageTab";
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => {
@@ -337,16 +338,7 @@ export default function App() {
       )}
 
       {/* MORTGAGE TAB */}
-      {activeTab === "mortgage" && (
-        <>
-          <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Mortgage Summary</h3>
-            <div style={styles.metric}>
-              Mortgage optimizer coming soon. Legacy mortgage engine has been removed for now.
-            </div>
-          </div>
-        </>
-      )}
+      {activeTab === "mortgage" && <MortgageTab />}
 
       {/* OVERRIDE MODAL */}      {/* OVERRIDE MODAL */}
       <OverrideModal
