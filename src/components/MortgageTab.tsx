@@ -15,6 +15,7 @@ import type {
 import type {
   MortgageScenarioConfig,
   MonthlyScenarioPattern,
+  MortgageScenarioSummary,
 } from "../domain/mortgage";
 import {
   loadMortgageUIState,
@@ -41,6 +42,25 @@ function formatDateDisplay(value: string | null | undefined): string {
   if (!value) return "";
   return value;
 }
+
+function classifyScenarioImpact(
+  summary: MortgageScenarioSummary | undefined | null
+): "good" | "neutral" | "bad" {
+  if (!summary) return "neutral";
+
+  // Any positive saving or earlier payoff is "good".
+  if (summary.monthsSavedVsActual > 0 || summary.interestSavedVsActual > 1) {
+    return "good";
+  }
+
+  // In theory scenarios shouldn't be worse than actual, but we guard anyway.
+  if (summary.interestSavedVsActual < -1) {
+    return "bad";
+  }
+
+  return "neutral";
+}
+
 
 function parseNumber(value: string): number | null {
   if (!value.trim()) return null;
@@ -181,6 +201,24 @@ export default function MortgageTab() {
       scenarios
     );
   }, [terms, prepaymentLog, asOfDate, scenarios]);
+
+  const scenarioSummaryMap = useMemo(() => {
+    const m = new Map<string, MortgageScenarioSummary>();
+    for (const s of scenarioRun.scenarios) {
+      m.set(s.scenarioId, s);
+    }
+    return m;
+  }, [scenarioRun]);
+
+  const sortedScenarioSummaries = useMemo(
+    () =>
+      [...scenarioRun.scenarios].sort((a, b) => {
+        const diffInterest = b.interestSavedVsActual - a.interestSavedVsActual;
+        if (Math.abs(diffInterest) > 0.5) return diffInterest;
+        return b.monthsSavedVsActual - a.monthsSavedVsActual;
+      }),
+    [scenarioRun]
+  );
 
   function addPrepaymentRow() {
     setPrepayments((prev) => [
@@ -531,28 +569,100 @@ export default function MortgageTab() {
                               updateScenarioMonthlyAmount(s.id, n);
                             }}
                           />
+                          {(() => {
+                            const summary = scenarioSummaryMap.get(s.id);
+                            if (!summary) {
+                              return null;
+                            }
+                            const impact = classifyScenarioImpact(summary);
+                            let label: string;
+                            switch (impact) {
+                              case "good":
+                                label = "Saving interest & time";
+                                break;
+                              case "bad":
+                                label = "Worse than current";
+                                break;
+                              default:
+                                label = "No meaningful change yet";
+                            }
+                            return (
+                              <div style={styles.scenarioChipRow}>
+                                <span
+                                  style={{
+                                    ...styles.scenarioImpactBadge,
+                                    ...(impact === "good"
+                                      ? styles.scenarioImpactGood
+                                      : impact === "bad"
+                                      ? styles.scenarioImpactBad
+                                      : styles.scenarioImpactNeutral),
+                                  }}
+                                >
+                                  {label}
+                                </span>
+                                <span style={styles.scenarioChipText}>
+                                  {formatCurrency(summary.interestSavedVsActual)}{" "}
+                                  saved vs actual{" "}
+                                  {summary.monthsSavedVsActual > 0
+                                    ? `· ${summary.monthsSavedVsActual} months sooner`
+                                    : ""}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     );
                   })}
                 </div>
 
-                {scenarioRun.scenarios.length > 0 && (
+                {sortedScenarioSummaries.length > 0 && (
                   <div style={{ marginTop: 16 }}>
                     <div style={styles.subHeading}>Scenario comparison</div>
-                    {scenarioRun.scenarios.map((s) => (
-                      <div key={s.scenarioId} style={styles.summaryRow}>
-                        <span>{s.scenarioName}</span>
-                        <span>
-                          Payoff {formatDateDisplay(s.payoffDate)} · Interest{" "}
-                          {formatCurrency(s.totalInterest)} · Saved vs actual{" "}
-                          {formatCurrency(s.interestSavedVsActual)}{" "}
-                          {s.monthsSavedVsActual > 0
-                            ? `· ${s.monthsSavedVsActual} mo sooner`
-                            : ""}
-                        </span>
-                      </div>
-                    ))}
+                    {sortedScenarioSummaries.map((s, index) => {
+                      const impact = classifyScenarioImpact(s);
+                      const label =
+                        index === 0 && impact === "good"
+                          ? "Best"
+                          : impact === "good"
+                          ? "Good"
+                          : impact === "bad"
+                          ? "Worse"
+                          : "Neutral";
+                      return (
+                        <div key={s.scenarioId} style={styles.summaryRow}>
+                          <span
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <span>{s.scenarioName}</span>
+                            <span
+                              style={{
+                                ...styles.scenarioImpactBadge,
+                                ...(impact === "good"
+                                  ? styles.scenarioImpactGood
+                                  : impact === "bad"
+                                  ? styles.scenarioImpactBad
+                                  : styles.scenarioImpactNeutral),
+                              }}
+                            >
+                              {label}
+                            </span>
+                          </span>
+                          <span>
+                            Payoff {formatDateDisplay(s.payoffDate)} · Interest{" "}
+                            {formatCurrency(s.totalInterest)} · Saved vs actual{" "}
+                            {formatCurrency(s.interestSavedVsActual)}{" "}
+                            {s.monthsSavedVsActual > 0
+                              ? `· ${s.monthsSavedVsActual} mo sooner`
+                              : ""}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -723,5 +833,41 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 4,
+  },
+  scenarioChipRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6,
+    fontSize: 11,
+    color: "#a1a1aa",
+  },
+  scenarioImpactBadge: {
+    borderRadius: 999,
+    padding: "2px 8px",
+    fontSize: 10,
+    fontWeight: 500,
+    border: "1px solid transparent",
+  },
+  scenarioImpactGood: {
+    backgroundColor: "rgba(22, 163, 74, 0.15)",
+    borderColor: "rgba(22, 163, 74, 0.6)",
+    color: "#4ade80",
+  },
+  scenarioImpactNeutral: {
+    backgroundColor: "rgba(113, 113, 122, 0.25)",
+    borderColor: "rgba(82, 82, 91, 0.9)",
+    color: "#e4e4e7",
+  },
+  scenarioImpactBad: {
+    backgroundColor: "rgba(220, 38, 38, 0.15)",
+    borderColor: "rgba(248, 113, 113, 0.8)",
+    color: "#fecaca",
+  },
+  scenarioChipText: {
+    fontSize: 11,
+    color: "#9ca3af",
   },
 };
