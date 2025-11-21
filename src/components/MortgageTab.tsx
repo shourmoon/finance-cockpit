@@ -1,5 +1,5 @@
 // src/components/MortgageTab.tsx
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   computeBaselineMortgage,
   computeMortgageWithPrepayments,
@@ -11,17 +11,14 @@ import type {
   PastPrepaymentLog,
   PastPrepayment,
 } from "../domain/mortgage/types";
+import {
+  loadMortgageUIState,
+  saveMortgageUIState,
+  createDefaultMortgageUIState,
+  type MortgageUIState,
+} from "../domain/mortgage/persistence";
 
 type PrepaymentRow = PastPrepayment & { id: string };
-
-const emptyTerms: MortgageOriginalTerms = {
-  principal: 300_000,
-  annualRate: 0.05,
-  termMonths: 360,
-  startDate: "2025-01-01",
-};
-
-const initialPrepayments: PrepaymentRow[] = [];
 
 function formatMoney(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
@@ -53,18 +50,39 @@ function uuid(): string {
 }
 
 export default function MortgageTab() {
-  const [terms, setTerms] = useState<MortgageOriginalTerms>(emptyTerms);
+  // Initialise from persisted state if available
+  const initialUI: MortgageUIState =
+    loadMortgageUIState() ?? createDefaultMortgageUIState();
+
+  const [terms, setTerms] = useState<MortgageOriginalTerms>(
+    initialUI.terms
+  );
   const [yearsInput, setYearsInput] = useState<string>(
-    (emptyTerms.termMonths / 12).toString()
+    (initialUI.terms.termMonths / 12).toString()
   );
   const [principalInput, setPrincipalInput] = useState<string>(
-    emptyTerms.principal.toString()
+    initialUI.terms.principal.toString()
   );
   const [rateInput, setRateInput] = useState<string>(
-    (emptyTerms.annualRate * 100).toString()
+    (initialUI.terms.annualRate * 100).toString()
   );
-  const [prepayments, setPrepayments] =
-    useState<PrepaymentRow[]>(initialPrepayments);
+  const [prepayments, setPrepayments] = useState<PrepaymentRow[]>(
+    initialUI.prepayments.map((p) => ({
+      ...p,
+      id: uuid(),
+    }))
+  );
+
+  // Persist on any relevant change
+  useEffect(() => {
+    const uiState: MortgageUIState = {
+      terms,
+      prepayments: prepayments
+        .filter((p) => p.date && p.amount > 0)
+        .map((p) => ({ date: p.date, amount: p.amount, note: p.note })),
+    };
+    saveMortgageUIState(uiState);
+  }, [terms, prepayments]);
 
   function updateTermsFromInputs(
     overrides?: Partial<{
@@ -79,10 +97,10 @@ export default function MortgageTab() {
     const yStr = overrides?.yearsInput ?? yearsInput;
     const startDate = overrides?.startDate ?? terms.startDate;
 
-    const principal = parseNumber(pStr) ?? emptyTerms.principal;
+    const principal = parseNumber(pStr) ?? initialUI.terms.principal;
     const annualRate =
-      (parseNumber(rStr) ?? emptyTerms.annualRate * 100) / 100;
-    const years = parseNumber(yStr) ?? emptyTerms.termMonths / 12;
+      (parseNumber(rStr) ?? initialUI.terms.annualRate * 100) / 100;
+    const years = parseNumber(yStr) ?? initialUI.terms.termMonths / 12;
     const termMonths = Math.max(1, Math.round(years * 12));
 
     setTerms({
