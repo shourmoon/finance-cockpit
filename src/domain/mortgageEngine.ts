@@ -144,3 +144,60 @@ export function simulateMortgage(
     baselineInterest: baseline.totalInterestPaid,
   };
 }
+
+// --- Optimization helper: summarizes baseline vs extra-payment scenario ---
+
+export interface MortgageOptimizationSummary {
+  baselineMonthlyPayment: Money;
+  baselineTotalInterest: Money;
+  baselineTermMonths: number;
+  newTotalInterest: Money;
+  newTermMonths: number;
+  interestSaved: Money;
+  monthsSaved: number;
+}
+
+/**
+ * Runs a baseline simulation (no extra payment) and a scenario with a fixed
+ * extra monthly payment, and returns a concise summary of the impact.
+ */
+export function summarizeMortgageOptimization(
+  baseConfig: MortgageConfig,
+  extraMonthlyPayment: Money
+): MortgageOptimizationSummary {
+  const monthlyPayment = computeMonthlyPayment(baseConfig);
+
+  const configWithPayment: MortgageConfig = {
+    ...baseConfig,
+    monthlyPayment,
+  };
+
+  const baseline: MortgageSimulationResult = simulateMortgage(
+    configWithPayment,
+    0
+  );
+  const withExtra: MortgageSimulationResult = simulateMortgage(
+    configWithPayment,
+    extraMonthlyPayment
+  );
+
+  const baselineTermMonths = baseline.schedule.length;
+  const newTermMonths = withExtra.schedule.length;
+
+  const interestSaved =
+    baseline.totalInterestPaid - withExtra.totalInterestPaid;
+  const monthsSaved =
+    baselineTermMonths > newTermMonths
+      ? baselineTermMonths - newTermMonths
+      : 0;
+
+  return {
+    baselineMonthlyPayment: monthlyPayment,
+    baselineTotalInterest: baseline.totalInterestPaid,
+    baselineTermMonths,
+    newTotalInterest: withExtra.totalInterestPaid,
+    newTermMonths,
+    interestSaved,
+    monthsSaved,
+  };
+}

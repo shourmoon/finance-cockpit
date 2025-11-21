@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
+import { computeSafeToSpend } from "./domain/safeToSpendEngine";
 import { computeMonthlyPayment, simulateMortgage } from "./domain/mortgageEngine";
 import type {
   AppState,
@@ -42,7 +43,7 @@ export default function App() {
   const [mortgageExtraPayment, setMortgageExtraPayment] = useState(0);
 
   const { metrics, events } = runCashflowProjection(state);
-
+  const safe = computeSafeToSpend(state);
   useEffect(() => {
     saveAppState(state);
   }, [state]);
@@ -369,8 +370,13 @@ export default function App() {
             </div>
 
             <div style={styles.metric}>
-              Safe to Spend This Month:
-              <b> {formatMoney(metrics.safeToSpendThisMonth)}</b>
+              Projected Minimum Balance:
+              <b> {formatMoney(safe.projectedMinBalance)}</b>
+            </div>
+
+            <div style={styles.metric}>
+              Safe to Spend (based on projection):
+              <b> {formatMoney(safe.safeToSpendToday)}</b>
             </div>
 
             <div style={styles.metric}>
