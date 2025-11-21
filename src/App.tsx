@@ -4,12 +4,10 @@ import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
 import { computeSafeToSpend } from "./domain/safeToSpendEngine";
-import { computeMonthlyPayment, simulateMortgage } from "./domain/mortgageEngine";
 import type {
   AppState,
   FutureEvent,
   RecurringRule,
-  MortgageConfig,
 } from "./domain/types";
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
@@ -118,82 +116,7 @@ export default function App() {
     };
   }
 
-  // ---------------------------
-  // Mortgage derived view model
-  // ---------------------------
-
-  type MortgageView = {
-    baseConfig: MortgageConfig;
-    monthlyPayment: number;
-    baselineTotalInterest: number;
-    baselinePayoffDate: string;
-    extraPayment: number;
-    withExtraTotalInterest: number;
-    withExtraPayoffDate: string;
-    interestSaved: number;
-    monthsSaved: number;
-    yearsSavedApprox: number;
-  } | null;
-
-  const mortgageView: MortgageView = (() => {
-    const principal = Math.max(0, mortgagePrincipal);
-    const ratePct = Math.max(0, mortgageRatePct);
-    const termYears = Math.max(0.1, mortgageTermYears);
-    const start =
-      mortgageStartDate && mortgageStartDate.trim().length > 0
-        ? mortgageStartDate
-        : state.settings.startDate;
-
-    if (!principal || !termYears || !start) {
-      return null;
-    }
-
-    const termMonths = Math.max(1, Math.round(termYears * 12));
-    const annualRate = ratePct / 100;
-    const extra = Math.max(0, mortgageExtraPayment);
-
-    const baseConfig: MortgageConfig = {
-      principal,
-      annualRate,
-      termMonths,
-      startDate: start,
-      monthlyPayment: 0,
-    };
-
-    const monthlyPayment = computeMonthlyPayment(baseConfig);
-
-    const configWithPayment: MortgageConfig = {
-      ...baseConfig,
-      monthlyPayment,
-    };
-
-    const baseline = simulateMortgage(configWithPayment, 0);
-    const withExtra = simulateMortgage(configWithPayment, extra);
-
-    const baselineInterest = baseline.totalInterestPaid;
-    const withExtraInterest = withExtra.totalInterestPaid;
-    const interestSaved = baselineInterest - withExtraInterest;
-
-    const monthsSavedRaw =
-      baseline.schedule.length - withExtra.schedule.length;
-    const monthsSaved = Math.max(0, monthsSavedRaw);
-    const yearsSavedApprox = monthsSaved / 12;
-
-    return {
-      baseConfig: configWithPayment,
-      monthlyPayment,
-      baselineTotalInterest: baselineInterest,
-      baselinePayoffDate: baseline.payoffDate,
-      extraPayment: extra,
-      withExtraTotalInterest: withExtraInterest,
-      withExtraPayoffDate: withExtra.payoffDate,
-      interestSaved,
-      monthsSaved,
-      yearsSavedApprox,
-    };
-  })();
-
-  return (
+    return (
     <div style={styles.container}>
       <h2 style={styles.header}>💰 Finance Cockpit</h2>
 
@@ -417,132 +340,15 @@ export default function App() {
       {activeTab === "mortgage" && (
         <>
           <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Mortgage Inputs</h3>
-
-            <label style={styles.label}>
-              Principal
-              <input
-                type="number"
-                value={mortgagePrincipal}
-                onChange={(e) =>
-                  setMortgagePrincipal(Number(e.target.value))
-                }
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Annual Interest Rate (%)
-              <input
-                type="number"
-                value={mortgageRatePct}
-                onChange={(e) =>
-                  setMortgageRatePct(Number(e.target.value))
-                }
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Term (years)
-              <input
-                type="number"
-                value={mortgageTermYears}
-                onChange={(e) =>
-                  setMortgageTermYears(Number(e.target.value))
-                }
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Start Date
-              <input
-                type="date"
-                value={mortgageStartDate}
-                onChange={(e) =>
-                  setMortgageStartDate(e.target.value)
-                }
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Extra Monthly Payment (prepayment)
-              <input
-                type="number"
-                value={mortgageExtraPayment}
-                onChange={(e) =>
-                  setMortgageExtraPayment(Number(e.target.value))
-                }
-                style={styles.input}
-              />
-            </label>
-          </div>
-
-          <div style={styles.card}>
             <h3 style={styles.cardTitle}>Mortgage Summary</h3>
-
-            {!mortgageView && (
-              <div style={styles.metric}>
-                Enter valid mortgage details to see results.
-              </div>
-            )}
-
-            {mortgageView && (
-              <>
-                <div style={styles.metric}>
-                  Baseline Monthly Payment:
-                  <b> {formatMoney(mortgageView.monthlyPayment)}</b>
-                </div>
-                <div style={styles.metric}>
-                  Baseline Payoff Date:
-                  <b> {mortgageView.baselinePayoffDate}</b>
-                </div>
-                <div style={styles.metric}>
-                  Baseline Total Interest:
-                  <b>
-                    {" "}
-                    {formatMoney(mortgageView.baselineTotalInterest)}
-                  </b>
-                </div>
-
-                <hr style={{ borderColor: "#1f2937", margin: "12px 0" }} />
-
-                <div style={styles.metric}>
-                  Extra Monthly Payment:
-                  <b> {formatMoney(mortgageView.extraPayment)}</b>
-                </div>
-                <div style={styles.metric}>
-                  New Payoff Date:
-                  <b> {mortgageView.withExtraPayoffDate}</b>
-                </div>
-                <div style={styles.metric}>
-                  New Total Interest:
-                  <b>
-                    {" "}
-                    {formatMoney(mortgageView.withExtraTotalInterest)}
-                  </b>
-                </div>
-                <div style={styles.metric}>
-                  Interest Saved:
-                  <b> {formatMoney(mortgageView.interestSaved)}</b>
-                </div>
-                <div style={styles.metric}>
-                  Time Saved:
-                  <b>
-                    {" "}
-                    {mortgageView.monthsSaved} months (
-                    {mortgageView.yearsSavedApprox.toFixed(1)} years)
-                  </b>
-                </div>
-              </>
-            )}
+            <div style={styles.metric}>
+              Mortgage optimizer coming soon. Legacy mortgage engine has been removed for now.
+            </div>
           </div>
         </>
       )}
 
-      {/* OVERRIDE MODAL */}
+      {/* OVERRIDE MODAL */}      {/* OVERRIDE MODAL */}
       <OverrideModal
         event={selectedEvent}
         onSave={(amount) => {
