@@ -5,12 +5,17 @@ import {
   computeMortgageWithPrepayments,
   compareBaselineWithPrepayments,
   computeEffectiveAnnualRateFromSchedule,
+  runMortgageScenarios,
 } from "../domain/mortgage";
 import type {
   MortgageOriginalTerms,
   PastPrepaymentLog,
   PastPrepayment,
 } from "../domain/mortgage/types";
+import type {
+  MortgageScenarioConfig,
+  MonthlyScenarioPattern,
+} from "../domain/mortgage";
 import {
   loadMortgageUIState,
   saveMortgageUIState,
@@ -18,9 +23,7 @@ import {
   type MortgageUIState,
 } from "../domain/mortgage/persistence";
 
-type PrepaymentRow = PastPrepayment & { id: string };
-
-function formatMoney(value: number | null | undefined): string {
+function formatCurrency(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
   return value.toLocaleString("en-US", {
     style: "currency",
@@ -49,6 +52,8 @@ function uuid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+type PrepaymentRow = PastPrepayment & { id: string };
+
 export default function MortgageTab() {
   // Initialise from persisted state if available
   const initialUI: MortgageUIState =
@@ -72,6 +77,12 @@ export default function MortgageTab() {
       id: uuid(),
     }))
   );
+  const [asOfDate, setAsOfDate] = useState<string>(
+    initialUI.asOfDate ?? initialUI.terms.startDate
+  );
+  const [scenarios, setScenarios] = useState<MortgageScenarioConfig[]>(
+    initialUI.scenarios ?? []
+  );
 
   // Persist on any relevant change
   useEffect(() => {
@@ -80,9 +91,11 @@ export default function MortgageTab() {
       prepayments: prepayments
         .filter((p) => p.date && p.amount > 0)
         .map((p) => ({ date: p.date, amount: p.amount, note: p.note })),
+      asOfDate: asOfDate || terms.startDate,
+      scenarios,
     };
     saveMortgageUIState(uiState);
-  }, [terms, prepayments]);
+  }, [terms, prepayments, asOfDate, scenarios]);
 
   function updateTermsFromInputs(
     overrides?: Partial<{
@@ -111,88 +124,168 @@ export default function MortgageTab() {
     });
   }
 
-  const domainPrepayments: PastPrepaymentLog = useMemo(
+  const baseline = useMemo(
+    () => computeBaselineMortgage(terms),
+    [terms]
+  );
+
+  const prepaymentLog: PastPrepaymentLog = useMemo(
     () =>
       prepayments
         .filter((p) => p.date && p.amount > 0)
-        .map((p) => ({ date: p.date, amount: p.amount, note: p.note })),
+        .map((p) => ({
+          date: p.date,
+          amount: p.amount,
+          note: p.note,
+        })),
     [prepayments]
   );
 
-  const derived = useMemo(() => {
-    try {
-      const baseline = computeBaselineMortgage(terms);
-      const actual = computeMortgageWithPrepayments(terms, domainPrepayments);
-      const comparison = compareBaselineWithPrepayments(
-        terms,
-        domainPrepayments
-      );
+  const withPrepayments = useMemo(
+    () => computeMortgageWithPrepayments(terms, prepaymentLog),
+    [terms, prepaymentLog]
+  );
 
-      const effBaseline = computeEffectiveAnnualRateFromSchedule(
+  const comparison = useMemo(
+    () => compareBaselineWithPrepayments(terms, prepaymentLog),
+    [baseline, withPrepayments]
+  );
+
+  const baselineEffectiveRate = useMemo(
+    () =>
+      computeEffectiveAnnualRateFromSchedule(
         baseline.schedule,
         terms.principal
-      );
-      const effActual = computeEffectiveAnnualRateFromSchedule(
-        actual.schedule,
-        terms.principal
-      );
+      ),
+    [baseline.schedule, terms.principal]
+  );
 
-      return {
-        baseline,
-        actual,
-        comparison,
-        effBaseline,
-        effActual,
-      };
-    } catch {
-      return null;
-    }
-  }, [terms, domainPrepayments]);
+  const actualEffectiveRate = useMemo(
+    () =>
+      computeEffectiveAnnualRateFromSchedule(
+        withPrepayments.schedule,
+        terms.principal
+      ),
+    [withPrepayments.schedule, terms.principal]
+  );
+
+  // -------- Scenario engine wiring --------
+
+  const scenarioRun = useMemo(() => {
+    return runMortgageScenarios(
+      {
+        terms,
+        pastPrepayments: prepaymentLog,
+        asOfDate: asOfDate || terms.startDate,
+      },
+      scenarios
+    );
+  }, [terms, prepaymentLog, asOfDate, scenarios]);
 
   function addPrepaymentRow() {
-    setPrepayments((rows) => [
-      ...rows,
+    setPrepayments((prev) => [
+      ...prev,
       {
         id: uuid(),
         date: terms.startDate,
-        amount: 1_000,
+        amount: 0,
         note: "",
       },
     ]);
   }
 
-  function updatePrepayment(
+  function updatePrepaymentRow(id: string, patch: Partial<PrepaymentRow>) {
+    setPrepayments((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
+    );
+  }
+
+  function deletePrepaymentRow(id: string) {
+    setPrepayments((prev) => prev.filter((row) => row.id !== id));
+  }
+
+  // -------- Scenario editing helpers (monthly-only v1) --------
+
+  function addScenario() {
+    const newMonthlyPattern: MonthlyScenarioPattern = {
+      id: uuid(),
+      label: "Monthly extra",
+      kind: "monthly",
+      amount: 200,
+      startDate: asOfDate || terms.startDate,
+      dayOfMonthStrategy: "same-as-due-date",
+    };
+
+    const newScenario: MortgageScenarioConfig = {
+      id: uuid(),
+      name: `Scenario ${scenarios.length + 1}`,
+      description: "",
+      active: true,
+      patterns: [newMonthlyPattern],
+    };
+
+    setScenarios((prev) => [...prev, newScenario]);
+  }
+
+  function updateScenario(
     id: string,
-    field: keyof Omit<PrepaymentRow, "id">,
-    value: string
+    patch: Partial<Pick<MortgageScenarioConfig, "name" | "description" | "active">>
   ) {
-    setPrepayments((rows) =>
-      rows.map((row) => {
-        if (row.id !== id) return row;
-        if (field === "amount") {
-          const parsed = parseNumber(value) ?? 0;
-          return { ...row, amount: parsed };
+    setScenarios((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+    );
+  }
+
+  function deleteScenario(id: string) {
+    setScenarios((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  function updateScenarioMonthlyAmount(id: string, newAmount: number) {
+    setScenarios((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        const patterns = [...(s.patterns ?? [])];
+        let first = patterns[0] as MonthlyScenarioPattern | undefined;
+
+        if (!first || first.kind !== "monthly") {
+          const created: MonthlyScenarioPattern = {
+            id: uuid(),
+            label: "Monthly extra",
+            kind: "monthly",
+            amount: newAmount,
+            startDate: asOfDate || terms.startDate,
+            dayOfMonthStrategy: "same-as-due-date",
+          };
+          return { ...s, patterns: [created] };
         }
-        if (field === "date") {
-          return { ...row, date: value };
-        }
-        if (field === "note") {
-          return { ...row, note: value };
-        }
-        return row;
+
+        const updated: MonthlyScenarioPattern = {
+          ...first,
+          amount: newAmount,
+          startDate: first.startDate || (asOfDate || terms.startDate),
+        };
+        patterns[0] = updated;
+        return { ...s, patterns };
       })
     );
   }
 
-  function removePrepayment(id: string) {
-    setPrepayments((rows) => rows.filter((r) => r.id !== id));
+  function getScenarioMonthlyAmount(s: MortgageScenarioConfig): number {
+    const first = (s.patterns?.[0] ?? null) as
+      | MonthlyScenarioPattern
+      | null;
+    if (!first || first.kind !== "monthly") return 0;
+    return first.amount ?? 0;
   }
 
   return (
     <div style={styles.container}>
-      <div style={styles.leftColumn}>
+      <h2 style={styles.heading}>Mortgage Optimiser</h2>
+
+      <div style={styles.grid}>
+        {/* Left column: configuration */}
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Mortgage Inputs</h3>
+          <h3 style={styles.cardTitle}>Original terms</h3>
 
           <div style={styles.inputRow}>
             <label style={styles.label}>Principal</label>
@@ -243,258 +336,336 @@ export default function MortgageTab() {
               type="date"
               value={terms.startDate}
               onChange={(e) => {
-                const v = e.target.value;
+                const v = e.target.value || terms.startDate;
                 updateTermsFromInputs({ startDate: v });
               }}
             />
           </div>
+
+          <div style={styles.inputRow}>
+            <label style={styles.label}>Scenario as-of date</label>
+            <input
+              style={styles.input}
+              type="date"
+              value={asOfDate}
+              onChange={(e) => {
+                const v = e.target.value || terms.startDate;
+                setAsOfDate(v);
+              }}
+            />
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <div style={styles.subHeading}>Baseline summary</div>
+            <div style={styles.summaryRow}>
+              <span>Monthly payment</span>
+              <span>{formatCurrency(baseline.schedule.length > 0 ? baseline.schedule[0].payment : null)}</span>
+            </div>
+            <div style={styles.summaryRow}>
+              <span>Total interest (no prepayments)</span>
+              <span>{formatCurrency(baseline.totalInterest)}</span>
+            </div>
+            <div style={styles.summaryRow}>
+              <span>Payoff date</span>
+              <span>{formatDateDisplay(baseline.payoffDate)}</span>
+            </div>
+            <div style={styles.summaryRow}>
+              <span>Effective APR (baseline)</span>
+              <span>{formatPercent(baselineEffectiveRate)}</span>
+            </div>
+          </div>
         </div>
 
+        {/* Right column: prepayments, benefit, scenarios */}
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Past Prepayments</h3>
-          {prepayments.length === 0 && (
-            <div style={styles.metric}>No prepayments added yet.</div>
-          )}
+          <h3 style={styles.cardTitle}>Prepayments</h3>
 
-          {prepayments.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            <button style={styles.addButton} onClick={addPrepaymentRow}>
+              + Add prepayment
+            </button>
+          </div>
+
+          {prepayments.length === 0 ? (
+            <div style={styles.emptyState}>
+              No prepayments defined yet. Add rows to reflect extra principal
+              payments you&apos;ve already made in the past.
+            </div>
+          ) : (
             <div style={styles.table}>
-              <div style={styles.tableHeader}>
+              <div style={styles.tableHeaderRow}>
                 <div style={styles.th}>Date</div>
                 <div style={styles.th}>Amount</div>
                 <div style={styles.th}>Note</div>
-                <div style={styles.thSmall}></div>
+                <div />
               </div>
               {prepayments.map((row) => (
                 <div key={row.id} style={styles.tableRow}>
-                  <div style={styles.td}>
-                    <input
-                      type="date"
-                      style={styles.input}
-                      value={row.date}
-                      onChange={(e) =>
-                        updatePrepayment(row.id, "date", e.target.value)
-                      }
-                    />
-                  </div>
-                  <div style={styles.td}>
-                    <input
-                      type="text"
-                      style={styles.input}
-                      value={row.amount.toString()}
-                      onChange={(e) =>
-                        updatePrepayment(row.id, "amount", e.target.value)
-                      }
-                    />
-                  </div>
-                  <div style={styles.td}>
-                    <input
-                      type="text"
-                      style={styles.input}
-                      value={row.note ?? ""}
-                      onChange={(e) =>
-                        updatePrepayment(row.id, "note", e.target.value)
-                      }
-                    />
-                  </div>
-                  <div style={styles.tdSmall}>
-                    <button
-                      type="button"
-                      style={styles.deleteButton}
-                      onClick={() => removePrepayment(row.id)}
-                    >
-                      ✕
-                    </button>
-                  </div>
+                  <input
+                    style={styles.input}
+                    type="date"
+                    value={row.date}
+                    onChange={(e) =>
+                      updatePrepaymentRow(row.id, { date: e.target.value })
+                    }
+                  />
+                  <input
+                    style={styles.input}
+                    type="text"
+                    value={row.amount.toString()}
+                    onChange={(e) => {
+                      const n = parseNumber(e.target.value) ?? 0;
+                      updatePrepaymentRow(row.id, { amount: n });
+                    }}
+                  />
+                  <input
+                    style={styles.input}
+                    type="text"
+                    value={row.note ?? ""}
+                    placeholder="Optional"
+                    onChange={(e) =>
+                      updatePrepaymentRow(row.id, { note: e.target.value })
+                    }
+                  />
+                  <button
+                    style={styles.deleteButton}
+                    onClick={() => deletePrepaymentRow(row.id)}
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>
           )}
 
-          <button type="button" style={styles.addButton} onClick={addPrepaymentRow}>
-            + Add prepayment
-          </button>
-        </div>
-      </div>
-
-      <div style={styles.rightColumn}>
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Baseline (no prepayments)</h3>
-          {derived ? (
-            <>
-              <div style={styles.metric}>
-                Monthly payment{" "}
-                <span style={styles.metricValue}>
-                  {formatMoney(
-                    derived.baseline.schedule[0]?.payment ?? null
-                  )}
-                </span>
-              </div>
-              <div style={styles.metric}>
-                Payoff date{" "}
-                <span style={styles.metricValue}>
-                  {formatDateDisplay(derived.baseline.payoffDate)}
-                </span>
-              </div>
-              <div style={styles.metric}>
-                Total interest paid{" "}
-                <span style={styles.metricValue}>
-                  {formatMoney(derived.baseline.totalInterest)}
-                </span>
-              </div>
-              <div style={styles.metric}>
-                Effective annual rate{" "}
-                <span style={styles.metricValue}>
-                  {formatPercent(derived.effBaseline)}
-                </span>
-              </div>
-            </>
-          ) : (
-            <div style={styles.metric}>
-              Enter valid mortgage inputs to see baseline metrics.
+          <div style={{ marginTop: 16 }}>
+            <div style={styles.subHeading}>With prepayments (actual)</div>
+            <div style={styles.summaryRow}>
+              <span>Total interest with prepayments</span>
+              <span>{formatCurrency(withPrepayments.totalInterest)}</span>
             </div>
-          )}
-        </div>
-
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Actual (with past prepayments)</h3>
-          {derived ? (
-            <>
-              <div style={styles.metric}>
-                Payoff date{" "}
-                <span style={styles.metricValue}>
-                  {formatDateDisplay(derived.actual.payoffDate)}
-                </span>
-              </div>
-              <div style={styles.metric}>
-                Total interest paid{" "}
-                <span style={styles.metricValue}>
-                  {formatMoney(derived.actual.totalInterest)}
-                </span>
-              </div>
-              <div style={styles.metric}>
-                Effective annual rate{" "}
-                <span style={styles.metricValue}>
-                  {formatPercent(derived.effActual)}
-                </span>
-              </div>
-            </>
-          ) : (
-            <div style={styles.metric}>
-              Enter valid mortgage inputs and prepayments to see actual path.
+            <div style={styles.summaryRow}>
+              <span>Payoff date with prepayments</span>
+              <span>{formatDateDisplay(withPrepayments.payoffDate)}</span>
             </div>
-          )}
-        </div>
-
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Comparison</h3>
-          {derived ? (
-            <>
-              <div style={styles.metric}>
-                Interest saved vs baseline{" "}
-                <span style={styles.metricValueHighlight}>
-                  {formatMoney(derived.comparison.interestSaved)}
-                </span>
-              </div>
-              <div style={styles.metric}>
-                Months shaved off{" "}
-                <span style={styles.metricValueHighlight}>
-                  {derived.comparison.monthsSaved}
-                </span>
-              </div>
-            </>
-          ) : (
-            <div style={styles.metric}>
-              Provide inputs to see savings vs the original mortgage.
+            <div style={styles.summaryRow}>
+              <span>Effective APR (with prepayments)</span>
+              <span>{formatPercent(actualEffectiveRate)}</span>
             </div>
-          )}
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <div style={styles.subHeading}>Benefit vs baseline</div>
+            <div style={styles.summaryRow}>
+              <span>Interest saved vs baseline</span>
+              <span>{formatCurrency(comparison.interestSaved)}</span>
+            </div>
+            <div style={styles.summaryRow}>
+              <span>Months saved vs baseline</span>
+              <span>
+                {comparison.monthsSaved > 0
+                  ? `${comparison.monthsSaved} months`
+                  : "—"}
+              </span>
+            </div>
+          </div>
+
+          {/* Scenarios section */}
+          <div style={{ marginTop: 24 }}>
+            <div style={styles.subHeading}>What-if scenarios (monthly extra)</div>
+            <div style={{ marginBottom: 8 }}>
+              <button style={styles.addButton} onClick={addScenario}>
+                + Add scenario
+              </button>
+            </div>
+
+            {scenarios.length === 0 ? (
+              <div style={styles.emptyState}>
+                No scenarios yet. Add scenarios to test different monthly extra
+                payment strategies from the as-of date.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {scenarios.map((s) => {
+                    const monthlyAmount = getScenarioMonthlyAmount(s);
+                    return (
+                      <div key={s.id} style={styles.scenarioCard}>
+                        <div style={styles.scenarioHeaderRow}>
+                          <input
+                            style={styles.scenarioNameInput}
+                            type="text"
+                            value={s.name}
+                            onChange={(e) =>
+                              updateScenario(s.id, { name: e.target.value })
+                            }
+                          />
+                          <label style={styles.scenarioToggleLabel}>
+                            <input
+                              type="checkbox"
+                              checked={s.active}
+                              onChange={(e) =>
+                                updateScenario(s.id, { active: e.target.checked })
+                              }
+                            />
+                            <span style={{ marginLeft: 4 }}>Active</span>
+                          </label>
+                          <button
+                            style={styles.deleteButton}
+                            onClick={() => deleteScenario(s.id)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div style={styles.scenarioBodyRow}>
+                          <label style={styles.label}>Monthly extra</label>
+                          <input
+                            style={styles.input}
+                            type="text"
+                            value={
+                              monthlyAmount > 0 ? monthlyAmount.toString() : ""
+                            }
+                            placeholder="0"
+                            onChange={(e) => {
+                              const n = parseNumber(e.target.value) ?? 0;
+                              updateScenarioMonthlyAmount(s.id, n);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {scenarioRun.scenarios.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={styles.subHeading}>Scenario comparison</div>
+                    {scenarioRun.scenarios.map((s) => (
+                      <div key={s.scenarioId} style={styles.summaryRow}>
+                        <span>{s.scenarioName}</span>
+                        <span>
+                          Payoff {formatDateDisplay(s.payoffDate)} · Interest{" "}
+                          {formatCurrency(s.totalInterest)} · Saved vs actual{" "}
+                          {formatCurrency(s.interestSavedVsActual)}{" "}
+                          {s.monthsSavedVsActual > 0
+                            ? `· ${s.monthsSavedVsActual} mo sooner`
+                            : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-const styles: { [key: string]: React.CSSProperties } = {
+const styles: Record<string, React.CSSProperties> = {
   container: {
-    display: "flex",
-    flexDirection: "row",
-    gap: "16px",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    width: "100%",
-  },
-  leftColumn: {
-    flex: 1,
+    padding: 16,
     display: "flex",
     flexDirection: "column",
-    gap: "16px",
+    gap: 16,
+    color: "#e4e4e7",
+    backgroundColor: "#020617",
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
   },
-  rightColumn: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
+  heading: {
+    fontSize: 20,
+    fontWeight: 600,
+    color: "#f9fafb",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gap: 16,
   },
   card: {
-    backgroundColor: "#111",
     borderRadius: 12,
-    padding: "16px 16px 12px 16px",
-    border: "1px solid #333",
-    boxShadow: "0 0 0 1px rgba(255,255,255,0.02)",
+    border: "1px solid #27272a",
+    padding: 16,
+    background:
+      "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
   },
   cardTitle: {
     fontSize: 16,
     fontWeight: 600,
     marginBottom: 12,
-    color: "#fafafa",
+    color: "#f4f4f5",
+  },
+  subHeading: {
+    fontSize: 13,
+    fontWeight: 500,
+    marginBottom: 8,
+    color: "#e4e4e7",
+    textTransform: "uppercase",
+    letterSpacing: 0.08,
   },
   inputRow: {
     display: "flex",
     flexDirection: "column",
     gap: 4,
-    marginBottom: 8,
-  } as React.CSSProperties,
+    marginBottom: 10,
+  },
   label: {
     fontSize: 12,
-    color: "#ccc",
+    color: "#a1a1aa",
   },
   input: {
-    backgroundColor: "#18181b",
-    color: "#fafafa",
-    borderRadius: 6,
-    border: "1px solid #27272a",
+    borderRadius: 8,
+    border: "1px solid #3f3f46",
     padding: "6px 8px",
-    fontSize: 13,
-    outline: "none",
-  },
-  metric: {
-    fontSize: 13,
+    backgroundColor: "#18181b",
     color: "#e4e4e7",
+    fontSize: 13,
+  },
+  summaryRow: {
     display: "flex",
     justifyContent: "space-between",
-    marginBottom: 6,
+    fontSize: 13,
+    padding: "4px 0",
+    color: "#d4d4d8",
+    gap: 12,
   },
-  metricValue: {
-    fontWeight: 600,
-    marginLeft: 8,
+  addButton: {
+    fontSize: 12,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid #4ade80",
+    background:
+      "radial-gradient(circle at top left, #22c55e 0, #16a34a 45%, #15803d 100%)",
+    color: "#ecfdf5",
+    cursor: "pointer",
   },
-  metricValueHighlight: {
-    fontWeight: 700,
-    marginLeft: 8,
-    color: "#4ade80",
+  emptyState: {
+    fontSize: 13,
+    color: "#a1a1aa",
+    padding: 8,
+    borderRadius: 8,
+    border: "1px dashed #27272a",
+    backgroundColor: "#09090b",
   },
   table: {
     borderRadius: 8,
     border: "1px solid #27272a",
     overflow: "hidden",
-    marginBottom: 8,
   },
-  tableHeader: {
+  tableHeaderRow: {
     display: "grid",
     gridTemplateColumns: "1.2fr 1.2fr 1.6fr 0.4fr",
-    fontSize: 11,
-    backgroundColor: "#18181b",
-    color: "#a1a1aa",
     padding: "6px 8px",
+    gap: 4,
+    background:
+      "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
+    borderBottom: "1px solid #3f3f46",
+    fontSize: 12,
+    color: "#a1a1aa",
   },
   tableRow: {
     display: "grid",
@@ -510,22 +681,6 @@ const styles: { [key: string]: React.CSSProperties } = {
   thSmall: {
     textAlign: "right",
   },
-  td: {
-    paddingRight: 4,
-  },
-  tdSmall: {
-    textAlign: "right",
-  },
-  addButton: {
-    marginTop: 4,
-    fontSize: 12,
-    padding: "4px 8px",
-    borderRadius: 999,
-    border: "1px solid #3f3f46",
-    backgroundColor: "#18181b",
-    color: "#e4e4e7",
-    cursor: "pointer",
-  },
   deleteButton: {
     fontSize: 12,
     padding: "2px 6px",
@@ -534,5 +689,39 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: "#18181b",
     color: "#fda4af",
     cursor: "pointer",
+  },
+  scenarioCard: {
+    borderRadius: 10,
+    border: "1px solid #27272a",
+    padding: 10,
+    backgroundColor: "#0b0b0f",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  scenarioHeaderRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  scenarioNameInput: {
+    flex: 1,
+    borderRadius: 8,
+    border: "1px solid #3f3f46",
+    padding: "4px 8px",
+    backgroundColor: "#18181b",
+    color: "#e4e4e7",
+    fontSize: 13,
+  },
+  scenarioToggleLabel: {
+    display: "flex",
+    alignItems: "center",
+    fontSize: 12,
+    color: "#a1a1aa",
+  },
+  scenarioBodyRow: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
   },
 };
