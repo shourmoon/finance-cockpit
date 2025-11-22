@@ -37,6 +37,25 @@ function formatPercent(value: number | null | undefined): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function formatMonthsAsYearsMonths(totalMonths: number | null | undefined): string {
+  if (totalMonths == null || !Number.isFinite(totalMonths) || totalMonths <= 0) {
+    return "—";
+  }
+  const months = Math.floor(totalMonths);
+  const years = Math.floor(months / 12);
+  const remainingMonths = months % 12;
+
+  const parts: string[] = [];
+  if (years > 0) {
+    parts.push(`${years} yr${years === 1 ? "" : "s"}`);
+  }
+  if (remainingMonths > 0) {
+    parts.push(`${remainingMonths} mo${remainingMonths === 1 ? "" : "s"}`);
+  }
+
+  return parts.join(" ");
+}
+
 function formatDateDisplay(value: string | null | undefined): string {
   if (!value) return "";
   return value;
@@ -463,9 +482,7 @@ export default function MortgageTab() {
             <div style={styles.summaryRow}>
               <span>Months saved vs baseline</span>
               <span>
-                {comparison.monthsSaved > 0
-                  ? `${comparison.monthsSaved} months`
-                  : "—"}
+                {formatMonthsAsYearsMonths(comparison.monthsSaved)}
               </span>
             </div>
           </div>

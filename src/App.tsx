@@ -41,8 +41,14 @@ export default function App() {
   );
   const [mortgageExtraPayment, setMortgageExtraPayment] = useState(0);
 
-  const { metrics, events } = runCashflowProjection(state);
+  const { metrics, events, timeline } = runCashflowProjection(state);
   const safe = computeSafeToSpend(state);
+
+  const runningBalanceByDate = new Map<string, number>();
+  for (const point of timeline) {
+    runningBalanceByDate.set(point.date, point.balance);
+  }
+
   useEffect(() => {
     saveAppState(state);
   }, [state]);
@@ -334,28 +340,51 @@ export default function App() {
 
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Upcoming Events</h3>
-            {events.map((e) => (
-              <div
-                key={e.id}
-                style={styles.eventRow}
-                onClick={() => setSelectedEvent(e)}
-              >
-                <span>{e.date}</span>
-                <span>
-                  {e.ruleName}
-                  {e.isOverridden && " *"}
-                </span>
-
-                <span
-                  style={{
-                    color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
-                    fontWeight: 600,
-                  }}
-                >
-                  {formatMoney(e.effectiveAmount)}
-                </span>
+            {events.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#9ca3af" }}>
+                No upcoming events in this horizon.
               </div>
-            ))}
+            ) : (
+              <>
+                <div style={styles.eventHeaderRow}>
+                  <span style={styles.eventDateCell}>Date</span>
+                  <span style={styles.eventNameCell}>Name</span>
+                  <span style={styles.eventAmountCell}>Amount</span>
+                  <span style={styles.eventBalanceCell}>Balance</span>
+                </div>
+                {events.map((e) => {
+                  const runningBalance = runningBalanceByDate.get(e.date);
+                  return (
+                    <div
+                      key={e.id}
+                      style={styles.eventRow}
+                      onClick={() => setSelectedEvent(e)}
+                    >
+                      <span style={styles.eventDateCell}>{e.date}</span>
+                      <span style={styles.eventNameCell}>
+                        {e.ruleName}
+                        {e.isOverridden && " *"}
+                      </span>
+                      <span
+                        style={{
+                          ...styles.eventAmountCell,
+                          color:
+                            e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {formatMoney(e.effectiveAmount)}
+                      </span>
+                      <span style={styles.eventBalanceCell}>
+                        {runningBalance !== undefined
+                          ? formatMoney(runningBalance)
+                          : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         </>
       )}
@@ -582,9 +611,40 @@ const styles: Record<string, any> = {
     borderColor: "rgba(248, 113, 113, 0.8)",
     color: "#fecaca",
   },
+
+  eventHeaderRow: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    fontSize: 11,
+    fontWeight: 600,
+    paddingBottom: 4,
+    borderBottom: "1px solid #1f2933",
+    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    color: "#9ca3af",
+  },
+  eventDateCell: {
+    flex: "0 0 90px",
+    textAlign: "left",
+  },
+  eventNameCell: {
+    flex: "1 1 auto",
+    textAlign: "left",
+  },
+  eventAmountCell: {
+    flex: "0 0 110px",
+    textAlign: "right",
+  },
+  eventBalanceCell: {
+    flex: "0 0 120px",
+    textAlign: "right",
+  },
   eventRow: {
     display: "flex",
-    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 8,
     fontSize: 14,
     paddingBottom: 8,
     borderBottom: "1px dashed #1f2933",
