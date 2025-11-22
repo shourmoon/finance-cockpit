@@ -1,6 +1,7 @@
-// src/components/RuleEditorModal.tsx
 import { useState, useEffect } from "react";
 import type { RecurringRule } from "../domain/types";
+// Import date formatter to display anchor dates consistently
+import { formatDate } from "../utils/dates";
 
 interface RuleEditorModalProps {
   rule: RecurringRule | null;
@@ -83,9 +84,7 @@ export default function RuleEditorModal({
       };
     } else {
       const effectiveAnchor =
-        anchorDate && anchorDate.trim().length > 0
-          ? anchorDate
-          : defaultStartDate;
+        anchorDate && anchorDate.trim().length > 0 ? anchorDate : defaultStartDate;
       schedule = {
         type: "biweekly",
         anchorDate: effectiveAnchor,
@@ -145,9 +144,7 @@ export default function RuleEditorModal({
             <select
               style={styles.input}
               value={scheduleType}
-              onChange={(e) =>
-                setScheduleType(e.target.value as typeof scheduleType)
-              }
+              onChange={(e) => setScheduleType(e.target.value as typeof scheduleType)}
             >
               <option value="monthly">Monthly</option>
               <option value="twiceMonth">Twice a Month</option>
@@ -190,9 +187,8 @@ export default function RuleEditorModal({
               </label>
 
               <div style={styles.hint}>
-                Tip: if you want “last day of month”, set the day to 31.
-                The engine will automatically clamp to 28/29/30 and then
-                apply the business day rule.
+                Tip: if you want “last day of month”, set the day to 31. The engine
+                will automatically clamp to 28/29/30 and then apply the business day rule.
               </div>
 
               <label style={styles.label}>
@@ -201,15 +197,11 @@ export default function RuleEditorModal({
                   style={styles.input}
                   value={businessDayConvention}
                   onChange={(e) =>
-                    setBusinessDayConvention(
-                      e.target.value as "none" | "previousBusinessDayUS"
-                    )
+                    setBusinessDayConvention(e.target.value as "none" | "previousBusinessDayUS")
                   }
                 >
                   <option value="none">Use calendar date</option>
-                  <option value="previousBusinessDayUS">
-                    Move to previous US business day
-                  </option>
+                  <option value="previousBusinessDayUS">Move to previous US business day</option>
                 </select>
               </label>
             </>
@@ -218,12 +210,18 @@ export default function RuleEditorModal({
           {scheduleType === "biweekly" && (
             <label style={styles.label}>
               Anchor date (first occurrence)
-              <input
-                style={styles.input}
-                type="date"
-                value={anchorDate}
-                onChange={(e) => setAnchorDate(e.target.value)}
-              />
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <input
+                  style={styles.input}
+                  type="date"
+                  value={anchorDate}
+                  onChange={(e) => setAnchorDate(e.target.value)}
+                />
+                {/* Show the selected anchor date in the unified display format */}
+                <span style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+                  {formatDate(anchorDate) || "—"}
+                </span>
+              </div>
             </label>
           )}
         </div>
@@ -233,10 +231,7 @@ export default function RuleEditorModal({
             Save
           </button>
           {canDelete && (
-            <button
-              onClick={() => onDelete(rule.id)}
-              style={styles.deleteBtn}
-            >
+            <button onClick={() => onDelete(rule.id)} style={styles.deleteBtn}>
               Delete
             </button>
           )}

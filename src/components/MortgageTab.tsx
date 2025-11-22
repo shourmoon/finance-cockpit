@@ -1,4 +1,16 @@
 // src/components/MortgageTab.tsx
+//
+// The mortgage optimisation tab displays the baseline and actual
+// mortgage metrics, allows users to enter past prepayments and
+// compare different future prepayment scenarios.  This version
+// includes several improvements:
+//   • A shared date format helper ensures that all dates on the UI
+//     use the `DD MMM 'YY` format (e.g. "26 Jan '25").
+//   • Each past prepayment row now shows both the cumulative savings
+//     versus the baseline mortgage and the incremental savings from
+//     that prepayment alone.
+//   • Type definitions and UI copy have been clarified.
+
 import { useEffect, useMemo, useState } from "react";
 import {
   computeBaselineMortgage,
@@ -28,6 +40,14 @@ import {
   type MortgageUIState,
 } from "../domain/mortgage/persistence";
 
+// Shared date formatting helper.  This utility converts ISO dates
+// (YYYY‑MM‑DD) into the display format required by the product
+// specification, e.g. "2025-01-26" → "26 Jan '25".
+import { formatDate } from "../utils/dates";
+
+// Format a currency value (number) into a US dollar string with no
+// fractional digits.  If the input is null or NaN the em dash is
+// returned instead.
 function formatCurrency(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
   return value.toLocaleString("en-US", {
@@ -37,17 +57,22 @@ function formatCurrency(value: number | null | undefined): string {
   });
 }
 
+// Format a decimal ratio (0–1) into a percentage string with two
+// fractional digits.  Null or NaN values are rendered as an em dash.
 function formatPercent(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
   return `${(value * 100).toFixed(2)}%`;
 }
 
+// Wrap the shared date formatter to avoid changing existing call
+// sites.  This function simply delegates to `formatDate`.
 function formatDateDisplay(value: string | null | undefined): string {
-  if (!value) return "";
-  return value;
+  return formatDate(value);
 }
 
-
+// Convert a number of months into a human friendly string of years
+// and months.  E.g. 34 → "2 yrs 10 mos".  Zero or negative values
+// return an em dash to indicate no savings.
 function formatMonthsAsYearsMonths(
   totalMonths: number | null | undefined
 ): string {
@@ -60,40 +85,85 @@ function formatMonthsAsYearsMonths(
 
   const parts: string[] = [];
   if (years > 0) {
-    parts.push(`${years} yr${years === 1 ? "" : "s"}`);
+    parts.push(`${years} yr${years === 1 ? "" : "s"}`);
   }
   if (remainingMonths > 0) {
     parts.push(
-      `${remainingMonths} mo${remainingMonths === 1 ? "" : "s"}`
+      `${remainingMonths} mo${remainingMonths === 1 ? "" : "s"}`
     );
   }
 
   return parts.join(" ");
 }
 
+// Parse an input string into a number.  Strings containing commas
+// (e.g. "10,000") are stripped before parsing.  Returns null if the
+// input is empty or cannot be converted to a finite number.
 function parseNumber(value: string): number | null {
   if (!value.trim()) return null;
   const n = Number(value.replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
 }
 
+// Reusable component that wraps a native date input and shows the
+// selected date in the product's human‑friendly format underneath.
+// This ensures that even though the browser native input uses
+// YYYY‑MM‑DD internally, users always see the DD MMM 'YY
+// representation alongside it.  Consumers must provide the value,
+// onChange handler and styling for the input.
+function DateInputWithDisplay({
+  value,
+  onChange,
+  inputStyle,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  inputStyle: React.CSSProperties;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+      />
+      <span style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
+        {formatDate(value) || "—"}
+      </span>
+    </div>
+  );
+}
+
+// Generate a pseudo unique identifier based on random and timestamp.
 function uuid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+// Augment the base prepayment with a synthetic id for React list keys.
 type PrepaymentRow = PastPrepayment & { id: string };
 
+// Each row in the past prepayment impact table.  It captures both
+// cumulative savings versus the baseline mortgage and incremental
+// savings for the specific prepayment.
 type PrepaymentImpactRow = {
   date: string;
   amount: number;
   note?: string;
+  /** Cumulative interest saved compared with the baseline (no prepayments). */
   interestSaved: number;
+  /** Cumulative months saved compared with the baseline (no prepayments). */
   monthsSaved: number;
+  /** Effective annual rate after this prepayment and all previous ones. */
   effectiveRate: number | null;
+  /** Interest saved by this prepayment alone compared with the previous scenario. */
+  interestSavedIncremental: number;
+  /** Months saved by this prepayment alone compared with the previous scenario. */
+  monthsSavedIncremental: number;
 };
 
 export default function MortgageTab() {
-  // Initialise from persisted state if available
+  // Initialise from persisted state if available.
   const initialUI: MortgageUIState =
     loadMortgageUIState() ?? createDefaultMortgageUIState();
 
@@ -214,23 +284,31 @@ export default function MortgageTab() {
 
   const perPrepaymentImpacts = useMemo<PrepaymentImpactRow[]>(() => {
     if (!prepaymentLog.length) return [];
+    // Sort prepayments chronologically
     const sorted = [...prepaymentLog].sort((a, b) =>
       a.date.localeCompare(b.date)
     );
-
+    // Keep track of the previous scenario to compute incremental savings.
+    let prevActual = baseline;
     return sorted.map((p, index) => {
+      // Build the prefix up to and including this prepayment
       const prefix = sorted.slice(0, index + 1);
       const actual = computeMortgageWithPrepayments(terms, prefix);
-
-      const interestSaved =
-        baseline.totalInterest - actual.totalInterest;
-      const monthsSaved =
-        baseline.schedule.length - actual.schedule.length;
+      // Total savings vs baseline
+      const interestSaved = baseline.totalInterest - actual.totalInterest;
+      const monthsSaved = baseline.schedule.length - actual.schedule.length;
+      // Incremental savings compared with the previous scenario
+      const interestSavedIncremental =
+        prevActual.totalInterest - actual.totalInterest;
+      const monthsSavedIncremental =
+        prevActual.schedule.length - actual.schedule.length;
+      // Effective rate after this prepayment
       const effectiveRate = computeEffectiveAnnualRateFromSchedule(
         actual.schedule,
         terms.principal
       );
-
+      // Update prevActual for the next iteration
+      prevActual = actual;
       return {
         date: p.date,
         amount: p.amount,
@@ -238,9 +316,12 @@ export default function MortgageTab() {
         interestSaved,
         monthsSaved,
         effectiveRate,
+        interestSavedIncremental,
+        monthsSavedIncremental,
       };
     });
-  }, [prepaymentLog, terms, baseline, withPrepayments.schedule]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepaymentLog, terms, baseline]);
 
   // -------- Scenario engine wiring --------
 
@@ -277,7 +358,6 @@ export default function MortgageTab() {
     setPrepayments((prev) => prev.filter((row) => row.id !== id));
   }
 
-  
   // -------- Scenario editing helpers (patterns: one-time, monthly, yearly, biweekly) --------
 
   function addScenario() {
@@ -465,7 +545,6 @@ export default function MortgageTab() {
     return firstMonthly.amount ?? 0;
   }
 
-
   function renderScenarioPatternRow(
     scenarioId: string,
     pattern: ScenarioPattern
@@ -497,13 +576,12 @@ export default function MortgageTab() {
             }}
           />
           <div style={styles.patternDatesGroup}>
-            <input
-              style={styles.scenarioPatternDateInput}
-              type="date"
+            <DateInputWithDisplay
               value={p.date}
-              onChange={(e) =>
-                updateScenarioPattern(scenarioId, p.id, { date: e.target.value })
+              onChange={(val) =>
+                updateScenarioPattern(scenarioId, p.id, { date: val })
               }
+              inputStyle={styles.scenarioPatternDateInput}
             />
           </div>
           <button
@@ -541,26 +619,23 @@ export default function MortgageTab() {
             }}
           />
           <div style={styles.patternDatesGroup}>
-            <input
-              style={styles.scenarioPatternDateInput}
-              type="date"
+            <DateInputWithDisplay
               value={p.startDate}
-              onChange={(e) =>
+              onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
-                  startDate: e.target.value,
+                  startDate: val,
                 })
               }
+              inputStyle={styles.scenarioPatternDateInput}
             />
-            <input
-              style={styles.scenarioPatternDateInput}
-              type="date"
+            <DateInputWithDisplay
               value={p.untilDate ?? ""}
-              placeholder=""
-              onChange={(e) =>
+              onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
-                  untilDate: e.target.value || undefined,
+                  untilDate: val || undefined,
                 })
               }
+              inputStyle={styles.scenarioPatternDateInput}
             />
             <select
               style={styles.scenarioPatternSelect}
@@ -731,35 +806,32 @@ export default function MortgageTab() {
             }}
           />
           <div style={styles.patternDatesGroup}>
-            <input
-              style={styles.scenarioPatternDateInput}
-              type="date"
+            <DateInputWithDisplay
               value={p.anchorDate}
-              onChange={(e) =>
+              onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
-                  anchorDate: e.target.value,
+                  anchorDate: val,
                 })
               }
+              inputStyle={styles.scenarioPatternDateInput}
             />
-            <input
-              style={styles.scenarioPatternDateInput}
-              type="date"
+            <DateInputWithDisplay
               value={p.startDate ?? ""}
-              onChange={(e) =>
+              onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
-                  startDate: e.target.value || undefined,
+                  startDate: val || undefined,
                 })
               }
+              inputStyle={styles.scenarioPatternDateInput}
             />
-            <input
-              style={styles.scenarioPatternDateInput}
-              type="date"
+            <DateInputWithDisplay
               value={p.untilDate ?? ""}
-              onChange={(e) =>
+              onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
-                  untilDate: e.target.value || undefined,
+                  untilDate: val || undefined,
                 })
               }
+              inputStyle={styles.scenarioPatternDateInput}
             />
           </div>
           <button
@@ -828,27 +900,25 @@ export default function MortgageTab() {
 
           <div style={styles.inputRow}>
             <label style={styles.label}>Start date</label>
-            <input
-              style={styles.input}
-              type="date"
+            <DateInputWithDisplay
               value={terms.startDate}
-              onChange={(e) => {
-                const v = e.target.value || terms.startDate;
+              onChange={(val) => {
+                const v = val || terms.startDate;
                 updateTermsFromInputs({ startDate: v });
               }}
+              inputStyle={styles.input}
             />
           </div>
 
           <div style={styles.inputRow}>
-            <label style={styles.label}>Scenario as-of date</label>
-            <input
-              style={styles.input}
-              type="date"
+            <label style={styles.label}>Scenario as‑of date</label>
+            <DateInputWithDisplay
               value={asOfDate}
-              onChange={(e) => {
-                const v = e.target.value || terms.startDate;
+              onChange={(val) => {
+                const v = val || terms.startDate;
                 setAsOfDate(v);
               }}
+              inputStyle={styles.input}
             />
           </div>
 
@@ -856,7 +926,11 @@ export default function MortgageTab() {
             <div style={styles.subHeading}>Baseline summary</div>
             <div style={styles.summaryRow}>
               <span>Monthly payment</span>
-              <span>{formatCurrency(baseline.schedule.length > 0 ? baseline.schedule[0].payment : null)}</span>
+              <span>
+                {formatCurrency(
+                  baseline.schedule.length > 0 ? baseline.schedule[0].payment : null
+                )}
+              </span>
             </div>
             <div style={styles.summaryRow}>
               <span>Total interest (no prepayments)</span>
@@ -886,7 +960,7 @@ export default function MortgageTab() {
           {prepayments.length === 0 ? (
             <div style={styles.emptyState}>
               No prepayments defined yet. Add rows to reflect extra principal
-              payments you&apos;ve already made in the past.
+              payments you've already made in the past.
             </div>
           ) : (
             <div style={styles.table}>
@@ -898,13 +972,14 @@ export default function MortgageTab() {
               </div>
               {prepayments.map((row) => (
                 <div key={row.id} style={styles.tableRow}>
-                  <input
-                    style={styles.input}
-                    type="date"
+                  {/* Use the date input wrapper so that the selected
+                      date is always shown in human‑friendly format. */}
+                  <DateInputWithDisplay
                     value={row.date}
-                    onChange={(e) =>
-                      updatePrepaymentRow(row.id, { date: e.target.value })
+                    onChange={(val) =>
+                      updatePrepaymentRow(row.id, { date: val })
                     }
+                    inputStyle={styles.input}
                   />
                   <input
                     style={styles.input}
@@ -997,8 +1072,8 @@ export default function MortgageTab() {
                 >
                   <div>Date</div>
                   <div>Amount</div>
-                  <div>Interest saved vs baseline</div>
-                  <div>Months saved vs baseline</div>
+                  <div>Interest saved (tot | this)</div>
+                  <div>Months saved (tot | this)</div>
                   <div>Effective APR after</div>
                 </div>
                 {perPrepaymentImpacts.map((row, idx) => (
@@ -1014,10 +1089,24 @@ export default function MortgageTab() {
                       backgroundColor: idx % 2 === 0 ? "#020617" : "#050816",
                     }}
                   >
-                    <div>{row.date}</div>
+                    <div>{formatDateDisplay(row.date)}</div>
                     <div>{formatCurrency(row.amount)}</div>
-                    <div>{formatCurrency(row.interestSaved)}</div>
-                    <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
+                    <div>
+                      <div>{formatCurrency(row.interestSaved)}</div>
+                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                        {row.interestSavedIncremental > 0
+                          ? `+${formatCurrency(row.interestSavedIncremental)}`
+                          : formatCurrency(row.interestSavedIncremental)}
+                      </div>
+                    </div>
+                    <div>
+                      <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
+                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                        {row.monthsSavedIncremental > 0
+                          ? `+${formatMonthsAsYearsMonths(row.monthsSavedIncremental)}`
+                          : formatMonthsAsYearsMonths(row.monthsSavedIncremental)}
+                      </div>
+                    </div>
                     <div>{formatPercent(row.effectiveRate)}</div>
                   </div>
                 ))}
@@ -1027,7 +1116,7 @@ export default function MortgageTab() {
 
           {/* Scenarios section */}
           <div style={{ marginTop: 24 }}>
-            <div style={styles.subHeading}>What-if scenarios (future prepayments)</div>
+            <div style={styles.subHeading}>What‑if scenarios (future prepayments)</div>
             <div style={{ marginBottom: 8 }}>
               <button style={styles.addButton} onClick={addScenario}>
                 + Add scenario
@@ -1037,7 +1126,7 @@ export default function MortgageTab() {
             {scenarios.length === 0 ? (
               <div style={styles.emptyState}>
                 No scenarios yet. Add scenarios to test different monthly extra
-                payment strategies from the as-of date.
+                payment strategies from the as‑of date.
               </div>
             ) : (
               <>
@@ -1144,12 +1233,7 @@ export default function MortgageTab() {
                       <div key={s.scenarioId} style={styles.summaryRow}>
                         <span>{s.scenarioName}</span>
                         <span>
-                          Payoff {formatDateDisplay(s.payoffDate)} · Interest{" "}
-                          {formatCurrency(s.totalInterest)} · Saved vs actual{" "}
-                          {formatCurrency(s.interestSavedVsActual)}{" "}
-                          {formatMonthsAsYearsMonths(s.monthsSavedVsActual) !== "—"
-                            ? `· ${formatMonthsAsYearsMonths(s.monthsSavedVsActual)} sooner`
-                            : ""}
+                          Payoff {formatDateDisplay(s.payoffDate)} · Interest {formatCurrency(s.totalInterest)} · Saved vs actual {formatCurrency(s.interestSavedVsActual)} {formatMonthsAsYearsMonths(s.monthsSavedVsActual) !== "—" ? `· ${formatMonthsAsYearsMonths(s.monthsSavedVsActual)} sooner` : ""}
                         </span>
                       </div>
                     ))}
@@ -1336,7 +1420,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   scenarioPatternsHeaderRow: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
+    gridTemplateColumns:
+      "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
     alignItems: "center",
     fontSize: 11,
     textTransform: "uppercase",
@@ -1362,7 +1447,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   scenarioPatternRow: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
+    gridTemplateColumns:
+      "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
     alignItems: "center",
     gap: 6,
     padding: "4px 0",

@@ -1,4 +1,3 @@
-// src/App.tsx
 import { useEffect, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
@@ -12,6 +11,41 @@ import type {
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
 import MortgageTab from "./components/MortgageTab";
+// Import a common date formatter to ensure all dates in the UI follow the
+// same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
+import { formatDate } from "./utils/dates";
+
+// A tiny wrapper around the native date input that displays the chosen
+// date underneath in the product's human–friendly format.  This mirrors
+// the behaviour used in the Mortgage tab so that users always see
+// consistent date formatting across the entire app.  The styling of
+// the input is pulled from the surrounding component via the standard
+// `styles.input` definition.  The caller passes the value and
+// onChange callback and the component takes care of rendering the
+// formatted date below the input.
+function DateInputWithDisplay({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={styles.input}
+      />
+      <span
+        style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}
+      >
+        {formatDate(value) || "—"}
+      </span>
+    </div>
+  );
+}
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => {
@@ -82,9 +116,7 @@ export default function App() {
   function updateRuleAmount(rule: RecurringRule, val: number) {
     setState((s) => ({
       ...s,
-      rules: s.rules.map((r) =>
-        r.id === rule.id ? { ...r, amount: val } : r
-      ),
+      rules: s.rules.map((r) => (r.id === rule.id ? { ...r, amount: val } : r)),
     }));
   }
 
@@ -123,7 +155,7 @@ export default function App() {
     };
   }
 
-    return (
+  return (
     <div style={styles.container}>
       <h2 style={styles.header}>💰 Finance Cockpit</h2>
 
@@ -131,9 +163,7 @@ export default function App() {
       <div style={styles.tabRow}>
         <button
           style={
-            activeTab === "dashboard"
-              ? styles.tabButtonActive
-              : styles.tabButton
+            activeTab === "dashboard" ? styles.tabButtonActive : styles.tabButton
           }
           onClick={() => setActiveTab("dashboard")}
         >
@@ -141,9 +171,7 @@ export default function App() {
         </button>
         <button
           style={
-            activeTab === "config"
-              ? styles.tabButtonActive
-              : styles.tabButton
+            activeTab === "config" ? styles.tabButtonActive : styles.tabButton
           }
           onClick={() => setActiveTab("config")}
         >
@@ -151,9 +179,7 @@ export default function App() {
         </button>
         <button
           style={
-            activeTab === "mortgage"
-              ? styles.tabButtonActive
-              : styles.tabButton
+            activeTab === "mortgage" ? styles.tabButtonActive : styles.tabButton
           }
           onClick={() => setActiveTab("mortgage")}
         >
@@ -167,13 +193,13 @@ export default function App() {
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Settings</h3>
 
-            <label style={styles.label}>
-              Start Date:
-              <input
-                type="date"
+            <label style={{ ...styles.label, flexDirection: "column", alignItems: "flex-start" }}>
+              <span>Start Date:</span>
+              {/* Use the DateInputWithDisplay wrapper so that the native date input
+                  always shows the human‑friendly formatted date underneath. */}
+              <DateInputWithDisplay
                 value={state.settings.startDate}
-                onChange={(e) => updateStartDate(e.target.value)}
-                style={styles.input}
+                onChange={(val) => updateStartDate(val)}
               />
             </label>
 
@@ -182,9 +208,7 @@ export default function App() {
               <input
                 type="number"
                 value={state.settings.horizonDays}
-                onChange={(e) =>
-                  updateHorizonDays(Number(e.target.value))
-                }
+                onChange={(e) => updateHorizonDays(Number(e.target.value))}
                 style={styles.input}
               />
             </label>
@@ -194,9 +218,7 @@ export default function App() {
               <input
                 type="number"
                 value={state.settings.minSafeBalance}
-                onChange={(e) =>
-                  updateMinSafeBalance(Number(e.target.value))
-                }
+                onChange={(e) => updateMinSafeBalance(Number(e.target.value))}
                 style={styles.input}
               />
             </label>
@@ -206,9 +228,7 @@ export default function App() {
               <input
                 type="number"
                 value={state.account.startingBalance}
-                onChange={(e) =>
-                  updateStartingBalance(Number(e.target.value))
-                }
+                onChange={(e) => updateStartingBalance(Number(e.target.value))}
                 style={styles.input}
               />
             </label>
@@ -239,15 +259,14 @@ export default function App() {
                     )}
                     {rule.schedule.type === "twiceMonth" && (
                       <span>
-                        Twice a month: {rule.schedule.day1} &amp;{" "}
-                        {rule.schedule.day2}
+                        Twice a month: {rule.schedule.day1} &amp; {rule.schedule.day2}
                         {rule.schedule.businessDayConvention ===
                           "previousBusinessDayUS" && " (prev US business day)"}
                       </span>
                     )}
                     {rule.schedule.type === "biweekly" && (
                       <span>
-                        Biweekly from {rule.schedule.anchorDate}
+                        Biweekly from {formatDate(rule.schedule.anchorDate)}
                       </span>
                     )}
                   </div>
@@ -257,9 +276,7 @@ export default function App() {
                   <input
                     type="number"
                     value={rule.amount}
-                    onChange={(e) =>
-                      updateRuleAmount(rule, Number(e.target.value))
-                    }
+                    onChange={(e) => updateRuleAmount(rule, Number(e.target.value))}
                     style={styles.inputSmall}
                   />
                   <button
@@ -296,7 +313,7 @@ export default function App() {
 
             <div style={styles.metric}>
               Minimum Balance Date:
-              <b> {metrics.minBalanceDate ?? "—"}</b>
+              <b> {metrics.minBalanceDate ? formatDate(metrics.minBalanceDate) : "—"}</b>
             </div>
 
             <div style={styles.metric}>
@@ -326,15 +343,14 @@ export default function App() {
                   : "Below safety floor"}
               </span>
               <span>
-                Min balance over horizon stays at{" "}
-                {formatMoney(metrics.minBalance)} on{" "}
-                {metrics.minBalanceDate ?? "—"}
+                Min balance over horizon stays at {formatMoney(metrics.minBalance)} on{' '}
+                {metrics.minBalanceDate ? formatDate(metrics.minBalanceDate) : "—"}
               </span>
             </div>
 
             <div style={styles.metric}>
               First Negative Date:
-              <b> {metrics.firstNegativeDate ?? "None"}</b>
+              <b> {metrics.firstNegativeDate ? formatDate(metrics.firstNegativeDate) : "None"}</b>
             </div>
           </div>
 
@@ -360,7 +376,7 @@ export default function App() {
                       style={styles.eventRow}
                       onClick={() => setSelectedEvent(e)}
                     >
-                      <span style={styles.eventDateCell}>{formatShortDate(e.date)}</span>
+                      <span style={styles.eventDateCell}>{formatDate(e.date)}</span>
                       <span style={styles.eventNameCell}>
                         {e.ruleName}
                         {e.isOverridden && " *"}
@@ -368,17 +384,14 @@ export default function App() {
                       <span
                         style={{
                           ...styles.eventAmountCell,
-                          color:
-                            e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
+                          color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
                           fontWeight: 600,
                         }}
                       >
                         {formatMoney(e.effectiveAmount)}
                       </span>
                       <span style={styles.eventBalanceCell}>
-                        {runningBalance !== undefined
-                          ? formatMoney(runningBalance)
-                          : "—"}
+                        {runningBalance !== undefined ? formatMoney(runningBalance) : "—"}
                       </span>
                     </div>
                   );
@@ -392,7 +405,7 @@ export default function App() {
       {/* MORTGAGE TAB */}
       {activeTab === "mortgage" && <MortgageTab />}
 
-      {/* OVERRIDE MODAL */}      {/* OVERRIDE MODAL */}
+      {/* OVERRIDE MODAL */}
       <OverrideModal
         event={selectedEvent}
         onSave={(amount) => {
@@ -409,13 +422,9 @@ export default function App() {
         canDelete={!editingIsNew}
         onSave={(updatedRule) => {
           setState((s) => {
-            const exists = s.rules.some(
-              (r) => r.id === updatedRule.id
-            );
+            const exists = s.rules.some((r) => r.id === updatedRule.id);
             const rules = exists
-              ? s.rules.map((r) =>
-                  r.id === updatedRule.id ? updatedRule : r
-                )
+              ? s.rules.map((r) => (r.id === updatedRule.id ? updatedRule : r))
               : [...s.rules, updatedRule];
             return { ...s, rules };
           });
@@ -449,29 +458,25 @@ function formatMoney(amount: number): string {
   });
 }
 
-
-
-function formatShortDate(value: string | null | undefined): string {
-  if (!value) return "";
-  const parts = value.split("-");
-  if (parts.length !== 3) return value;
-  const [year, month, day] = parts;
-  if (!year || !month || !day) return value;
-  const shortYear = year.length === 4 ? year.slice(2) : year;
-  return `${month}/${day}/${shortYear}`;
-}
-
 const styles: Record<string, any> = {
   container: {
-    maxWidth: 520,
+    maxWidth: 600,
     margin: "0 auto",
     padding: 16,
-    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-    color: "#e5e7eb",
+    // Use the same dark background and typography as other tabs for
+    // consistency.  The container also controls the overall text color.
+    backgroundColor: "#020617",
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
+    color: "#e4e4e7",
+    minHeight: "100vh",
   },
   header: {
     textAlign: "center",
     marginBottom: 16,
+    fontWeight: 600,
+    fontSize: 24,
+    color: "#f4f4f5",
   },
   tabRow: {
     display: "flex",
@@ -498,16 +503,22 @@ const styles: Record<string, any> = {
     fontSize: 14,
   },
   card: {
-    background: "#111827",
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
-    boxShadow: "0 1px 8px rgba(0,0,0,0.5)",
-    border: "1px solid #1f2937",
+    // Match the mortgage tab cards with a subtle gradient and border.  The
+    // gradient adds depth while staying within the dark palette.
+    background:
+      "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
+    border: "1px solid #27272a",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
   },
   cardTitle: {
     marginTop: 0,
     marginBottom: 12,
+    fontSize: 16,
+    fontWeight: 600,
+    color: "#f4f4f5",
   },
   label: {
     display: "flex",
@@ -516,23 +527,24 @@ const styles: Record<string, any> = {
     justifyContent: "space-between",
     gap: 8,
     marginBottom: 12,
-    fontSize: 14,
+    fontSize: 13,
+    color: "#a1a1aa",
   },
   input: {
     padding: 8,
-    fontSize: 16,
+    fontSize: 14,
     borderRadius: 8,
-    border: "1px solid #1f2937",
-    background: "#020617",
-    color: "#e5e7eb",
+    border: "1px solid #3f3f46",
+    background: "#18181b",
+    color: "#e4e4e7",
     width: 160,
   },
   inputSmall: {
     width: 90,
     padding: 6,
-    fontSize: 14,
-    background: "#020617",
-    color: "#e5e7eb",
+    fontSize: 13,
+    background: "#18181b",
+    color: "#e4e4e7",
     border: "1px solid #4b5563",
     borderRadius: 8,
   },
@@ -588,7 +600,8 @@ const styles: Record<string, any> = {
   },
   metric: {
     marginBottom: 8,
-    fontSize: 14,
+    fontSize: 13,
+    color: "#d4d4d8",
   },
   impactRow: {
     marginTop: 4,
@@ -623,7 +636,6 @@ const styles: Record<string, any> = {
     borderColor: "rgba(248, 113, 113, 0.8)",
     color: "#fecaca",
   },
-
   eventHeaderRow: {
     display: "flex",
     alignItems: "baseline",

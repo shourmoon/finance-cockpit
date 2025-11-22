@@ -1,6 +1,7 @@
-// src/components/OverrideModal.tsx
 import { useState, useEffect } from "react";
 import type { FutureEvent } from "../domain/types";
+// Use the shared date formatter so the modal displays dates consistently
+import { formatDate } from "../utils/dates";
 
 interface Props {
   event: FutureEvent | null;
@@ -26,7 +27,7 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
           Override: {event.ruleName}
           <br />
           <span style={{ fontSize: 13, fontWeight: 400 }}>
-            {formatShortDate(event.date)}
+            {formatDate(event.date)}
           </span>
         </h3>
 
@@ -64,15 +65,6 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
       </div>
     </div>
   );
-}
-
-function formatShortDate(value: string | null | undefined): string {
-  if (!value) return "";
-  const parts = value.split("-");
-  if (parts.length !== 3) return value;
-  const [year, month, day] = parts;
-  const shortYear = year.length === 4 ? year.slice(2) : year;
-  return `${month}/${day}/${shortYear}`;
 }
 
 function formatMoney(amount: number): string {
