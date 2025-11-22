@@ -37,7 +37,15 @@ function formatPercent(value: number | null | undefined): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
-function formatMonthsAsYearsMonths(totalMonths: number | null | undefined): string {
+function formatDateDisplay(value: string | null | undefined): string {
+  if (!value) return "";
+  return value;
+}
+
+
+function formatMonthsAsYearsMonths(
+  totalMonths: number | null | undefined
+): string {
   if (totalMonths == null || !Number.isFinite(totalMonths) || totalMonths <= 0) {
     return "—";
   }
@@ -50,15 +58,12 @@ function formatMonthsAsYearsMonths(totalMonths: number | null | undefined): stri
     parts.push(`${years} yr${years === 1 ? "" : "s"}`);
   }
   if (remainingMonths > 0) {
-    parts.push(`${remainingMonths} mo${remainingMonths === 1 ? "" : "s"}`);
+    parts.push(
+      `${remainingMonths} mo${remainingMonths === 1 ? "" : "s"}`
+    );
   }
 
   return parts.join(" ");
-}
-
-function formatDateDisplay(value: string | null | undefined): string {
-  if (!value) return "";
-  return value;
 }
 
 function parseNumber(value: string): number | null {
@@ -72,6 +77,15 @@ function uuid(): string {
 }
 
 type PrepaymentRow = PastPrepayment & { id: string };
+
+type PrepaymentImpactRow = {
+  date: string;
+  amount: number;
+  note?: string;
+  interestSaved: number;
+  monthsSaved: number;
+  effectiveRate: number | null;
+};
 
 export default function MortgageTab() {
   // Initialise from persisted state if available
@@ -187,6 +201,41 @@ export default function MortgageTab() {
       ),
     [withPrepayments.schedule, terms.principal]
   );
+
+  const totalPastPrepayments = useMemo(
+    () => prepaymentLog.reduce((sum, p) => sum + p.amount, 0),
+    [prepaymentLog]
+  );
+
+  const perPrepaymentImpacts = useMemo<PrepaymentImpactRow[]>(() => {
+    if (!prepaymentLog.length) return [];
+    const sorted = [...prepaymentLog].sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+
+    return sorted.map((p, index) => {
+      const prefix = sorted.slice(0, index + 1);
+      const actual = computeMortgageWithPrepayments(terms, prefix);
+
+      const interestSaved =
+        baseline.totalInterest - actual.totalInterest;
+      const monthsSaved =
+        baseline.schedule.length - actual.schedule.length;
+      const effectiveRate = computeEffectiveAnnualRateFromSchedule(
+        actual.schedule,
+        terms.principal
+      );
+
+      return {
+        date: p.date,
+        amount: p.amount,
+        note: p.note,
+        interestSaved,
+        monthsSaved,
+        effectiveRate,
+      };
+    });
+  }, [prepaymentLog, terms, baseline, withPrepayments.schedule]);
 
   // -------- Scenario engine wiring --------
 
@@ -457,6 +506,15 @@ export default function MortgageTab() {
             </div>
           )}
 
+          {prepaymentLog.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={styles.summaryRow}>
+                <span>Total past prepayments</span>
+                <span>{formatCurrency(totalPastPrepayments)}</span>
+              </div>
+            </div>
+          )}
+
           <div style={{ marginTop: 16 }}>
             <div style={styles.subHeading}>With prepayments (actual)</div>
             <div style={styles.summaryRow}>
@@ -481,11 +539,62 @@ export default function MortgageTab() {
             </div>
             <div style={styles.summaryRow}>
               <span>Months saved vs baseline</span>
-              <span>
-                {formatMonthsAsYearsMonths(comparison.monthsSaved)}
-              </span>
+              <span>{formatMonthsAsYearsMonths(comparison.monthsSaved)}</span>
             </div>
           </div>
+
+          {perPrepaymentImpacts.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={styles.subHeading}>Impact of each past prepayment</div>
+              <div
+                style={{
+                  borderRadius: 8,
+                  border: "1px solid #27272a",
+                  overflow: "hidden",
+                  fontSize: 12,
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
+                    padding: "6px 8px",
+                    gap: 4,
+                    background:
+                      "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
+                    borderBottom: "1px solid #3f3f46",
+                    color: "#a1a1aa",
+                  }}
+                >
+                  <div>Date</div>
+                  <div>Amount</div>
+                  <div>Interest saved vs baseline</div>
+                  <div>Months saved vs baseline</div>
+                  <div>Effective APR after</div>
+                </div>
+                {perPrepaymentImpacts.map((row, idx) => (
+                  <div
+                    key={`${row.date}-${row.amount}-${idx}`}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
+                      padding: "6px 8px",
+                      gap: 4,
+                      borderBottom: "1px solid #18181b",
+                      backgroundColor: idx % 2 === 0 ? "#020617" : "#050816",
+                    }}
+                  >
+                    <div>{row.date}</div>
+                    <div>{formatCurrency(row.amount)}</div>
+                    <div>{formatCurrency(row.interestSaved)}</div>
+                    <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
+                    <div>{formatPercent(row.effectiveRate)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Scenarios section */}
           <div style={{ marginTop: 24 }}>
@@ -564,8 +673,8 @@ export default function MortgageTab() {
                           Payoff {formatDateDisplay(s.payoffDate)} · Interest{" "}
                           {formatCurrency(s.totalInterest)} · Saved vs actual{" "}
                           {formatCurrency(s.interestSavedVsActual)}{" "}
-                          {s.monthsSavedVsActual > 0
-                            ? `· ${s.monthsSavedVsActual} mo sooner`
+                          {formatMonthsAsYearsMonths(s.monthsSavedVsActual) !== "—"
+                            ? `· ${formatMonthsAsYearsMonths(s.monthsSavedVsActual)} sooner`
                             : ""}
                         </span>
                       </div>
