@@ -22,13 +22,15 @@ export function computeMortgageWithPrepayments(
   const payment = computeMonthlyPayment(terms);
   const schedule: AmortizationEntry[] = [];
 
-  // Aggregate prepayments by date for fast lookup.
-  const prepayByDate = new Map<string, Money>();
-  for (const p of prepayments) {
-    const existing = prepayByDate.get(p.date) ?? 0;
-    prepayByDate.set(p.date, existing + p.amount);
-  }
+  // Defensive copy & sort prepayments by date (ascending). This ensures
+  // that changing the prepayment dates in the UI always changes the
+  // simulation result, even if the dates are not perfectly aligned
+  // with the contractual payment dates.
+  const sortedPrepayments = [...prepayments].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
 
+  let prepayIndex = 0;
   let remaining = terms.principal;
   const r = terms.annualRate / 12;
   const epsilon = 1e-6;
@@ -43,8 +45,17 @@ export function computeMortgageWithPrepayments(
       throw new Error("Monthly payment too low to amortize the loan.");
     }
 
-    // Apply any extra principal for this date.
-    const extra = prepayByDate.get(date) ?? 0;
+    // Apply any extra principal for all prepayments whose date is on or
+    // before the current payment date and that have not yet been applied.
+    let extra = 0;
+    while (
+      prepayIndex < sortedPrepayments.length &&
+      sortedPrepayments[prepayIndex].date <= date
+    ) {
+      extra += sortedPrepayments[prepayIndex].amount;
+      prepayIndex++;
+    }
+
     let totalPrincipal = principal + extra;
 
     if (totalPrincipal > remaining) {
@@ -65,7 +76,10 @@ export function computeMortgageWithPrepayments(
     payoffDate = date;
   }
 
-  const totalInterest = schedule.reduce((sum, e) => sum + e.interest, 0);
+  const totalInterest = schedule.reduce(
+    (sum, e) => sum + e.interest,
+    0
+  );
 
   return {
     schedule,
