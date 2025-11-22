@@ -533,9 +533,9 @@ const styles: Record<string, any> = {
   },
   ruleControls: {
     display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end",
-    gap: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   editButton: {
     padding: "4px 8px",
