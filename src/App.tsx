@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
-import { computeSafeToSpendFromEvents } from "./domain/safeToSpendEngine";
+import { computeSafeToSpend } from "./domain/safeToSpendEngine";
 import type {
   AppState,
   FutureEvent,
@@ -32,6 +32,19 @@ export default function App() {
     "dashboard" | "config" | "mortgage"
   >("dashboard");
 
+  const [isNarrow, setIsNarrow] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 480 : false
+  );
+
+  useEffect(() => {
+    function handleResize() {
+      if (typeof window === "undefined") return;
+      setIsNarrow(window.innerWidth < 480);
+    }
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   // Mortgage UI state (local for now)
   const [mortgagePrincipal, setMortgagePrincipal] = useState(400000);
   const [mortgageRatePct, setMortgageRatePct] = useState(6.5); // % per year
@@ -42,14 +55,12 @@ export default function App() {
   const [mortgageExtraPayment, setMortgageExtraPayment] = useState(0);
 
   const { metrics, events, timeline } = runCashflowProjection(state);
+  const safe = computeSafeToSpend(state);
+
   const runningBalanceByDate = new Map<string, number>(
-    timeline.map((p) => [p.date, p.balance])
+    timeline.map((point) => [point.date, point.balance])
   );
-  const safe = computeSafeToSpendFromEvents(
-    state.account.startingBalance,
-    state.settings.minSafeBalance ?? 0,
-    events
-  );
+
   useEffect(() => {
     saveAppState(state);
   }, [state]);
@@ -341,45 +352,92 @@ export default function App() {
 
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Upcoming Events</h3>
-            {<>
-            <div style={styles.eventHeaderRow}>
-              <span style={styles.eventDateCell}>Date</span>
-              <span style={styles.eventNameCell}>Name</span>
-              <span style={styles.eventAmountCell}>Amount</span>
-              <span style={styles.eventBalanceCell}>Balance</span>
-            </div>
-            {events.map((e) => {
-              const runningBalance = runningBalanceByDate.get(e.date);
-              return (
-                <div
-                  key={e.id}
-                  style={styles.eventRow}
-                  onClick={() => setSelectedEvent(e)}
-                >
-                  <span style={styles.eventDateCell}>{e.date}</span>
-                  <span style={styles.eventNameCell}>
-                    {e.ruleName}
-                    {e.isOverridden && " *"}
-                  </span>
-                  <span
-                    style={{
-                      ...styles.eventAmountCell,
-                      color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {formatMoney(e.effectiveAmount)}
-                  </span>
-                  <span style={styles.eventBalanceCell}>
-                    {runningBalance !== undefined
-                      ? formatMoney(runningBalance)
-                      : "—"}
-                  </span>
+            {events.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#9ca3af" }}>
+                No upcoming events in this horizon.
+              </div>
+            ) : isNarrow ? (
+              <>
+                {events.map((e) => {
+                  const runningBalance = runningBalanceByDate.get(e.date);
+                  return (
+                    <div
+                      key={e.id}
+                      style={styles.eventRowNarrow}
+                      onClick={() => setSelectedEvent(e)}
+                    >
+                      <div style={styles.eventRowNarrowTop}>
+                        <span style={styles.eventDateNarrow}>{e.date}</span>
+                        <span style={styles.eventNameNarrow}>
+                          {e.ruleName}
+                          {e.isOverridden && " *"}
+                        </span>
+                      </div>
+                      <div style={styles.eventRowNarrowBottom}>
+                        <span
+                          style={{
+                            ...styles.eventAmountNarrow,
+                            color:
+                              e.effectiveAmount >= 0
+                                ? "#4ade80"
+                                : "#f97373",
+                          }}
+                        >
+                          {formatMoney(e.effectiveAmount)}
+                        </span>
+                        <span style={styles.eventBalanceNarrow}>
+                          {runningBalance !== undefined
+                            ? formatMoney(runningBalance)
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                <div style={styles.eventHeaderRow}>
+                  <span style={styles.eventDateCell}>Date</span>
+                  <span style={styles.eventNameCell}>Name</span>
+                  <span style={styles.eventAmountCell}>Amt</span>
+                  <span style={styles.eventBalanceCell}>Bal</span>
                 </div>
-              );
-            })}
-          </>}
-          </div>
+                {events.map((e) => {
+                  const runningBalance = runningBalanceByDate.get(e.date);
+                  return (
+                    <div
+                      key={e.id}
+                      style={styles.eventRow}
+                      onClick={() => setSelectedEvent(e)}
+                    >
+                      <span style={styles.eventDateCell}>{e.date}</span>
+                      <span style={styles.eventNameCell}>
+                        {e.ruleName}
+                        {e.isOverridden && " *"}
+                      </span>
+                      <span
+                        style={{
+                          ...styles.eventAmountCell,
+                          color:
+                            e.effectiveAmount >= 0
+                              ? "#4ade80"
+                              : "#f97373",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {formatMoney(e.effectiveAmount)}
+                      </span>
+                      <span style={styles.eventBalanceCell}>
+                        {runningBalance !== undefined
+                          ? formatMoney(runningBalance)
+                          : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}          </div>
         </>
       )}
 
@@ -445,14 +503,11 @@ function formatMoney(amount: number): string {
 
 const styles: Record<string, any> = {
   container: {
+    maxWidth: 480,
+    margin: "0 auto",
     padding: 16,
-    display: "flex",
-    flexDirection: "column",
-    gap: 16,
-    color: "#e4e4e7",
-    backgroundColor: "#020617",
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+    color: "#e5e7eb",
   },
   header: {
     textAlign: "center",
@@ -483,13 +538,12 @@ const styles: Record<string, any> = {
     fontSize: 14,
   },
   card: {
+    background: "#111827",
     borderRadius: 12,
-    border: "1px solid #27272a",
     padding: 16,
     marginBottom: 20,
-    background:
-      "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
+    boxShadow: "0 1px 8px rgba(0,0,0,0.5)",
+    border: "1px solid #1f2937",
   },
   cardTitle: {
     marginTop: 0,
@@ -623,20 +677,23 @@ const styles: Record<string, any> = {
     color: "#9ca3af",
   },
   eventDateCell: {
-    flex: "0 0 90px",
+    flex: "0 0 72px",
     textAlign: "left",
+    whiteSpace: "nowrap",
   },
   eventNameCell: {
     flex: "1 1 auto",
     textAlign: "left",
   },
   eventAmountCell: {
-    flex: "0 0 110px",
+    flex: "0 0 80px",
     textAlign: "right",
+    whiteSpace: "nowrap",
   },
   eventBalanceCell: {
-    flex: "0 0 120px",
+    flex: "0 0 90px",
     textAlign: "right",
+    whiteSpace: "nowrap",
   },
   eventRow: {
     display: "flex",
@@ -647,5 +704,41 @@ const styles: Record<string, any> = {
     borderBottom: "1px dashed #1f2933",
     marginBottom: 8,
     cursor: "pointer",
+  },
+  eventRowNarrow: {
+    borderBottom: "1px dashed #1f2933",
+    paddingBottom: 8,
+    marginBottom: 8,
+    cursor: "pointer",
+  },
+  eventRowNarrowTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 4,
+    fontSize: 13,
+  },
+  eventRowNarrowBottom: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+    fontSize: 13,
+  },
+  eventDateNarrow: {
+    fontSize: 12,
+    color: "#9ca3af",
+    whiteSpace: "nowrap",
+  },
+  eventNameNarrow: {
+    flex: 1,
+    textAlign: "right",
+  },
+  eventAmountNarrow: {
+    whiteSpace: "nowrap",
+    fontWeight: 600,
+  },
+  eventBalanceNarrow: {
+    whiteSpace: "nowrap",
+    color: "#9ca3af",
   },
 };
