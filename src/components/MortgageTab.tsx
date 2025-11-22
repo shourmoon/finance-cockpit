@@ -42,7 +42,6 @@ function formatDateDisplay(value: string | null | undefined): string {
   if (!value) return "";
   return value;
 }
-
 function classifyScenarioImpact(
   summary: MortgageScenarioSummary | undefined | null
 ): "good" | "neutral" | "bad" {

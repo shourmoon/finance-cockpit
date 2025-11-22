@@ -302,6 +302,29 @@ export default function App() {
               Safe to Spend (based on projection):
               <b> {formatMoney(safe.safeToSpendToday)}</b>
             </div>
+            <div style={styles.impactRow}>
+              <span
+                style={{
+                  ...styles.impactBadge,
+                  ...(safe.safeToSpendToday > 0
+                    ? styles.impactPositive
+                    : safe.safeToSpendToday === 0
+                    ? styles.impactNeutral
+                    : styles.impactNegative),
+                }}
+              >
+                {safe.safeToSpendToday > 0
+                  ? "You have room to spend"
+                  : safe.safeToSpendToday === 0
+                  ? "Right at your safety floor"
+                  : "Below safety floor"}
+              </span>
+              <span>
+                Min balance over horizon stays at{" "}
+                {formatMoney(metrics.minBalance)} on{" "}
+                {metrics.minBalanceDate ?? "—"}
+              </span>
+            </div>
 
             <div style={styles.metric}>
               First Negative Date:
@@ -447,18 +470,21 @@ const styles: Record<string, any> = {
   },
   label: {
     display: "flex",
-    flexDirection: "column",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
     marginBottom: 12,
     fontSize: 14,
   },
   input: {
     padding: 8,
     fontSize: 16,
-    marginTop: 4,
+    borderRadius: 8,
+    border: "1px solid #1f2937",
     background: "#020617",
     color: "#e5e7eb",
-    border: "1px solid #4b5563",
-    borderRadius: 8,
+    width: 160,
   },
   inputSmall: {
     width: 90,
@@ -522,6 +548,39 @@ const styles: Record<string, any> = {
   metric: {
     marginBottom: 8,
     fontSize: 14,
+  },
+  impactRow: {
+    marginTop: 4,
+    marginBottom: 8,
+    fontSize: 12,
+    color: "#9ca3af",
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  impactBadge: {
+    borderRadius: 999,
+    padding: "2px 8px",
+    fontSize: 11,
+    fontWeight: 500,
+    border: "1px solid transparent",
+  },
+  impactPositive: {
+    backgroundColor: "rgba(22, 163, 74, 0.15)",
+    borderColor: "rgba(22, 163, 74, 0.6)",
+    color: "#4ade80",
+  },
+  impactNeutral: {
+    backgroundColor: "rgba(113, 113, 122, 0.25)",
+    borderColor: "rgba(82, 82, 91, 0.9)",
+    color: "#e4e4e7",
+  },
+  impactNegative: {
+    backgroundColor: "rgba(220, 38, 38, 0.15)",
+    borderColor: "rgba(248, 113, 113, 0.8)",
+    color: "#fecaca",
   },
   eventRow: {
     display: "flex",
