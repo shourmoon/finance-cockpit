@@ -13,7 +13,10 @@ import { computeMonthlyPayment, addMonths } from "./baseline";
  *
  * Assumptions:
  * - Payments are monthly, on the same day-of-month as startDate.
- * - Each prepayment is applied as extra principal on the period whose date matches the prepayment date.
+ * - Prepayments can occur on arbitrary calendar dates (not necessarily
+ *   aligned to the exact payment dates).
+ * - Each prepayment is applied as extra principal on the first payment
+ *   date on or after the prepayment date.
  */
 export function computeMortgageWithPrepayments(
   terms: MortgageOriginalTerms,
@@ -22,10 +25,7 @@ export function computeMortgageWithPrepayments(
   const payment = computeMonthlyPayment(terms);
   const schedule: AmortizationEntry[] = [];
 
-  // Defensive copy & sort prepayments by date (ascending). This ensures
-  // that changing the prepayment dates in the UI always changes the
-  // simulation result, even if the dates are not perfectly aligned
-  // with the contractual payment dates.
+  // Sort prepayments by date so we can stream them in a single pass.
   const sortedPrepayments = [...prepayments].sort((a, b) =>
     a.date.localeCompare(b.date)
   );
@@ -76,10 +76,7 @@ export function computeMortgageWithPrepayments(
     payoffDate = date;
   }
 
-  const totalInterest = schedule.reduce(
-    (sum, e) => sum + e.interest,
-    0
-  );
+  const totalInterest = schedule.reduce((sum, e) => sum + e.interest, 0);
 
   return {
     schedule,

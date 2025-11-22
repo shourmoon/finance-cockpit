@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
-import { computeSafeToSpendFromEvents } from "./domain/safeToSpendEngine";
+import { computeSafeToSpend } from "./domain/safeToSpendEngine";
 import type {
   AppState,
   FutureEvent,
@@ -42,11 +42,7 @@ export default function App() {
   const [mortgageExtraPayment, setMortgageExtraPayment] = useState(0);
 
   const { metrics, events } = runCashflowProjection(state);
-  const safe = computeSafeToSpendFromEvents(
-    state.account.startingBalance,
-    state.settings.minSafeBalance ?? 0,
-    events
-  );
+  const safe = computeSafeToSpend(state);
   useEffect(() => {
     saveAppState(state);
   }, [state]);
@@ -338,7 +334,7 @@ export default function App() {
 
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Upcoming Events</h3>
-            {events.slice(0, 20).map((e) => (
+            {events.map((e) => (
               <div
                 key={e.id}
                 style={styles.eventRow}
