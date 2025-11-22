@@ -15,6 +15,11 @@ import type {
 import type {
   MortgageScenarioConfig,
   MonthlyScenarioPattern,
+  ScenarioPattern,
+  ScenarioPatternKind,
+  OneTimeScenarioPattern,
+  YearlyScenarioPattern,
+  BiweeklyScenarioPattern,
 } from "../domain/mortgage";
 import {
   loadMortgageUIState,
@@ -272,15 +277,18 @@ export default function MortgageTab() {
     setPrepayments((prev) => prev.filter((row) => row.id !== id));
   }
 
-  // -------- Scenario editing helpers (monthly-only v1) --------
+  
+  // -------- Scenario editing helpers (patterns: one-time, monthly, yearly, biweekly) --------
 
   function addScenario() {
+    const baseDate = asOfDate || terms.startDate;
+
     const newMonthlyPattern: MonthlyScenarioPattern = {
       id: uuid(),
       label: "Monthly extra",
       kind: "monthly",
       amount: 200,
-      startDate: asOfDate || terms.startDate,
+      startDate: baseDate,
       dayOfMonthStrategy: "same-as-due-date",
     };
 
@@ -308,42 +316,463 @@ export default function MortgageTab() {
     setScenarios((prev) => prev.filter((s) => s.id !== id));
   }
 
+  function addScenarioPattern(
+    scenarioId: string,
+    kind: ScenarioPatternKind
+  ) {
+    const baseDate = asOfDate || terms.startDate;
+
+    setScenarios((prev) =>
+      prev.map((s) => {
+        if (s.id !== scenarioId) return s;
+        const patterns = [...(s.patterns ?? [])];
+
+        let newPattern: ScenarioPattern;
+
+        switch (kind) {
+          case "oneTime": {
+            const p: OneTimeScenarioPattern = {
+              id: uuid(),
+              label: "One-time extra",
+              kind: "oneTime",
+              amount: 0,
+              date: baseDate,
+            };
+            newPattern = p;
+            break;
+          }
+          case "monthly": {
+            const p: MonthlyScenarioPattern = {
+              id: uuid(),
+              label: "Monthly extra",
+              kind: "monthly",
+              amount: 0,
+              startDate: baseDate,
+              dayOfMonthStrategy: "same-as-due-date",
+            };
+            newPattern = p;
+            break;
+          }
+          case "yearly": {
+            const [yStr, mStr, dStr] = baseDate.split("-");
+            const year = Number(yStr) || new Date().getFullYear();
+            const month = Number(mStr) || 1;
+            const day = Number(dStr) || 1;
+            const p: YearlyScenarioPattern = {
+              id: uuid(),
+              label: "Annual extra",
+              kind: "yearly",
+              amount: 0,
+              month,
+              day,
+              firstYear: year,
+            };
+            newPattern = p;
+            break;
+          }
+          case "biweekly": {
+            const p: BiweeklyScenarioPattern = {
+              id: uuid(),
+              label: "Biweekly extra",
+              kind: "biweekly",
+              amount: 0,
+              anchorDate: baseDate,
+              startDate: baseDate,
+            };
+            newPattern = p;
+            break;
+          }
+          default:
+            return s;
+        }
+
+        return {
+          ...s,
+          patterns: [...patterns, newPattern],
+        };
+      })
+    );
+  }
+
+  function updateScenarioPattern(
+    scenarioId: string,
+    patternId: string,
+    patch: Partial<ScenarioPattern>
+  ) {
+    setScenarios((prev) =>
+      prev.map((s) => {
+        if (s.id !== scenarioId) return s;
+        const patterns = (s.patterns ?? []).map((p) =>
+          p.id === patternId ? ({ ...p, ...patch } as ScenarioPattern) : p
+        );
+        return { ...s, patterns };
+      })
+    );
+  }
+
+  function deleteScenarioPattern(scenarioId: string, patternId: string) {
+    setScenarios((prev) =>
+      prev.map((s) => {
+        if (s.id !== scenarioId) return s;
+        const patterns = (s.patterns ?? []).filter((p) => p.id !== patternId);
+        return { ...s, patterns };
+      })
+    );
+  }
+
   function updateScenarioMonthlyAmount(id: string, newAmount: number) {
     setScenarios((prev) =>
       prev.map((s) => {
         if (s.id !== id) return s;
         const patterns = [...(s.patterns ?? [])];
-        let first = patterns[0] as MonthlyScenarioPattern | undefined;
+        const existingMonthlyIndex = patterns.findIndex(
+          (p) => p.kind === "monthly"
+        );
 
-        if (!first || first.kind !== "monthly") {
+        const baseDate = asOfDate || terms.startDate;
+
+        if (existingMonthlyIndex === -1) {
           const created: MonthlyScenarioPattern = {
             id: uuid(),
             label: "Monthly extra",
             kind: "monthly",
             amount: newAmount,
-            startDate: asOfDate || terms.startDate,
+            startDate: baseDate,
             dayOfMonthStrategy: "same-as-due-date",
           };
-          return { ...s, patterns: [created] };
+          return { ...s, patterns: [...patterns, created] };
         }
+
+        const first = patterns[existingMonthlyIndex] as MonthlyScenarioPattern;
 
         const updated: MonthlyScenarioPattern = {
           ...first,
           amount: newAmount,
-          startDate: first.startDate || (asOfDate || terms.startDate),
+          startDate: first.startDate || baseDate,
         };
-        patterns[0] = updated;
+        patterns[existingMonthlyIndex] = updated;
         return { ...s, patterns };
       })
     );
   }
 
   function getScenarioMonthlyAmount(s: MortgageScenarioConfig): number {
-    const first = (s.patterns?.[0] ?? null) as
-      | MonthlyScenarioPattern
-      | null;
-    if (!first || first.kind !== "monthly") return 0;
-    return first.amount ?? 0;
+    const patterns = s.patterns ?? [];
+    const firstMonthly = patterns.find(
+      (p) => p.kind === "monthly"
+    ) as MonthlyScenarioPattern | undefined;
+    if (!firstMonthly) return 0;
+    return firstMonthly.amount ?? 0;
+  }
+
+
+  function renderScenarioPatternRow(
+    scenarioId: string,
+    pattern: ScenarioPattern
+  ) {
+    const onDelete = () => deleteScenarioPattern(scenarioId, pattern.id);
+
+    if (pattern.kind === "oneTime") {
+      const p = pattern as OneTimeScenarioPattern;
+      return (
+        <div key={pattern.id} style={styles.scenarioPatternRow}>
+          <span style={styles.patternKindChip}>One-time</span>
+          <input
+            style={styles.scenarioPatternLabelInput}
+            type="text"
+            value={p.label}
+            placeholder="Label"
+            onChange={(e) =>
+              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+            }
+          />
+          <input
+            style={styles.scenarioPatternAmountInput}
+            type="text"
+            value={p.amount ? p.amount.toString() : ""}
+            placeholder="0"
+            onChange={(e) => {
+              const n = parseNumber(e.target.value) ?? 0;
+              updateScenarioPattern(scenarioId, p.id, { amount: n });
+            }}
+          />
+          <div style={styles.patternDatesGroup}>
+            <input
+              style={styles.scenarioPatternDateInput}
+              type="date"
+              value={p.date}
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, { date: e.target.value })
+              }
+            />
+          </div>
+          <button
+            style={styles.scenarioPatternDeleteButton}
+            onClick={onDelete}
+          >
+            ✕
+          </button>
+        </div>
+      );
+    }
+
+    if (pattern.kind === "monthly") {
+      const p = pattern as MonthlyScenarioPattern;
+      return (
+        <div key={pattern.id} style={styles.scenarioPatternRow}>
+          <span style={styles.patternKindChip}>Monthly</span>
+          <input
+            style={styles.scenarioPatternLabelInput}
+            type="text"
+            value={p.label}
+            placeholder="Label"
+            onChange={(e) =>
+              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+            }
+          />
+          <input
+            style={styles.scenarioPatternAmountInput}
+            type="text"
+            value={p.amount ? p.amount.toString() : ""}
+            placeholder="0"
+            onChange={(e) => {
+              const n = parseNumber(e.target.value) ?? 0;
+              updateScenarioPattern(scenarioId, p.id, { amount: n });
+            }}
+          />
+          <div style={styles.patternDatesGroup}>
+            <input
+              style={styles.scenarioPatternDateInput}
+              type="date"
+              value={p.startDate}
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, {
+                  startDate: e.target.value,
+                })
+              }
+            />
+            <input
+              style={styles.scenarioPatternDateInput}
+              type="date"
+              value={p.untilDate ?? ""}
+              placeholder=""
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, {
+                  untilDate: e.target.value || undefined,
+                })
+              }
+            />
+            <select
+              style={styles.scenarioPatternSelect}
+              value={p.dayOfMonthStrategy}
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, {
+                  dayOfMonthStrategy: e.target
+                    .value as MonthlyScenarioPattern["dayOfMonthStrategy"],
+                })
+              }
+            >
+              <option value="same-as-due-date">Due date</option>
+              <option value="specific-day">Day</option>
+            </select>
+            {p.dayOfMonthStrategy === "specific-day" && (
+              <input
+                style={styles.scenarioPatternSmallInput}
+                type="number"
+                min={1}
+                max={28}
+                value={p.specificDayOfMonth ?? ""}
+                placeholder="Day"
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (!raw) {
+                    updateScenarioPattern(scenarioId, p.id, {
+                      specificDayOfMonth: undefined,
+                    });
+                    return;
+                  }
+                  let n = Number(raw);
+                  if (!Number.isFinite(n)) n = 1;
+                  n = Math.min(28, Math.max(1, Math.floor(n)));
+                  updateScenarioPattern(scenarioId, p.id, {
+                    specificDayOfMonth: n,
+                  });
+                }}
+              />
+            )}
+          </div>
+          <button
+            style={styles.scenarioPatternDeleteButton}
+            onClick={onDelete}
+          >
+            ✕
+          </button>
+        </div>
+      );
+    }
+
+    if (pattern.kind === "yearly") {
+      const p = pattern as YearlyScenarioPattern;
+      return (
+        <div key={pattern.id} style={styles.scenarioPatternRow}>
+          <span style={styles.patternKindChip}>Annual</span>
+          <input
+            style={styles.scenarioPatternLabelInput}
+            type="text"
+            value={p.label}
+            placeholder="Label"
+            onChange={(e) =>
+              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+            }
+          />
+          <input
+            style={styles.scenarioPatternAmountInput}
+            type="text"
+            value={p.amount ? p.amount.toString() : ""}
+            placeholder="0"
+            onChange={(e) => {
+              const n = parseNumber(e.target.value) ?? 0;
+              updateScenarioPattern(scenarioId, p.id, { amount: n });
+            }}
+          />
+          <div style={styles.patternDatesGroup}>
+            <input
+              style={styles.scenarioPatternSmallInput}
+              type="number"
+              min={1}
+              max={12}
+              value={p.month}
+              placeholder="M"
+              onChange={(e) => {
+                let n = Number(e.target.value);
+                if (!Number.isFinite(n)) n = 1;
+                n = Math.min(12, Math.max(1, Math.floor(n)));
+                updateScenarioPattern(scenarioId, p.id, { month: n });
+              }}
+            />
+            <input
+              style={styles.scenarioPatternSmallInput}
+              type="number"
+              min={1}
+              max={31}
+              value={p.day}
+              placeholder="D"
+              onChange={(e) => {
+                let n = Number(e.target.value);
+                if (!Number.isFinite(n)) n = 1;
+                n = Math.min(31, Math.max(1, Math.floor(n)));
+                updateScenarioPattern(scenarioId, p.id, { day: n });
+              }}
+            />
+            <input
+              style={styles.scenarioPatternYearInput}
+              type="number"
+              value={p.firstYear}
+              placeholder="From"
+              onChange={(e) => {
+                let n = Number(e.target.value);
+                if (!Number.isFinite(n)) n = new Date().getFullYear();
+                n = Math.floor(n);
+                updateScenarioPattern(scenarioId, p.id, { firstYear: n });
+              }}
+            />
+            <input
+              style={styles.scenarioPatternYearInput}
+              type="number"
+              value={p.lastYear ?? ""}
+              placeholder="To"
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (!raw) {
+                  updateScenarioPattern(scenarioId, p.id, {
+                    lastYear: undefined,
+                  });
+                  return;
+                }
+                let n = Number(raw);
+                if (!Number.isFinite(n)) n = p.firstYear;
+                n = Math.floor(n);
+                updateScenarioPattern(scenarioId, p.id, { lastYear: n });
+              }}
+            />
+          </div>
+          <button
+            style={styles.scenarioPatternDeleteButton}
+            onClick={onDelete}
+          >
+            ✕
+          </button>
+        </div>
+      );
+    }
+
+    if (pattern.kind === "biweekly") {
+      const p = pattern as BiweeklyScenarioPattern;
+      return (
+        <div key={pattern.id} style={styles.scenarioPatternRow}>
+          <span style={styles.patternKindChip}>Biweekly</span>
+          <input
+            style={styles.scenarioPatternLabelInput}
+            type="text"
+            value={p.label}
+            placeholder="Label"
+            onChange={(e) =>
+              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+            }
+          />
+          <input
+            style={styles.scenarioPatternAmountInput}
+            type="text"
+            value={p.amount ? p.amount.toString() : ""}
+            placeholder="0"
+            onChange={(e) => {
+              const n = parseNumber(e.target.value) ?? 0;
+              updateScenarioPattern(scenarioId, p.id, { amount: n });
+            }}
+          />
+          <div style={styles.patternDatesGroup}>
+            <input
+              style={styles.scenarioPatternDateInput}
+              type="date"
+              value={p.anchorDate}
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, {
+                  anchorDate: e.target.value,
+                })
+              }
+            />
+            <input
+              style={styles.scenarioPatternDateInput}
+              type="date"
+              value={p.startDate ?? ""}
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, {
+                  startDate: e.target.value || undefined,
+                })
+              }
+            />
+            <input
+              style={styles.scenarioPatternDateInput}
+              type="date"
+              value={p.untilDate ?? ""}
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, {
+                  untilDate: e.target.value || undefined,
+                })
+              }
+            />
+          </div>
+          <button
+            style={styles.scenarioPatternDeleteButton}
+            onClick={onDelete}
+          >
+            ✕
+          </button>
+        </div>
+      );
+    }
+
+    return null;
   }
 
   return (
@@ -598,7 +1027,7 @@ export default function MortgageTab() {
 
           {/* Scenarios section */}
           <div style={{ marginTop: 24 }}>
-            <div style={styles.subHeading}>What-if scenarios (monthly extra)</div>
+            <div style={styles.subHeading}>What-if scenarios (future prepayments)</div>
             <div style={{ marginBottom: 8 }}>
               <button style={styles.addButton} onClick={addScenario}>
                 + Add scenario
@@ -657,6 +1086,51 @@ export default function MortgageTab() {
                               updateScenarioMonthlyAmount(s.id, n);
                             }}
                           />
+                        </div>
+                        <div style={styles.scenarioPatternsSection}>
+                          <div style={styles.scenarioPatternsHeaderRow}>
+                            <span style={styles.patternHeaderKind}>Type</span>
+                            <span style={styles.patternHeaderLabel}>Label</span>
+                            <span style={styles.patternHeaderAmount}>Amount</span>
+                            <span style={styles.patternHeaderDates}>Dates / cadence</span>
+                            <span style={styles.patternHeaderActions}></span>
+                          </div>
+                          {(s.patterns ?? []).length === 0 ? (
+                            <div style={styles.scenarioPatternsEmpty}>
+                              No future prepayment patterns yet. Use the Monthly extra above or add a pattern below.
+                            </div>
+                          ) : (
+                            (s.patterns ?? []).map((p) =>
+                              renderScenarioPatternRow(s.id, p)
+                            )
+                          )}
+                          <div style={styles.scenarioPatternAddRow}>
+                            <span style={styles.scenarioPatternAddLabel}>Add pattern:</span>
+                            <button
+                              style={styles.scenarioPatternAddButton}
+                              onClick={() => addScenarioPattern(s.id, "oneTime")}
+                            >
+                              One-time
+                            </button>
+                            <button
+                              style={styles.scenarioPatternAddButton}
+                              onClick={() => addScenarioPattern(s.id, "monthly")}
+                            >
+                              Monthly
+                            </button>
+                            <button
+                              style={styles.scenarioPatternAddButton}
+                              onClick={() => addScenarioPattern(s.id, "yearly")}
+                            >
+                              Annual
+                            </button>
+                            <button
+                              style={styles.scenarioPatternAddButton}
+                              onClick={() => addScenarioPattern(s.id, "biweekly")}
+                            >
+                              Biweekly
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -851,5 +1325,146 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 4,
+  },
+  scenarioPatternsSection: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTop: "1px solid #27272a",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  scenarioPatternsHeaderRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
+    alignItems: "center",
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.03,
+    color: "#71717a",
+    paddingBottom: 2,
+  },
+  patternHeaderKind: {},
+  patternHeaderLabel: {},
+  patternHeaderAmount: {
+    textAlign: "right",
+  },
+  patternHeaderDates: {
+    textAlign: "left",
+  },
+  patternHeaderActions: {
+    textAlign: "center",
+  },
+  scenarioPatternsEmpty: {
+    fontSize: 12,
+    color: "#a1a1aa",
+    padding: "4px 0 6px",
+  },
+  scenarioPatternRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
+    alignItems: "center",
+    gap: 6,
+    padding: "4px 0",
+  },
+  patternKindChip: {
+    fontSize: 11,
+    borderRadius: 999,
+    padding: "2px 6px",
+    border: "1px solid #3f3f46",
+    backgroundColor: "#18181b",
+    color: "#d4d4d8",
+    justifySelf: "flex-start",
+  },
+  scenarioPatternLabelInput: {
+    borderRadius: 6,
+    border: "1px solid #27272a",
+    padding: "4px 6px",
+    backgroundColor: "#18181b",
+    color: "#e4e4e7",
+    fontSize: 12,
+    width: "100%",
+  },
+  scenarioPatternAmountInput: {
+    borderRadius: 6,
+    border: "1px solid #27272a",
+    padding: "4px 6px",
+    backgroundColor: "#020617",
+    color: "#e4e4e7",
+    fontSize: 12,
+    width: "100%",
+    textAlign: "right",
+  },
+  patternDatesGroup: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  scenarioPatternDateInput: {
+    borderRadius: 6,
+    border: "1px solid #27272a",
+    padding: "4px 6px",
+    backgroundColor: "#020617",
+    color: "#e4e4e7",
+    fontSize: 11,
+  },
+  scenarioPatternSelect: {
+    borderRadius: 6,
+    border: "1px solid #27272a",
+    padding: "4px 6px",
+    backgroundColor: "#020617",
+    color: "#e4e4e7",
+    fontSize: 11,
+  },
+  scenarioPatternSmallInput: {
+    width: 56,
+    borderRadius: 6,
+    border: "1px solid #27272a",
+    padding: "4px 6px",
+    backgroundColor: "#020617",
+    color: "#e4e4e7",
+    fontSize: 11,
+  },
+  scenarioPatternYearInput: {
+    width: 72,
+    borderRadius: 6,
+    border: "1px solid #27272a",
+    padding: "4px 6px",
+    backgroundColor: "#020617",
+    color: "#e4e4e7",
+    fontSize: 11,
+  },
+  scenarioPatternDeleteButton: {
+    borderRadius: 999,
+    border: "1px solid #3f3f46",
+    backgroundColor: "#18181b",
+    color: "#a1a1aa",
+    width: 26,
+    height: 26,
+    fontSize: 13,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  scenarioPatternAddRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+  },
+  scenarioPatternAddLabel: {
+    fontSize: 11,
+    color: "#a1a1aa",
+  },
+  scenarioPatternAddButton: {
+    fontSize: 11,
+    padding: "4px 8px",
+    borderRadius: 999,
+    border: "1px solid #3f3f46",
+    backgroundColor: "#18181b",
+    color: "#e4e4e7",
+    cursor: "pointer",
   },
 };

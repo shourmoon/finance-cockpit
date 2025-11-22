@@ -25,7 +25,9 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
         <h3 style={{ marginTop: 0 }}>
           Override: {event.ruleName}
           <br />
-          <span style={{ fontSize: 13, fontWeight: 400 }}>{event.date}</span>
+          <span style={{ fontSize: 13, fontWeight: 400 }}>
+            {formatShortDate(event.date)}
+          </span>
         </h3>
 
         <div style={styles.row}>
@@ -62,6 +64,15 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
       </div>
     </div>
   );
+}
+
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const parts = value.split("-");
+  if (parts.length !== 3) return value;
+  const [year, month, day] = parts;
+  const shortYear = year.length === 4 ? year.slice(2) : year;
+  return `${month}/${day}/${shortYear}`;
 }
 
 function formatMoney(amount: number): string {

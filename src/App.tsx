@@ -32,19 +32,6 @@ export default function App() {
     "dashboard" | "config" | "mortgage"
   >("dashboard");
 
-  const [isNarrow, setIsNarrow] = useState(
-    typeof window !== "undefined" ? window.innerWidth < 480 : false
-  );
-
-  useEffect(() => {
-    function handleResize() {
-      if (typeof window === "undefined") return;
-      setIsNarrow(window.innerWidth < 480);
-    }
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
   // Mortgage UI state (local for now)
   const [mortgagePrincipal, setMortgagePrincipal] = useState(400000);
   const [mortgageRatePct, setMortgageRatePct] = useState(6.5); // % per year
@@ -57,9 +44,10 @@ export default function App() {
   const { metrics, events, timeline } = runCashflowProjection(state);
   const safe = computeSafeToSpend(state);
 
-  const runningBalanceByDate = new Map<string, number>(
-    timeline.map((point) => [point.date, point.balance])
-  );
+  const runningBalanceByDate = new Map<string, number>();
+  for (const point of timeline) {
+    runningBalanceByDate.set(point.date, point.balance);
+  }
 
   useEffect(() => {
     saveAppState(state);
@@ -356,52 +344,13 @@ export default function App() {
               <div style={{ fontSize: 13, color: "#9ca3af" }}>
                 No upcoming events in this horizon.
               </div>
-            ) : isNarrow ? (
-              <>
-                {events.map((e) => {
-                  const runningBalance = runningBalanceByDate.get(e.date);
-                  return (
-                    <div
-                      key={e.id}
-                      style={styles.eventRowNarrow}
-                      onClick={() => setSelectedEvent(e)}
-                    >
-                      <div style={styles.eventRowNarrowTop}>
-                        <span style={styles.eventDateNarrow}>{e.date}</span>
-                        <span style={styles.eventNameNarrow}>
-                          {e.ruleName}
-                          {e.isOverridden && " *"}
-                        </span>
-                      </div>
-                      <div style={styles.eventRowNarrowBottom}>
-                        <span
-                          style={{
-                            ...styles.eventAmountNarrow,
-                            color:
-                              e.effectiveAmount >= 0
-                                ? "#4ade80"
-                                : "#f97373",
-                          }}
-                        >
-                          {formatMoney(e.effectiveAmount)}
-                        </span>
-                        <span style={styles.eventBalanceNarrow}>
-                          {runningBalance !== undefined
-                            ? formatMoney(runningBalance)
-                            : "—"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </>
             ) : (
               <>
                 <div style={styles.eventHeaderRow}>
                   <span style={styles.eventDateCell}>Date</span>
                   <span style={styles.eventNameCell}>Name</span>
-                  <span style={styles.eventAmountCell}>Amt</span>
-                  <span style={styles.eventBalanceCell}>Bal</span>
+                  <span style={styles.eventAmountCell}>Amount</span>
+                  <span style={styles.eventBalanceCell}>Balance</span>
                 </div>
                 {events.map((e) => {
                   const runningBalance = runningBalanceByDate.get(e.date);
@@ -411,7 +360,7 @@ export default function App() {
                       style={styles.eventRow}
                       onClick={() => setSelectedEvent(e)}
                     >
-                      <span style={styles.eventDateCell}>{e.date}</span>
+                      <span style={styles.eventDateCell}>{formatShortDate(e.date)}</span>
                       <span style={styles.eventNameCell}>
                         {e.ruleName}
                         {e.isOverridden && " *"}
@@ -420,9 +369,7 @@ export default function App() {
                         style={{
                           ...styles.eventAmountCell,
                           color:
-                            e.effectiveAmount >= 0
-                              ? "#4ade80"
-                              : "#f97373",
+                            e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
                           fontWeight: 600,
                         }}
                       >
@@ -437,7 +384,8 @@ export default function App() {
                   );
                 })}
               </>
-            )}          </div>
+            )}
+          </div>
         </>
       )}
 
@@ -501,9 +449,21 @@ function formatMoney(amount: number): string {
   });
 }
 
+
+
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const parts = value.split("-");
+  if (parts.length !== 3) return value;
+  const [year, month, day] = parts;
+  if (!year || !month || !day) return value;
+  const shortYear = year.length === 4 ? year.slice(2) : year;
+  return `${month}/${day}/${shortYear}`;
+}
+
 const styles: Record<string, any> = {
   container: {
-    maxWidth: 480,
+    maxWidth: 520,
     margin: "0 auto",
     padding: 16,
     fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
@@ -663,6 +623,7 @@ const styles: Record<string, any> = {
     borderColor: "rgba(248, 113, 113, 0.8)",
     color: "#fecaca",
   },
+
   eventHeaderRow: {
     display: "flex",
     alignItems: "baseline",
@@ -677,23 +638,20 @@ const styles: Record<string, any> = {
     color: "#9ca3af",
   },
   eventDateCell: {
-    flex: "0 0 72px",
+    flex: "0 0 90px",
     textAlign: "left",
-    whiteSpace: "nowrap",
   },
   eventNameCell: {
     flex: "1 1 auto",
     textAlign: "left",
   },
   eventAmountCell: {
-    flex: "0 0 80px",
+    flex: "0 0 110px",
     textAlign: "right",
-    whiteSpace: "nowrap",
   },
   eventBalanceCell: {
-    flex: "0 0 90px",
+    flex: "0 0 120px",
     textAlign: "right",
-    whiteSpace: "nowrap",
   },
   eventRow: {
     display: "flex",
@@ -704,41 +662,5 @@ const styles: Record<string, any> = {
     borderBottom: "1px dashed #1f2933",
     marginBottom: 8,
     cursor: "pointer",
-  },
-  eventRowNarrow: {
-    borderBottom: "1px dashed #1f2933",
-    paddingBottom: 8,
-    marginBottom: 8,
-    cursor: "pointer",
-  },
-  eventRowNarrowTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 8,
-    marginBottom: 4,
-    fontSize: 13,
-  },
-  eventRowNarrowBottom: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 8,
-    fontSize: 13,
-  },
-  eventDateNarrow: {
-    fontSize: 12,
-    color: "#9ca3af",
-    whiteSpace: "nowrap",
-  },
-  eventNameNarrow: {
-    flex: 1,
-    textAlign: "right",
-  },
-  eventAmountNarrow: {
-    whiteSpace: "nowrap",
-    fontWeight: 600,
-  },
-  eventBalanceNarrow: {
-    whiteSpace: "nowrap",
-    color: "#9ca3af",
   },
 };
