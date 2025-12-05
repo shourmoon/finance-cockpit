@@ -15,6 +15,8 @@ import MortgageTab from "./components/MortgageTab";
 // same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
 import { formatDate } from "./utils/dates";
 
+import { getOrCreateSharedKey, setSharedKeyFromUserInput } from "./domain/identity/sharedKey";
+
 // A tiny wrapper around the native date input that displays the chosen
 // date underneath in the product's human–friendly format.  This mirrors
 // the behaviour used in the Mortgage tab so that users always see
@@ -74,6 +76,15 @@ export default function App() {
     state.settings.startDate
   );
   const [mortgageExtraPayment, setMortgageExtraPayment] = useState(0);
+
+  const [syncKey, setSyncKey] = useState<string | null>(null);
+  const [showFullKey, setShowFullKey] = useState(false);
+  const [pastedKey, setPastedKey] = useState("");
+
+  useEffect(() => {
+    const key = getOrCreateSharedKey();
+    setSyncKey(key);
+  }, []);
 
   const { metrics, events, timeline } = runCashflowProjection(state);
   const safe = computeSafeToSpend(state);
@@ -292,6 +303,77 @@ export default function App() {
               </div>
             ))}
           </div>
+
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>Sync &amp; Backup</h3>
+            <p style={styles.syncCopy}>
+              Use this sync key to link Finance Cockpit across your devices.
+              For now it only lives in this browser, but once a backend is
+              connected any device with the same key will share the same data.
+            </p>
+
+            <div style={styles.syncRow}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.syncLabel}>Your sync key</div>
+                <div style={styles.syncKeyBox}>
+                  {showFullKey ? syncKey ?? "—" : maskKeyForDisplay(syncKey)}
+                </div>
+              </div>
+              <div style={styles.syncActions}>
+                <button
+                  type="button"
+                  style={styles.syncSecondaryButton}
+                  onClick={() => setShowFullKey((v) => !v)}
+                >
+                  {showFullKey ? "Hide" : "Show"}
+                </button>
+                <button
+                  type="button"
+                  style={styles.syncPrimaryButton}
+                  onClick={async () => {
+                    if (!syncKey || typeof navigator === "undefined" || !navigator.clipboard) {
+                      return;
+                    }
+                    try {
+                      await navigator.clipboard.writeText(syncKey);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+
+            <div style={styles.syncRow}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.syncLabel}>Use sync key from another device</div>
+                <input
+                  type="text"
+                  placeholder="Paste sync key here"
+                  value={pastedKey}
+                  onChange={(e) => setPastedKey(e.target.value)}
+                  style={styles.syncInput}
+                />
+              </div>
+              <div style={styles.syncActions}>
+                <button
+                  type="button"
+                  style={styles.syncPrimaryButton}
+                  onClick={() => {
+                    if (!pastedKey.trim()) return;
+                    setSharedKeyFromUserInput(pastedKey);
+                    setSyncKey(pastedKey.trim());
+                    // In a future version we may also trigger a reload from
+                    // remote here once the backend is wired up.
+                  }}
+                >
+                  Use key
+                </button>
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -447,6 +529,15 @@ export default function App() {
     </div>
   );
 }
+
+function maskKeyForDisplay(key: string | null): string {
+  if (!key) return "";
+  if (key.length <= 10) return key;
+  const start = key.slice(0, 4);
+  const end = key.slice(-4);
+  return `${start}…${end}`;
+}
+
 
 function formatMoney(amount: number): string {
   if (!Number.isFinite(amount)) return "$0.00";
@@ -635,6 +726,65 @@ const styles: Record<string, any> = {
     backgroundColor: "rgba(220, 38, 38, 0.15)",
     borderColor: "rgba(248, 113, 113, 0.8)",
     color: "#fecaca",
+  },
+  syncCopy: {
+    fontSize: 12,
+    color: "#9ca3af",
+    marginBottom: 12,
+    lineHeight: 1.5,
+  },
+  syncRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+    marginTop: 8,
+  },
+  syncLabel: {
+    fontSize: 12,
+    color: "#a1a1aa",
+    marginBottom: 4,
+  },
+  syncKeyBox: {
+    padding: 8,
+    borderRadius: 8,
+    border: "1px dashed #3f3f46",
+    background: "#18181b",
+    fontSize: 12,
+    wordBreak: "break-all",
+  },
+  syncActions: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  syncPrimaryButton: {
+    padding: "4px 10px",
+    fontSize: 12,
+    borderRadius: 999,
+    border: "none",
+    background: "#22c55e",
+    color: "#022c22",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  syncSecondaryButton: {
+    padding: "4px 10px",
+    fontSize: 12,
+    borderRadius: 999,
+    border: "1px solid #4b5563",
+    background: "transparent",
+    color: "#e5e7eb",
+    whiteSpace: "nowrap",
+  },
+  syncInput: {
+    width: "100%",
+    padding: 8,
+    fontSize: 13,
+    borderRadius: 8,
+    border: "1px solid #4b5563",
+    background: "#18181b",
+    color: "#e4e4e7",
   },
   eventHeaderRow: {
     display: "flex",
