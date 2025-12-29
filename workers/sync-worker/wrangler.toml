@@ -1,0 +1,7 @@
+name = "finance-cockpit-sync"
+main = "index.ts"
+compatibility_date = "2025-01-01"
+
+kv_namespaces = [
+  { binding = "SYNC_KV", id = "ed591d6a45824c21aa18efd2911f8e95", preview_id = "8e61e5a3f8354a6ca9baca6ce110afc0" }
+]

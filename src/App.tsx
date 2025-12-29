@@ -11,6 +11,10 @@ import type {
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
 import MortgageTab from "./components/MortgageTab";
+// Import the SyncSection UI for cross-device synchronisation. This
+// component exposes a form to enter a sync key and trigger sync
+// operations. See src/components/SyncSection.tsx for details.
+import SyncSection from "./components/SyncSection";
 // Import a common date formatter to ensure all dates in the UI follow the
 // same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
 import { formatDate } from "./utils/dates";
@@ -292,6 +296,11 @@ export default function App() {
               </div>
             ))}
           </div>
+
+          {/* Sync & Multi-Device section: placed at the end of the
+              settings tab so users can configure synchronisation after
+              setting up their basic data. */}
+          <SyncSection />
         </>
       )}
 
