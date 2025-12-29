@@ -1,20 +1,19 @@
 // workers/sync-worker/index.ts
 //
 // Cloudflare Worker implementing a simple state synchronisation API for
-// Finance Cockpit. This worker exposes two endpoints:
+// Finance Cockpit.
+//
+// Endpoints:
 //   GET  /state?key=<sharedKey> → returns the current snapshot
 //   PUT  /state?key=<sharedKey> with JSON body { app_state, mortgage_ui, prev_updated_at? }
 //       → writes a new snapshot and returns { updated_at }
 //
-// The snapshot is stored in a KV namespace bound to this worker.
-// The binding name must match KV_BINDING_NAME below.
+// CORS: permissive (SPA usage). Handles OPTIONS preflight.
 //
-// This worker implements optimistic concurrency for PUT when
-// prev_updated_at is provided. If the stored updated_at does not match,
-// the worker responds with HTTP 409 (Conflict).
-//
-// CORS: This worker is intended to be called from a browser-hosted SPA,
-// so it includes permissive CORS headers and handles OPTIONS preflight.
+// Security (PIN-gated):
+//   - Client must send header: X-Sync-Pin = sha256(pin) (hex string)
+//   - The worker stores the first-seen pin hash per sharedKey and enforces it for all future requests.
+//   - Without correct pin, responds 401.
 
 export interface SnapshotPayload {
   app_state: any;
@@ -28,15 +27,14 @@ export interface StoredSnapshot {
   updated_at: string;
 }
 
-// Change this if you bind a different KV namespace name in your
-// wrangler.toml. For example: [[kv_namespaces]] binding = "SYNC_KV".
 const KV_BINDING_NAME = "SYNC_KV";
+const PIN_HEADER = "x-sync-pin";
 
 function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-Sync-Pin",
   };
 }
 
@@ -57,17 +55,63 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-async function loadSnapshot(env: any, key: string): Promise<StoredSnapshot | null> {
+function getKv(env: any): any {
   const kv = (env as any)[KV_BINDING_NAME];
   if (!kv) throw new Error(`KV namespace '${KV_BINDING_NAME}' not bound`);
+  return kv;
+}
+
+async function loadSnapshot(env: any, key: string): Promise<StoredSnapshot | null> {
+  const kv = getKv(env);
   const raw = await kv.get(key, { type: "json" });
   return raw as StoredSnapshot | null;
 }
 
 async function saveSnapshot(env: any, key: string, value: StoredSnapshot): Promise<void> {
-  const kv = (env as any)[KV_BINDING_NAME];
-  if (!kv) throw new Error(`KV namespace '${KV_BINDING_NAME}' not bound`);
+  const kv = getKv(env);
   await kv.put(key, JSON.stringify(value));
+}
+
+function pinKey(sharedKey: string): string {
+  return `${sharedKey}:pin`;
+}
+
+async function getStoredPinHash(env: any, sharedKey: string): Promise<string | null> {
+  const kv = getKv(env);
+  const val = await kv.get(pinKey(sharedKey));
+  return typeof val === "string" && val.length > 0 ? val : null;
+}
+
+async function setStoredPinHash(env: any, sharedKey: string, pinHash: string): Promise<void> {
+  const kv = getKv(env);
+  await kv.put(pinKey(sharedKey), pinHash);
+}
+
+function readPinHashFromRequest(request: Request): string | null {
+  const v = request.headers.get(PIN_HEADER) ?? request.headers.get("X-Sync-Pin");
+  if (!v) return null;
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function requirePin(env: any, sharedKey: string, request: Request): Promise<Response | null> {
+  const provided = readPinHashFromRequest(request);
+  if (!provided) {
+    return withCors(new Response("Missing X-Sync-Pin", { status: 401 }));
+  }
+
+  const stored = await getStoredPinHash(env, sharedKey);
+  if (!stored) {
+    // First use: bind this sharedKey to the provided pin hash.
+    await setStoredPinHash(env, sharedKey, provided);
+    return null;
+  }
+
+  if (stored !== provided) {
+    return withCors(new Response("Unauthorized", { status: 401 }));
+  }
+
+  return null;
 }
 
 export default {
@@ -87,6 +131,10 @@ export default {
     if (!sharedKey) {
       return withCors(new Response("Missing key parameter", { status: 400 }));
     }
+
+    // PIN gate
+    const pinCheck = await requirePin(env, sharedKey, request);
+    if (pinCheck) return pinCheck;
 
     if (request.method === "GET") {
       const current = await loadSnapshot(env, sharedKey);
@@ -115,20 +163,17 @@ export default {
 
       const current = await loadSnapshot(env, sharedKey);
 
-      // Optimistic concurrency: if current exists and prev_updated_at was supplied,
-      // require it to match or reject with 409.
+      // Optimistic concurrency: if current exists and prev_updated_at was supplied, require match.
       if (current && payload.prev_updated_at && current.updated_at !== payload.prev_updated_at) {
         return withCors(new Response("Conflict", { status: 409 }));
       }
 
       const now = new Date().toISOString();
-      const toStore: StoredSnapshot = {
+      await saveSnapshot(env, sharedKey, {
         app_state: payload.app_state,
         mortgage_ui: payload.mortgage_ui,
         updated_at: now,
-      };
-
-      await saveSnapshot(env, sharedKey, toStore);
+      });
 
       return json({ updated_at: now }, 200);
     }
