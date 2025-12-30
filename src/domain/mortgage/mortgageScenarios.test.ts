@@ -320,4 +320,34 @@ describe("mortgage scenarios engine", () => {
       m.interestSavedVsBaseline
     );
   });
+
+  it("handles a monthly nth-weekday pattern (e.g. first Monday)", () => {
+    const scenarios = [
+      {
+        id: "s-nth-weekday",
+        name: "First Monday 100",
+        description: "",
+        active: true,
+        patterns: [
+          {
+            id: "p1",
+            label: "100 on first Monday",
+            kind: "monthly" as const,
+            amount: 100,
+            startDate: baseContext.asOfDate,
+            dayOfMonthStrategy: "nth-weekday" as const,
+            nthWeekday: 1,
+            weekday: 1, // Monday
+          },
+        ],
+      },
+    ];
+
+    const result = runMortgageScenarios(baseContext, scenarios);
+    const s = result.scenarios[0];
+
+    expect(s.totalInterest).toBeLessThan(result.actual.totalInterest);
+    expect(s.monthsSavedVsActual).toBeGreaterThan(0);
+    expect(s.interestSavedVsActual).toBeGreaterThan(0);
+  });
 });

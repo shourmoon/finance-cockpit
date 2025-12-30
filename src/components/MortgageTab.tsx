@@ -648,7 +648,8 @@ export default function MortgageTab() {
               }
             >
               <option value="same-as-due-date">Due date</option>
-              <option value="specific-day">Day</option>
+              <option value="specific-day">Day of month</option>
+              <option value="nth-weekday">Nth weekday</option>
             </select>
             {p.dayOfMonthStrategy === "specific-day" && (
               <input
@@ -674,6 +675,52 @@ export default function MortgageTab() {
                   });
                 }}
               />
+            )}
+            {p.dayOfMonthStrategy === "nth-weekday" && (
+              <>
+                <input
+                  style={styles.scenarioPatternSmallInput}
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={p.nthWeekday ?? ""}
+                  placeholder="Nth"
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (!raw) {
+                      updateScenarioPattern(scenarioId, p.id, {
+                        nthWeekday: undefined,
+                      });
+                      return;
+                    }
+                    let n = Number(raw);
+                    if (!Number.isFinite(n)) n = 1;
+                    n = Math.min(5, Math.max(1, Math.floor(n)));
+                    updateScenarioPattern(scenarioId, p.id, {
+                      nthWeekday: n,
+                    });
+                  }}
+                />
+                <select
+                  style={styles.scenarioPatternSelect}
+                  value={p.weekday ?? 1}
+                  onChange={(e) => {
+                    let v = Number(e.target.value);
+                    if (!Number.isFinite(v)) v = 1;
+                    updateScenarioPattern(scenarioId, p.id, {
+                      weekday: v,
+                    });
+                  }}
+                >
+                  <option value={1}>Mon</option>
+                  <option value={2}>Tue</option>
+                  <option value={3}>Wed</option>
+                  <option value={4}>Thu</option>
+                  <option value={5}>Fri</option>
+                  <option value={6}>Sat</option>
+                  <option value={7}>Sun</option>
+                </select>
+              </>
             )}
           </div>
           <button

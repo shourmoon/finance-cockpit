@@ -64,8 +64,29 @@ export interface MonthlyScenarioPattern extends BaseScenarioPattern {
   kind: "monthly";
   startDate: ISODate; // first month to apply
   untilDate?: ISODate; // last month (inclusive), optional
-  dayOfMonthStrategy: "same-as-due-date" | "specific-day";
+  /**
+   * Strategy for selecting the day within each month when the extra payment applies.
+   *
+   *  - "same-as-due-date": use the mortgage's contractual due date (baseline schedule date) for each month.
+   *  - "specific-day": use a specific day-of-month (1–28), set via `specificDayOfMonth`.
+   *  - "nth-weekday": use the nth occurrence of a weekday within the month (e.g. 2nd Monday).
+   */
+  dayOfMonthStrategy: "same-as-due-date" | "specific-day" | "nth-weekday";
+  /** Specific day-of-month (1–28) when using the "specific-day" strategy. */
   specificDayOfMonth?: number; // 1–28 when using "specific-day"
+  /**
+   * When using the "nth-weekday" strategy, the ordinal (1–5) of the weekday
+   * within the month. For example, 1 means the first occurrence of the
+   * weekday, 2 means the second, and so on. Values beyond the number of
+   * occurrences in a month will fall back to the last occurrence.
+   */
+  nthWeekday?: number;
+  /**
+   * When using the "nth-weekday" strategy, the target weekday (1–7) where
+   * 1=Monday, 2=Tuesday, …, 7=Sunday. The date utility functions will
+   * convert this into the JavaScript day-of-week (0–6, Sunday–Saturday) as needed.
+   */
+  weekday?: number;
 }
 
 /**
@@ -273,26 +294,61 @@ function buildExtraByDateMap(
 
       case "monthly": {
         const p = pattern as MonthlyScenarioPattern;
+        // Determine the effective start date for the pattern (cannot start before as-of).
         const start = p.startDate && compareIsoDates(p.startDate, asOfDate) > 0
           ? p.startDate
           : asOfDate;
 
-        // Use baseline dates to know which months exist.
+        // Loop through each month in the baseline schedule to determine dates.
         for (const entry of baselineSchedule) {
+          // Skip dates on or before the start; only future dates apply.
           if (compareIsoDates(entry.date, start) <= 0) continue;
           if (compareIsoDates(entry.date, payoffDate) > 0) break;
 
           let targetDate: ISODate;
+
           if (p.dayOfMonthStrategy === "same-as-due-date") {
+            // Use the due date from the baseline schedule for this month.
             targetDate = entry.date;
-          } else {
+          } else if (p.dayOfMonthStrategy === "specific-day") {
+            // Use a specific day-of-month (1–28) or fall back to dueDay.
             const [yStr, mStr] = entry.date.split("-");
             const y = Number(yStr);
             const m = Number(mStr);
             const day = p.specificDayOfMonth ?? dueDay;
             targetDate = clampDay(y, m, day);
+          } else if (p.dayOfMonthStrategy === "nth-weekday") {
+            // Use the nth occurrence of a weekday in the month.
+            const [yStr, mStr] = entry.date.split("-");
+            const y = Number(yStr);
+            const m = Number(mStr);
+            const nth = p.nthWeekday ?? 1;
+            let weekday = p.weekday ?? 1; // 1=Monday by default
+            // Convert to JS day-of-week: 0=Sunday,1=Monday,...6=Saturday
+            const targetDow = (weekday % 7);
+
+            // Compute the day number of the nth weekday in the month.
+            // Determine first day-of-month and its weekday.
+            const firstDay = new Date(Date.UTC(y, m - 1, 1));
+            const firstDow = firstDay.getUTCDay();
+            let offset = targetDow - firstDow;
+            if (offset < 0) offset += 7;
+            let dateNum = 1 + offset + (nth - 1) * 7;
+            const lastDayOfMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+            if (dateNum > lastDayOfMonth) {
+              dateNum -= 7;
+            }
+            // Clamp again just to be safe.
+            if (dateNum < 1) dateNum = 1;
+            const dStr = String(dateNum).padStart(2, "0");
+            const mStrPad = String(m).padStart(2, "0");
+            targetDate = `${y}-${mStrPad}-${dStr}` as ISODate;
+          } else {
+            // Unrecognised strategy: default to baseline due date.
+            targetDate = entry.date;
           }
 
+          // If untilDate is specified, skip beyond it.
           if (p.untilDate && compareIsoDates(targetDate, p.untilDate) > 0) {
             continue;
           }
