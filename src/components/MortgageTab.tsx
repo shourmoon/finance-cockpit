@@ -135,6 +135,126 @@ function DateInputWithDisplay({
   );
 }
 
+// A helper that combines a label with a date input.  It uses the
+// DateInputWithDisplay component internally and displays the label
+// above the input to clearly communicate the purpose of the field.
+function LabeledDateInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+      <span style={{ fontSize: 11, color: "#a1a1aa", marginBottom: 2 }}>{label}</span>
+      <DateInputWithDisplay
+        value={value}
+        onChange={onChange}
+        inputStyle={{
+          borderRadius: 6,
+          border: "1px solid #27272a",
+          padding: "4px 6px",
+          backgroundColor: "#020617",
+          color: "#e4e4e7",
+          fontSize: 11,
+        }}
+      />
+    </div>
+  );
+}
+
+// A helper for labelled numeric inputs. It uses a simple input of type
+// number but accepts comma separated strings and passes the parsed
+// number back to callers. The component does not enforce any
+// particular currency formatting on input – callers should handle
+// formatting on display if desired.
+function LabeledNumberInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  min,
+  step,
+}: {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  min?: number;
+  step?: number;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+      <span style={{ fontSize: 11, color: "#a1a1aa", marginBottom: 2 }}>{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        min={min}
+        step={step}
+        style={{
+          borderRadius: 6,
+          border: "1px solid #27272a",
+          padding: "4px 6px",
+          backgroundColor: "#020617",
+          color: "#e4e4e7",
+          fontSize: 11,
+        }}
+      />
+    </div>
+  );
+}
+
+// Generic container card for each section of the mortgage tab.  It
+// accepts a title and optional subtitle.  Children are rendered
+// inside a padded container.  Cards use a consistent dark
+// background with subtle borders and shadows to match the overall
+// dashboard aesthetic.  On narrow screens the card spans the full
+// width of the view.
+function SectionCard({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        borderRadius: 12,
+        padding: 16,
+        background: "linear-gradient(145deg, rgba(24, 24, 27, 0.98), rgba(9, 9, 11, 0.98))",
+        border: "1px solid #27272a",
+        boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)",
+        marginBottom: 24,
+        width: "100%",
+      }}
+    >
+      <h3
+        style={{
+          margin: 0,
+          marginBottom: subtitle ? 4 : 12,
+          fontSize: 16,
+          fontWeight: 600,
+          color: "#f4f4f5",
+        }}
+      >
+        {title}
+      </h3>
+      {subtitle && (
+        <div style={{ fontSize: 12, color: "#a1a1aa", marginBottom: 12 }}>{subtitle}</div>
+      )}
+      <div>{children}</div>
+    </div>
+  );
+}
+
 // Generate a pseudo unique identifier based on random and timestamp.
 function uuid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -551,41 +671,15 @@ export default function MortgageTab() {
   ) {
     const onDelete = () => deleteScenarioPattern(scenarioId, pattern.id);
 
-    if (pattern.kind === "oneTime") {
-      const p = pattern as OneTimeScenarioPattern;
+    // A common header row for each pattern card.  Shows the kind chip
+    // on the left and a delete button on the right.  This header
+    // appears at the top of each pattern card regardless of type.
+    function PatternHeader({ kind }: { kind: string }) {
       return (
-        <div key={pattern.id} style={styles.scenarioPatternRow}>
-          <span style={styles.patternKindChip}>One-time</span>
-          <input
-            style={styles.scenarioPatternLabelInput}
-            type="text"
-            value={p.label}
-            placeholder="Label"
-            onChange={(e) =>
-              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-            }
-          />
-          <input
-            style={styles.scenarioPatternAmountInput}
-            type="text"
-            value={p.amount ? p.amount.toString() : ""}
-            placeholder="0"
-            onChange={(e) => {
-              const n = parseNumber(e.target.value) ?? 0;
-              updateScenarioPattern(scenarioId, p.id, { amount: n });
-            }}
-          />
-          <div style={styles.patternDatesGroup}>
-            <DateInputWithDisplay
-              value={p.date}
-              onChange={(val) =>
-                updateScenarioPattern(scenarioId, p.id, { date: val })
-              }
-              inputStyle={styles.scenarioPatternDateInput}
-            />
-          </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={styles.patternTypeChip}>{kind}</span>
           <button
-            style={styles.scenarioPatternDeleteButton}
+            style={styles.patternDeleteButton}
             onClick={onDelete}
           >
             ✕
@@ -594,51 +688,109 @@ export default function MortgageTab() {
       );
     }
 
+    // For one‑time patterns, display a card with label, amount and date.
+    if (pattern.kind === "oneTime") {
+      const p = pattern as OneTimeScenarioPattern;
+      return (
+        <div key={pattern.id} style={styles.patternCard}>
+          <PatternHeader kind="One‑time" />
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Label</span>
+            <input
+              style={styles.fieldControl}
+              type="text"
+              value={p.label}
+              placeholder="Description"
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+              }
+            />
+          </div>
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Amount</span>
+            <input
+              style={{ ...styles.fieldControl, textAlign: "right" }}
+              type="text"
+              value={p.amount ? p.amount.toString() : ""}
+              placeholder="0"
+              onChange={(e) => {
+                const n = parseNumber(e.target.value) ?? 0;
+                updateScenarioPattern(scenarioId, p.id, { amount: n });
+              }}
+            />
+          </div>
+          <div style={styles.fieldRow}>
+            <LabeledDateInput
+              label="Date"
+              value={p.date}
+              onChange={(val) =>
+                updateScenarioPattern(scenarioId, p.id, { date: val })
+              }
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Monthly patterns: support start, until and cadence options in a
+    // vertical layout with labelled fields.  Extra fields for
+    // specific day and nth weekday are shown conditionally.
     if (pattern.kind === "monthly") {
       const p = pattern as MonthlyScenarioPattern;
       return (
-        <div key={pattern.id} style={styles.scenarioPatternRow}>
-          <span style={styles.patternKindChip}>Monthly</span>
-          <input
-            style={styles.scenarioPatternLabelInput}
-            type="text"
-            value={p.label}
-            placeholder="Label"
-            onChange={(e) =>
-              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-            }
-          />
-          <input
-            style={styles.scenarioPatternAmountInput}
-            type="text"
-            value={p.amount ? p.amount.toString() : ""}
-            placeholder="0"
-            onChange={(e) => {
-              const n = parseNumber(e.target.value) ?? 0;
-              updateScenarioPattern(scenarioId, p.id, { amount: n });
-            }}
-          />
-          <div style={styles.patternDatesGroup}>
-            <DateInputWithDisplay
+        <div key={pattern.id} style={styles.patternCard}>
+          <PatternHeader kind="Monthly" />
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Label</span>
+            <input
+              style={styles.fieldControl}
+              type="text"
+              value={p.label}
+              placeholder="Description"
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+              }
+            />
+          </div>
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Amount</span>
+            <input
+              style={{ ...styles.fieldControl, textAlign: "right" }}
+              type="text"
+              value={p.amount ? p.amount.toString() : ""}
+              placeholder="0"
+              onChange={(e) => {
+                const n = parseNumber(e.target.value) ?? 0;
+                updateScenarioPattern(scenarioId, p.id, { amount: n });
+              }}
+            />
+          </div>
+          <div style={styles.fieldRow}>
+            <LabeledDateInput
+              label="Start date"
               value={p.startDate}
               onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
                   startDate: val,
                 })
               }
-              inputStyle={styles.scenarioPatternDateInput}
             />
-            <DateInputWithDisplay
+          </div>
+          <div style={styles.fieldRow}>
+            <LabeledDateInput
+              label="Until (optional)"
               value={p.untilDate ?? ""}
               onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
                   untilDate: val || undefined,
                 })
               }
-              inputStyle={styles.scenarioPatternDateInput}
             />
+          </div>
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Cadence</span>
             <select
-              style={styles.scenarioPatternSelect}
+              style={styles.fieldControl}
               value={p.dayOfMonthStrategy}
               onChange={(e) =>
                 updateScenarioPattern(scenarioId, p.id, {
@@ -651,9 +803,12 @@ export default function MortgageTab() {
               <option value="specific-day">Day of month</option>
               <option value="nth-weekday">Nth weekday</option>
             </select>
-            {p.dayOfMonthStrategy === "specific-day" && (
+          </div>
+          {p.dayOfMonthStrategy === "specific-day" && (
+            <div style={styles.fieldRow}>
+              <span style={styles.fieldLabel}>Day of month</span>
               <input
-                style={styles.scenarioPatternSmallInput}
+                style={styles.fieldControl}
                 type="number"
                 min={1}
                 max={28}
@@ -675,11 +830,14 @@ export default function MortgageTab() {
                   });
                 }}
               />
-            )}
-            {p.dayOfMonthStrategy === "nth-weekday" && (
-              <>
+            </div>
+          )}
+          {p.dayOfMonthStrategy === "nth-weekday" && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                <span style={styles.fieldLabel}>Nth</span>
                 <input
-                  style={styles.scenarioPatternSmallInput}
+                  style={styles.fieldControl}
                   type="number"
                   min={1}
                   max={5}
@@ -701,8 +859,11 @@ export default function MortgageTab() {
                     });
                   }}
                 />
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                <span style={styles.fieldLabel}>Weekday</span>
                 <select
-                  style={styles.scenarioPatternSelect}
+                  style={styles.fieldControl}
                   value={p.weekday ?? 1}
                   onChange={(e) => {
                     let v = Number(e.target.value);
@@ -720,173 +881,187 @@ export default function MortgageTab() {
                   <option value={6}>Sat</option>
                   <option value={7}>Sun</option>
                 </select>
-              </>
-            )}
-          </div>
-          <button
-            style={styles.scenarioPatternDeleteButton}
-            onClick={onDelete}
-          >
-            ✕
-          </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
 
+    // Annual patterns: choose month, day and year range in a vertical layout.
     if (pattern.kind === "yearly") {
       const p = pattern as YearlyScenarioPattern;
       return (
-        <div key={pattern.id} style={styles.scenarioPatternRow}>
-          <span style={styles.patternKindChip}>Annual</span>
-          <input
-            style={styles.scenarioPatternLabelInput}
-            type="text"
-            value={p.label}
-            placeholder="Label"
-            onChange={(e) =>
-              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-            }
-          />
-          <input
-            style={styles.scenarioPatternAmountInput}
-            type="text"
-            value={p.amount ? p.amount.toString() : ""}
-            placeholder="0"
-            onChange={(e) => {
-              const n = parseNumber(e.target.value) ?? 0;
-              updateScenarioPattern(scenarioId, p.id, { amount: n });
-            }}
-          />
-          <div style={styles.patternDatesGroup}>
+        <div key={pattern.id} style={styles.patternCard}>
+          <PatternHeader kind="Annual" />
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Label</span>
             <input
-              style={styles.scenarioPatternSmallInput}
-              type="number"
-              min={1}
-              max={12}
-              value={p.month}
-              placeholder="M"
-              onChange={(e) => {
-                let n = Number(e.target.value);
-                if (!Number.isFinite(n)) n = 1;
-                n = Math.min(12, Math.max(1, Math.floor(n)));
-                updateScenarioPattern(scenarioId, p.id, { month: n });
-              }}
+              style={styles.fieldControl}
+              type="text"
+              value={p.label}
+              placeholder="Description"
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+              }
             />
+          </div>
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Amount</span>
             <input
-              style={styles.scenarioPatternSmallInput}
-              type="number"
-              min={1}
-              max={31}
-              value={p.day}
-              placeholder="D"
+              style={{ ...styles.fieldControl, textAlign: "right" }}
+              type="text"
+              value={p.amount ? p.amount.toString() : ""}
+              placeholder="0"
               onChange={(e) => {
-                let n = Number(e.target.value);
-                if (!Number.isFinite(n)) n = 1;
-                n = Math.min(31, Math.max(1, Math.floor(n)));
-                updateScenarioPattern(scenarioId, p.id, { day: n });
-              }}
-            />
-            <input
-              style={styles.scenarioPatternYearInput}
-              type="number"
-              value={p.firstYear}
-              placeholder="From"
-              onChange={(e) => {
-                let n = Number(e.target.value);
-                if (!Number.isFinite(n)) n = new Date().getFullYear();
-                n = Math.floor(n);
-                updateScenarioPattern(scenarioId, p.id, { firstYear: n });
-              }}
-            />
-            <input
-              style={styles.scenarioPatternYearInput}
-              type="number"
-              value={p.lastYear ?? ""}
-              placeholder="To"
-              onChange={(e) => {
-                const raw = e.target.value;
-                if (!raw) {
-                  updateScenarioPattern(scenarioId, p.id, {
-                    lastYear: undefined,
-                  });
-                  return;
-                }
-                let n = Number(raw);
-                if (!Number.isFinite(n)) n = p.firstYear;
-                n = Math.floor(n);
-                updateScenarioPattern(scenarioId, p.id, { lastYear: n });
+                const n = parseNumber(e.target.value) ?? 0;
+                updateScenarioPattern(scenarioId, p.id, { amount: n });
               }}
             />
           </div>
-          <button
-            style={styles.scenarioPatternDeleteButton}
-            onClick={onDelete}
-          >
-            ✕
-          </button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <span style={styles.fieldLabel}>Month (1‑12)</span>
+              <input
+                style={styles.fieldControl}
+                type="number"
+                min={1}
+                max={12}
+                value={p.month}
+                placeholder="M"
+                onChange={(e) => {
+                  let n = Number(e.target.value);
+                  if (!Number.isFinite(n)) n = 1;
+                  n = Math.min(12, Math.max(1, Math.floor(n)));
+                  updateScenarioPattern(scenarioId, p.id, { month: n });
+                }}
+              />
+            </div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <span style={styles.fieldLabel}>Day (1‑31)</span>
+              <input
+                style={styles.fieldControl}
+                type="number"
+                min={1}
+                max={31}
+                value={p.day}
+                placeholder="D"
+                onChange={(e) => {
+                  let n = Number(e.target.value);
+                  if (!Number.isFinite(n)) n = 1;
+                  n = Math.min(31, Math.max(1, Math.floor(n)));
+                  updateScenarioPattern(scenarioId, p.id, { day: n });
+                }}
+              />
+            </div>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <span style={styles.fieldLabel}>From year</span>
+              <input
+                style={styles.fieldControl}
+                type="number"
+                value={p.firstYear}
+                placeholder="From"
+                onChange={(e) => {
+                  let n = Number(e.target.value);
+                  if (!Number.isFinite(n)) n = new Date().getFullYear();
+                  n = Math.floor(n);
+                  updateScenarioPattern(scenarioId, p.id, { firstYear: n });
+                }}
+              />
+            </div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <span style={styles.fieldLabel}>To year (optional)</span>
+              <input
+                style={styles.fieldControl}
+                type="number"
+                value={p.lastYear ?? ""}
+                placeholder="To"
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (!raw) {
+                    updateScenarioPattern(scenarioId, p.id, {
+                      lastYear: undefined,
+                    });
+                    return;
+                  }
+                  let n = Number(raw);
+                  if (!Number.isFinite(n)) n = p.firstYear;
+                  n = Math.floor(n);
+                  updateScenarioPattern(scenarioId, p.id, { lastYear: n });
+                }}
+              />
+            </div>
+          </div>
         </div>
       );
     }
 
+    // Biweekly patterns: specify anchor, start and until dates.
     if (pattern.kind === "biweekly") {
       const p = pattern as BiweeklyScenarioPattern;
       return (
-        <div key={pattern.id} style={styles.scenarioPatternRow}>
-          <span style={styles.patternKindChip}>Biweekly</span>
-          <input
-            style={styles.scenarioPatternLabelInput}
-            type="text"
-            value={p.label}
-            placeholder="Label"
-            onChange={(e) =>
-              updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-            }
-          />
-          <input
-            style={styles.scenarioPatternAmountInput}
-            type="text"
-            value={p.amount ? p.amount.toString() : ""}
-            placeholder="0"
-            onChange={(e) => {
-              const n = parseNumber(e.target.value) ?? 0;
-              updateScenarioPattern(scenarioId, p.id, { amount: n });
-            }}
-          />
-          <div style={styles.patternDatesGroup}>
-            <DateInputWithDisplay
+        <div key={pattern.id} style={styles.patternCard}>
+          <PatternHeader kind="Biweekly" />
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Label</span>
+            <input
+              style={styles.fieldControl}
+              type="text"
+              value={p.label}
+              placeholder="Description"
+              onChange={(e) =>
+                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
+              }
+            />
+          </div>
+          <div style={styles.fieldRow}>
+            <span style={styles.fieldLabel}>Amount</span>
+            <input
+              style={{ ...styles.fieldControl, textAlign: "right" }}
+              type="text"
+              value={p.amount ? p.amount.toString() : ""}
+              placeholder="0"
+              onChange={(e) => {
+                const n = parseNumber(e.target.value) ?? 0;
+                updateScenarioPattern(scenarioId, p.id, { amount: n });
+              }}
+            />
+          </div>
+          <div style={styles.fieldRow}>
+            <LabeledDateInput
+              label="Anchor date"
               value={p.anchorDate}
               onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
                   anchorDate: val,
                 })
               }
-              inputStyle={styles.scenarioPatternDateInput}
             />
-            <DateInputWithDisplay
+          </div>
+          <div style={styles.fieldRow}>
+            <LabeledDateInput
+              label="Start (optional)"
               value={p.startDate ?? ""}
               onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
                   startDate: val || undefined,
                 })
               }
-              inputStyle={styles.scenarioPatternDateInput}
             />
-            <DateInputWithDisplay
+          </div>
+          <div style={styles.fieldRow}>
+            <LabeledDateInput
+              label="Until (optional)"
               value={p.untilDate ?? ""}
               onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
                   untilDate: val || undefined,
                 })
               }
-              inputStyle={styles.scenarioPatternDateInput}
             />
           </div>
-          <button
-            style={styles.scenarioPatternDeleteButton}
-            onClick={onDelete}
-          >
-            ✕
-          </button>
         </div>
       );
     }
@@ -898,399 +1073,351 @@ export default function MortgageTab() {
     <div style={styles.container}>
       <h2 style={styles.heading}>Mortgage Optimiser</h2>
 
-      <div style={styles.grid}>
-        {/* Left column: configuration */}
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Original terms</h3>
+      {/* Original loan terms */}
+      <SectionCard title="Original loan terms">
+        {/* Inputs arranged in a responsive wrap so they stack on narrow screens */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+          <LabeledNumberInput
+            label="Principal ($)"
+            value={principalInput}
+            onChange={(v) => {
+              setPrincipalInput(v);
+              updateTermsFromInputs({ principalInput: v });
+            }}
+          />
+          <LabeledNumberInput
+            label="Rate (APR %)"
+            value={rateInput}
+            onChange={(v) => {
+              setRateInput(v);
+              updateTermsFromInputs({ rateInput: v });
+            }}
+          />
+          <LabeledNumberInput
+            label="Term (years)"
+            value={yearsInput}
+            onChange={(v) => {
+              setYearsInput(v);
+              updateTermsFromInputs({ yearsInput: v });
+            }}
+          />
+          <LabeledDateInput
+            label="Start date"
+            value={terms.startDate}
+            onChange={(val) => {
+              const v = val || terms.startDate;
+              updateTermsFromInputs({ startDate: v });
+            }}
+          />
+          <LabeledDateInput
+            label="Scenario as‑of date"
+            value={asOfDate}
+            onChange={(val) => {
+              const v = val || terms.startDate;
+              setAsOfDate(v);
+            }}
+          />
+        </div>
 
-          <div style={styles.inputRow}>
-            <label style={styles.label}>Principal</label>
-            <input
-              style={styles.input}
-              type="text"
-              value={principalInput}
-              onChange={(e) => {
-                const v = e.target.value;
-                setPrincipalInput(v);
-                updateTermsFromInputs({ principalInput: v });
-              }}
-            />
+        {/* Baseline summary */}
+        <div style={{ marginTop: 16 }}>
+          <div style={styles.subHeading}>Baseline summary</div>
+          <div style={styles.summaryRow}>
+            <span>Monthly payment</span>
+            <span>
+              {formatCurrency(
+                baseline.schedule.length > 0 ? baseline.schedule[0].payment : null
+              )}
+            </span>
           </div>
-
-          <div style={styles.inputRow}>
-            <label style={styles.label}>Rate (APR %)</label>
-            <input
-              style={styles.input}
-              type="text"
-              value={rateInput}
-              onChange={(e) => {
-                const v = e.target.value;
-                setRateInput(v);
-                updateTermsFromInputs({ rateInput: v });
-              }}
-            />
+          <div style={styles.summaryRow}>
+            <span>Total interest (no prepayments)</span>
+            <span>{formatCurrency(baseline.totalInterest)}</span>
           </div>
-
-          <div style={styles.inputRow}>
-            <label style={styles.label}>Term (years)</label>
-            <input
-              style={styles.input}
-              type="text"
-              value={yearsInput}
-              onChange={(e) => {
-                const v = e.target.value;
-                setYearsInput(v);
-                updateTermsFromInputs({ yearsInput: v });
-              }}
-            />
+          <div style={styles.summaryRow}>
+            <span>Payoff date</span>
+            <span>{formatDateDisplay(baseline.payoffDate)}</span>
           </div>
-
-          <div style={styles.inputRow}>
-            <label style={styles.label}>Start date</label>
-            <DateInputWithDisplay
-              value={terms.startDate}
-              onChange={(val) => {
-                const v = val || terms.startDate;
-                updateTermsFromInputs({ startDate: v });
-              }}
-              inputStyle={styles.input}
-            />
+          <div style={styles.summaryRow}>
+            <span>Effective APR (baseline)</span>
+            <span>{formatPercent(baselineEffectiveRate)}</span>
           </div>
+        </div>
+      </SectionCard>
 
-          <div style={styles.inputRow}>
-            <label style={styles.label}>Scenario as‑of date</label>
-            <DateInputWithDisplay
-              value={asOfDate}
-              onChange={(val) => {
-                const v = val || terms.startDate;
-                setAsOfDate(v);
-              }}
-              inputStyle={styles.input}
-            />
+      {/* Past prepayments and actual vs baseline summary */}
+      <SectionCard title="Past prepayments" subtitle="Log the extra payments you've already made">
+        <div style={{ marginBottom: 8 }}>
+          <button style={styles.addButton} onClick={addPrepaymentRow}>
+            + Add prepayment
+          </button>
+        </div>
+        {prepayments.length === 0 ? (
+          <div style={styles.emptyState}>
+            No prepayments defined yet. Add rows to reflect extra principal payments you've already made in the past.
           </div>
-
-          <div style={{ marginTop: 16 }}>
-            <div style={styles.subHeading}>Baseline summary</div>
-            <div style={styles.summaryRow}>
-              <span>Monthly payment</span>
-              <span>
-                {formatCurrency(
-                  baseline.schedule.length > 0 ? baseline.schedule[0].payment : null
-                )}
-              </span>
+        ) : (
+          <div style={styles.table}>
+            <div style={styles.tableHeaderRow}>
+              <div style={styles.th}>Date</div>
+              <div style={styles.th}>Amount</div>
+              <div style={styles.th}>Note</div>
+              <div />
             </div>
+            {prepayments.map((row) => (
+              <div key={row.id} style={styles.tableRow}>
+                <DateInputWithDisplay
+                  value={row.date}
+                  onChange={(val) => updatePrepaymentRow(row.id, { date: val })}
+                  inputStyle={styles.input}
+                />
+                <input
+                  style={styles.input}
+                  type="text"
+                  value={row.amount.toString()}
+                  onChange={(e) => {
+                    const n = parseNumber(e.target.value) ?? 0;
+                    updatePrepaymentRow(row.id, { amount: n });
+                  }}
+                />
+                <input
+                  style={styles.input}
+                  type="text"
+                  value={row.note ?? ""}
+                  placeholder="Optional"
+                  onChange={(e) => updatePrepaymentRow(row.id, { note: e.target.value })}
+                />
+                <button
+                  style={styles.deleteButton}
+                  onClick={() => deletePrepaymentRow(row.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {prepaymentLog.length > 0 && (
+          <div style={{ marginTop: 8 }}>
             <div style={styles.summaryRow}>
-              <span>Total interest (no prepayments)</span>
-              <span>{formatCurrency(baseline.totalInterest)}</span>
+              <span>Total past prepayments</span>
+              <span>{formatCurrency(totalPastPrepayments)}</span>
             </div>
-            <div style={styles.summaryRow}>
-              <span>Payoff date</span>
-              <span>{formatDateDisplay(baseline.payoffDate)}</span>
-            </div>
-            <div style={styles.summaryRow}>
-              <span>Effective APR (baseline)</span>
-              <span>{formatPercent(baselineEffectiveRate)}</span>
-            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <div style={styles.subHeading}>With prepayments (actual)</div>
+          <div style={styles.summaryRow}>
+            <span>Total interest with prepayments</span>
+            <span>{formatCurrency(withPrepayments.totalInterest)}</span>
+          </div>
+          <div style={styles.summaryRow}>
+            <span>Payoff date with prepayments</span>
+            <span>{formatDateDisplay(withPrepayments.payoffDate)}</span>
+          </div>
+          <div style={styles.summaryRow}>
+            <span>Effective APR (with prepayments)</span>
+            <span>{formatPercent(actualEffectiveRate)}</span>
           </div>
         </div>
 
-        {/* Right column: prepayments, benefit, scenarios */}
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Prepayments</h3>
-
-          <div style={{ marginBottom: 8 }}>
-            <button style={styles.addButton} onClick={addPrepaymentRow}>
-              + Add prepayment
-            </button>
+        <div style={{ marginTop: 16 }}>
+          <div style={styles.subHeading}>Benefit vs baseline</div>
+          <div style={styles.summaryRow}>
+            <span>Interest saved vs baseline</span>
+            <span>{formatCurrency(comparison.interestSaved)}</span>
           </div>
-
-          {prepayments.length === 0 ? (
-            <div style={styles.emptyState}>
-              No prepayments defined yet. Add rows to reflect extra principal
-              payments you've already made in the past.
-            </div>
-          ) : (
-            <div style={styles.table}>
-              <div style={styles.tableHeaderRow}>
-                <div style={styles.th}>Date</div>
-                <div style={styles.th}>Amount</div>
-                <div style={styles.th}>Note</div>
-                <div />
-              </div>
-              {prepayments.map((row) => (
-                <div key={row.id} style={styles.tableRow}>
-                  {/* Use the date input wrapper so that the selected
-                      date is always shown in human‑friendly format. */}
-                  <DateInputWithDisplay
-                    value={row.date}
-                    onChange={(val) =>
-                      updatePrepaymentRow(row.id, { date: val })
-                    }
-                    inputStyle={styles.input}
-                  />
-                  <input
-                    style={styles.input}
-                    type="text"
-                    value={row.amount.toString()}
-                    onChange={(e) => {
-                      const n = parseNumber(e.target.value) ?? 0;
-                      updatePrepaymentRow(row.id, { amount: n });
-                    }}
-                  />
-                  <input
-                    style={styles.input}
-                    type="text"
-                    value={row.note ?? ""}
-                    placeholder="Optional"
-                    onChange={(e) =>
-                      updatePrepaymentRow(row.id, { note: e.target.value })
-                    }
-                  />
-                  <button
-                    style={styles.deleteButton}
-                    onClick={() => deletePrepaymentRow(row.id)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {prepaymentLog.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div style={styles.summaryRow}>
-                <span>Total past prepayments</span>
-                <span>{formatCurrency(totalPastPrepayments)}</span>
-              </div>
-            </div>
-          )}
-
-          <div style={{ marginTop: 16 }}>
-            <div style={styles.subHeading}>With prepayments (actual)</div>
-            <div style={styles.summaryRow}>
-              <span>Total interest with prepayments</span>
-              <span>{formatCurrency(withPrepayments.totalInterest)}</span>
-            </div>
-            <div style={styles.summaryRow}>
-              <span>Payoff date with prepayments</span>
-              <span>{formatDateDisplay(withPrepayments.payoffDate)}</span>
-            </div>
-            <div style={styles.summaryRow}>
-              <span>Effective APR (with prepayments)</span>
-              <span>{formatPercent(actualEffectiveRate)}</span>
-            </div>
+          <div style={styles.summaryRow}>
+            <span>Months saved vs baseline</span>
+            <span>{formatMonthsAsYearsMonths(comparison.monthsSaved)}</span>
           </div>
+        </div>
+      </SectionCard>
 
-          <div style={{ marginTop: 16 }}>
-            <div style={styles.subHeading}>Benefit vs baseline</div>
-            <div style={styles.summaryRow}>
-              <span>Interest saved vs baseline</span>
-              <span>{formatCurrency(comparison.interestSaved)}</span>
+      {/* Impact of each past prepayment */}
+      {perPrepaymentImpacts.length > 0 && (
+        <SectionCard title="Impact of each past prepayment">
+          <div
+            style={{
+              borderRadius: 8,
+              border: "1px solid #27272a",
+              overflow: "hidden",
+              fontSize: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
+                padding: "6px 8px",
+                gap: 4,
+                background: "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
+                borderBottom: "1px solid #3f3f46",
+                color: "#a1a1aa",
+              }}
+            >
+              <div>Date</div>
+              <div>Amount</div>
+              <div>Interest saved (tot | this)</div>
+              <div>Months saved (tot | this)</div>
+              <div>Effective APR after</div>
             </div>
-            <div style={styles.summaryRow}>
-              <span>Months saved vs baseline</span>
-              <span>{formatMonthsAsYearsMonths(comparison.monthsSaved)}</span>
-            </div>
-          </div>
-
-          {perPrepaymentImpacts.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div style={styles.subHeading}>Impact of each past prepayment</div>
+            {perPrepaymentImpacts.map((row, idx) => (
               <div
+                key={`${row.date}-${row.amount}-${idx}`}
                 style={{
-                  borderRadius: 8,
-                  border: "1px solid #27272a",
-                  overflow: "hidden",
-                  fontSize: 12,
+                  display: "grid",
+                  gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
+                  padding: "6px 8px",
+                  gap: 4,
+                  borderBottom: "1px solid #18181b",
+                  backgroundColor: idx % 2 === 0 ? "#020617" : "#050816",
                 }}
               >
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
-                    padding: "6px 8px",
-                    gap: 4,
-                    background:
-                      "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
-                    borderBottom: "1px solid #3f3f46",
-                    color: "#a1a1aa",
-                  }}
-                >
-                  <div>Date</div>
-                  <div>Amount</div>
-                  <div>Interest saved (tot | this)</div>
-                  <div>Months saved (tot | this)</div>
-                  <div>Effective APR after</div>
+                <div>{formatDateDisplay(row.date)}</div>
+                <div>{formatCurrency(row.amount)}</div>
+                <div>
+                  <div>{formatCurrency(row.interestSaved)}</div>
+                  <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                    {row.interestSavedIncremental > 0
+                      ? `+${formatCurrency(row.interestSavedIncremental)}`
+                      : formatCurrency(row.interestSavedIncremental)}
+                  </div>
                 </div>
-                {perPrepaymentImpacts.map((row, idx) => (
-                  <div
-                    key={`${row.date}-${row.amount}-${idx}`}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
-                      padding: "6px 8px",
-                      gap: 4,
-                      borderBottom: "1px solid #18181b",
-                      backgroundColor: idx % 2 === 0 ? "#020617" : "#050816",
-                    }}
-                  >
-                    <div>{formatDateDisplay(row.date)}</div>
-                    <div>{formatCurrency(row.amount)}</div>
-                    <div>
-                      <div>{formatCurrency(row.interestSaved)}</div>
-                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
-                        {row.interestSavedIncremental > 0
-                          ? `+${formatCurrency(row.interestSavedIncremental)}`
-                          : formatCurrency(row.interestSavedIncremental)}
+                <div>
+                  <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
+                  <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                    {row.monthsSavedIncremental > 0
+                      ? `+${formatMonthsAsYearsMonths(row.monthsSavedIncremental)}`
+                      : formatMonthsAsYearsMonths(row.monthsSavedIncremental)}
+                  </div>
+                </div>
+                <div>{formatPercent(row.effectiveRate)}</div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Scenarios */}
+      <SectionCard title="What‑if scenarios" subtitle="Create scenarios to test future extra payments">
+        <div style={{ marginBottom: 8 }}>
+          <button style={styles.addButton} onClick={addScenario}>
+            + Add scenario
+          </button>
+        </div>
+        {scenarios.length === 0 ? (
+          <div style={styles.emptyState}>
+            No scenarios yet. Add scenarios to test different monthly extra payment strategies from the as‑of date.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {scenarios.map((s) => {
+                const monthlyAmount = getScenarioMonthlyAmount(s);
+                return (
+                  <div key={s.id} style={styles.scenarioCard}>
+                    <div style={styles.scenarioHeaderRow}>
+                      <input
+                        style={styles.scenarioNameInput}
+                        type="text"
+                        value={s.name}
+                        onChange={(e) => updateScenario(s.id, { name: e.target.value })}
+                      />
+                      <label style={styles.scenarioToggleLabel}>
+                        <input
+                          type="checkbox"
+                          checked={s.active}
+                          onChange={(e) => updateScenario(s.id, { active: e.target.checked })}
+                        />
+                        <span style={{ marginLeft: 4 }}>Active</span>
+                      </label>
+                      <button
+                        style={styles.deleteButton}
+                        onClick={() => deleteScenario(s.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div style={styles.scenarioBodyRow}>
+                      <label style={styles.label}>Monthly extra</label>
+                      <input
+                        style={styles.input}
+                        type="text"
+                        value={monthlyAmount > 0 ? monthlyAmount.toString() : ""}
+                        placeholder="0"
+                        onChange={(e) => {
+                          const n = parseNumber(e.target.value) ?? 0;
+                          updateScenarioMonthlyAmount(s.id, n);
+                        }}
+                      />
+                    </div>
+                    <div style={styles.scenarioPatternsSection}>
+                      <div style={styles.scenarioPatternsHeaderRow}>
+                        <span style={styles.patternHeaderKind}>Type</span>
+                        <span style={styles.patternHeaderLabel}>Label</span>
+                        <span style={styles.patternHeaderAmount}>Amount</span>
+                        <span style={styles.patternHeaderDates}>Dates / cadence</span>
+                        <span style={styles.patternHeaderActions}></span>
+                      </div>
+                      {(s.patterns ?? []).length === 0 ? (
+                        <div style={styles.scenarioPatternsEmpty}>
+                          No future prepayment patterns yet. Use the Monthly extra above or add a pattern below.
+                        </div>
+                      ) : (
+                        (s.patterns ?? []).map((p) => renderScenarioPatternRow(s.id, p))
+                      )}
+                      <div style={styles.scenarioPatternAddRow}>
+                        <span style={styles.scenarioPatternAddLabel}>Add pattern:</span>
+                        <button
+                          style={styles.scenarioPatternAddButton}
+                          onClick={() => addScenarioPattern(s.id, "oneTime")}
+                        >
+                          One-time
+                        </button>
+                        <button
+                          style={styles.scenarioPatternAddButton}
+                          onClick={() => addScenarioPattern(s.id, "monthly")}
+                        >
+                          Monthly
+                        </button>
+                        <button
+                          style={styles.scenarioPatternAddButton}
+                          onClick={() => addScenarioPattern(s.id, "yearly")}
+                        >
+                          Annual
+                        </button>
+                        <button
+                          style={styles.scenarioPatternAddButton}
+                          onClick={() => addScenarioPattern(s.id, "biweekly")}
+                        >
+                          Biweekly
+                        </button>
                       </div>
                     </div>
-                    <div>
-                      <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
-                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
-                        {row.monthsSavedIncremental > 0
-                          ? `+${formatMonthsAsYearsMonths(row.monthsSavedIncremental)}`
-                          : formatMonthsAsYearsMonths(row.monthsSavedIncremental)}
-                      </div>
-                    </div>
-                    <div>{formatPercent(row.effectiveRate)}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {scenarioRun.scenarios.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={styles.subHeading}>Scenario comparison</div>
+                {scenarioRun.scenarios.map((s) => (
+                  <div key={s.scenarioId} style={styles.summaryRow}>
+                    <span>{s.scenarioName}</span>
+                    <span>
+                      Payoff {formatDateDisplay(s.payoffDate)} · Interest {formatCurrency(s.totalInterest)} · Saved vs actual {formatCurrency(s.interestSavedVsActual)} {formatMonthsAsYearsMonths(s.monthsSavedVsActual) !== "—" ? `· ${formatMonthsAsYearsMonths(s.monthsSavedVsActual)} sooner` : ""}
+                    </span>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Scenarios section */}
-          <div style={{ marginTop: 24 }}>
-            <div style={styles.subHeading}>What‑if scenarios (future prepayments)</div>
-            <div style={{ marginBottom: 8 }}>
-              <button style={styles.addButton} onClick={addScenario}>
-                + Add scenario
-              </button>
-            </div>
-
-            {scenarios.length === 0 ? (
-              <div style={styles.emptyState}>
-                No scenarios yet. Add scenarios to test different monthly extra
-                payment strategies from the as‑of date.
-              </div>
-            ) : (
-              <>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {scenarios.map((s) => {
-                    const monthlyAmount = getScenarioMonthlyAmount(s);
-                    return (
-                      <div key={s.id} style={styles.scenarioCard}>
-                        <div style={styles.scenarioHeaderRow}>
-                          <input
-                            style={styles.scenarioNameInput}
-                            type="text"
-                            value={s.name}
-                            onChange={(e) =>
-                              updateScenario(s.id, { name: e.target.value })
-                            }
-                          />
-                          <label style={styles.scenarioToggleLabel}>
-                            <input
-                              type="checkbox"
-                              checked={s.active}
-                              onChange={(e) =>
-                                updateScenario(s.id, { active: e.target.checked })
-                              }
-                            />
-                            <span style={{ marginLeft: 4 }}>Active</span>
-                          </label>
-                          <button
-                            style={styles.deleteButton}
-                            onClick={() => deleteScenario(s.id)}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                        <div style={styles.scenarioBodyRow}>
-                          <label style={styles.label}>Monthly extra</label>
-                          <input
-                            style={styles.input}
-                            type="text"
-                            value={
-                              monthlyAmount > 0 ? monthlyAmount.toString() : ""
-                            }
-                            placeholder="0"
-                            onChange={(e) => {
-                              const n = parseNumber(e.target.value) ?? 0;
-                              updateScenarioMonthlyAmount(s.id, n);
-                            }}
-                          />
-                        </div>
-                        <div style={styles.scenarioPatternsSection}>
-                          <div style={styles.scenarioPatternsHeaderRow}>
-                            <span style={styles.patternHeaderKind}>Type</span>
-                            <span style={styles.patternHeaderLabel}>Label</span>
-                            <span style={styles.patternHeaderAmount}>Amount</span>
-                            <span style={styles.patternHeaderDates}>Dates / cadence</span>
-                            <span style={styles.patternHeaderActions}></span>
-                          </div>
-                          {(s.patterns ?? []).length === 0 ? (
-                            <div style={styles.scenarioPatternsEmpty}>
-                              No future prepayment patterns yet. Use the Monthly extra above or add a pattern below.
-                            </div>
-                          ) : (
-                            (s.patterns ?? []).map((p) =>
-                              renderScenarioPatternRow(s.id, p)
-                            )
-                          )}
-                          <div style={styles.scenarioPatternAddRow}>
-                            <span style={styles.scenarioPatternAddLabel}>Add pattern:</span>
-                            <button
-                              style={styles.scenarioPatternAddButton}
-                              onClick={() => addScenarioPattern(s.id, "oneTime")}
-                            >
-                              One-time
-                            </button>
-                            <button
-                              style={styles.scenarioPatternAddButton}
-                              onClick={() => addScenarioPattern(s.id, "monthly")}
-                            >
-                              Monthly
-                            </button>
-                            <button
-                              style={styles.scenarioPatternAddButton}
-                              onClick={() => addScenarioPattern(s.id, "yearly")}
-                            >
-                              Annual
-                            </button>
-                            <button
-                              style={styles.scenarioPatternAddButton}
-                              onClick={() => addScenarioPattern(s.id, "biweekly")}
-                            >
-                              Biweekly
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {scenarioRun.scenarios.length > 0 && (
-                  <div style={{ marginTop: 16 }}>
-                    <div style={styles.subHeading}>Scenario comparison</div>
-                    {scenarioRun.scenarios.map((s) => (
-                      <div key={s.scenarioId} style={styles.summaryRow}>
-                        <span>{s.scenarioName}</span>
-                        <span>
-                          Payoff {formatDateDisplay(s.payoffDate)} · Interest {formatCurrency(s.totalInterest)} · Saved vs actual {formatCurrency(s.interestSavedVsActual)} {formatMonthsAsYearsMonths(s.monthsSavedVsActual) !== "—" ? `· ${formatMonthsAsYearsMonths(s.monthsSavedVsActual)} sooner` : ""}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        )}
+      </SectionCard>
     </div>
   );
 }
@@ -1466,15 +1593,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
   },
   scenarioPatternsHeaderRow: {
-    display: "grid",
-    gridTemplateColumns:
-      "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
-    alignItems: "center",
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: 0.03,
-    color: "#71717a",
-    paddingBottom: 2,
+    // Hide the old header row for patterns now that each pattern card
+    // contains its own labels.  Keeping this entry in place avoids
+    // removing the markup but ensures it takes up no space.
+    display: "none",
   },
   patternHeaderKind: {},
   patternHeaderLabel: {},
@@ -1599,5 +1721,61 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#18181b",
     color: "#e4e4e7",
     cursor: "pointer",
+  },
+  // New styles for the redesigned scenario pattern cards.
+  // Each pattern card is its own vertical container with a small
+  // header and labelled field rows.  This layout scales nicely on
+  // mobile because the rows stack naturally and there are no
+  // wide grid columns.  Labels use a smaller font to distinguish
+  // them from the input values.
+  patternCard: {
+    borderRadius: 8,
+    border: "1px solid #27272a",
+    backgroundColor: "#09090b",
+    padding: 8,
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  patternTypeChip: {
+    fontSize: 11,
+    borderRadius: 999,
+    padding: "2px 6px",
+    border: "1px solid #3f3f46",
+    backgroundColor: "#18181b",
+    color: "#d4d4d8",
+  },
+  patternDeleteButton: {
+    borderRadius: 999,
+    border: "1px solid #3f3f46",
+    backgroundColor: "#18181b",
+    color: "#a1a1aa",
+    width: 26,
+    height: 26,
+    fontSize: 13,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  fieldRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    color: "#a1a1aa",
+    minWidth: 80,
+  },
+  fieldControl: {
+    flex: 1,
+    borderRadius: 6,
+    border: "1px solid #27272a",
+    padding: "4px 6px",
+    backgroundColor: "#020617",
+    color: "#e4e4e7",
+    fontSize: 11,
   },
 };
