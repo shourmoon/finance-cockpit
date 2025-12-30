@@ -1234,72 +1234,80 @@ export default function MortgageTab() {
             <span>{formatMonthsAsYearsMonths(comparison.monthsSaved)}</span>
           </div>
         </div>
-      </SectionCard>
 
-      {/* Impact of each past prepayment */}
-      {perPrepaymentImpacts.length > 0 && (
-        <SectionCard title="Impact of each past prepayment">
-          <div
-            style={{
-              borderRadius: 8,
-              border: "1px solid #27272a",
-              overflow: "hidden",
-              fontSize: 12,
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
-                padding: "6px 8px",
-                gap: 4,
-                background: "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
-                borderBottom: "1px solid #3f3f46",
-                color: "#a1a1aa",
-              }}
-            >
-              <div>Date</div>
-              <div>Amount</div>
-              <div>Interest saved (tot | this)</div>
-              <div>Months saved (tot | this)</div>
-              <div>Effective APR after</div>
-            </div>
-            {perPrepaymentImpacts.map((row, idx) => (
+        {perPrepaymentImpacts.length > 0 && (
+          <details style={styles.details}>
+            <summary style={styles.detailsSummary}>
+              Impact of each past prepayment
+              <span style={styles.detailsHint}>
+                (shows total impact up to that point + incremental impact of that payment)
+              </span>
+            </summary>
+            <div style={{ marginTop: 10 }}>
               <div
-                key={`${row.date}-${row.amount}-${idx}`}
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
-                  padding: "6px 8px",
-                  gap: 4,
-                  borderBottom: "1px solid #18181b",
-                  backgroundColor: idx % 2 === 0 ? "#020617" : "#050816",
+                  borderRadius: 8,
+                  border: "1px solid #27272a",
+                  overflow: "hidden",
+                  fontSize: 12,
                 }}
               >
-                <div>{formatDateDisplay(row.date)}</div>
-                <div>{formatCurrency(row.amount)}</div>
-                <div>
-                  <div>{formatCurrency(row.interestSaved)}</div>
-                  <div style={{ fontSize: 10, color: "#6ee7b7" }}>
-                    {row.interestSavedIncremental > 0
-                      ? `+${formatCurrency(row.interestSavedIncremental)}`
-                      : formatCurrency(row.interestSavedIncremental)}
-                  </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
+                    padding: "6px 8px",
+                    gap: 4,
+                    background:
+                      "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
+                    borderBottom: "1px solid #3f3f46",
+                    color: "#a1a1aa",
+                  }}
+                >
+                  <div>Date</div>
+                  <div>Amount</div>
+                  <div>Interest saved (tot | this)</div>
+                  <div>Months saved (tot | this)</div>
+                  <div>Effective APR after</div>
                 </div>
-                <div>
-                  <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
-                  <div style={{ fontSize: 10, color: "#6ee7b7" }}>
-                    {row.monthsSavedIncremental > 0
-                      ? `+${formatMonthsAsYearsMonths(row.monthsSavedIncremental)}`
-                      : formatMonthsAsYearsMonths(row.monthsSavedIncremental)}
+                {perPrepaymentImpacts.map((row, idx) => (
+                  <div
+                    key={`${row.date}-${row.amount}-${idx}`}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
+                      padding: "6px 8px",
+                      gap: 4,
+                      borderBottom: "1px solid #18181b",
+                      backgroundColor: idx % 2 === 0 ? "#020617" : "#050816",
+                    }}
+                  >
+                    <div>{formatDateDisplay(row.date)}</div>
+                    <div>{formatCurrency(row.amount)}</div>
+                    <div>
+                      <div>{formatCurrency(row.interestSaved)}</div>
+                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                        {row.interestSavedIncremental > 0
+                          ? `+${formatCurrency(row.interestSavedIncremental)}`
+                          : formatCurrency(row.interestSavedIncremental)}
+                      </div>
+                    </div>
+                    <div>
+                      <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
+                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                        {row.monthsSavedIncremental > 0
+                          ? `+${formatMonthsAsYearsMonths(row.monthsSavedIncremental)}`
+                          : formatMonthsAsYearsMonths(row.monthsSavedIncremental)}
+                      </div>
+                    </div>
+                    <div>{formatPercent(row.effectiveRate)}</div>
                   </div>
-                </div>
-                <div>{formatPercent(row.effectiveRate)}</div>
+                ))}
               </div>
-            ))}
-          </div>
-        </SectionCard>
-      )}
+            </div>
+          </details>
+        )}
+      </SectionCard>
 
       {/* Scenarios */}
       <SectionCard title="What‑if scenarios" subtitle="Create scenarios to test future extra payments">
@@ -1464,6 +1472,27 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#e4e4e7",
     textTransform: "uppercase",
     letterSpacing: 0.08,
+  },
+  details: {
+    marginTop: 14,
+    borderTop: "1px solid #18181b",
+    paddingTop: 12,
+  },
+  detailsSummary: {
+    cursor: "pointer",
+    listStyle: "none",
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#f4f4f5",
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    gap: 8,
+  },
+  detailsHint: {
+    fontSize: 11,
+    fontWeight: 400,
+    color: "#a1a1aa",
   },
   inputRow: {
     display: "flex",
