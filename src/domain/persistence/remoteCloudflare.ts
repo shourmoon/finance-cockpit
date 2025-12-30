@@ -23,12 +23,17 @@ import type {
  *    a 409 Conflict status.
  */
 export function createCloudflareAdapter(
-  baseUrl: string
+  baseUrl: string,
+  opts?: { pinHash?: string | null }
 ): RemotePersistenceAdapter {
+  const pinHash = opts?.pinHash ?? null;
+  const authHeaders: Record<string, string> = {};
+  if (pinHash) authHeaders["X-Sync-Pin"] = pinHash;
+
   return {
     async loadState(sharedKey: string): Promise<RemoteStateResponse | null> {
       const url = `${baseUrl.replace(/\/$/, "")}/state?key=${encodeURIComponent(sharedKey)}`;
-      const res = await fetch(url, { method: "GET" });
+      const res = await fetch(url, { method: "GET", headers: authHeaders });
       if (!res.ok) {
         if (res.status === 404) return null;
         throw new Error(`Remote load failed: ${res.status}`);
@@ -43,7 +48,7 @@ export function createCloudflareAdapter(
       const url = `${baseUrl.replace(/\/$/, "")}/state?key=${encodeURIComponent(sharedKey)}`;
       const res = await fetch(url, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
