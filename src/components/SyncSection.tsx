@@ -1,8 +1,23 @@
-import { useEffect, useState } from "react";
+// src/components/SyncSection.tsx
+//
+// A UI section that allows the user to configure and trigger
+// synchronisation of their Finance Cockpit data across devices. Users
+// enter a shared key, then press the "Sync now" button to either
+// upload their local state to the backend or pull down state from
+// another device. Advanced controls for forcing a push or pull could
+// be added in the future.
+
+import { useState, useEffect } from "react";
 import { syncNow } from "../domain/persistence/sync";
+import { stubRemoteAdapter } from "../domain/persistence/remote";
 import { createCloudflareAdapter } from "../domain/persistence/remoteCloudflare";
 
-const SYNC_BASE_URL: string | undefined = (import.meta as any).env?.VITE_SYNC_BASE_URL;
+// Optional: allow configuring the remote base URL via environment
+// variable. When undefined, falls back to the stub adapter which
+// performs no remote IO. Set VITE_SYNC_BASE_URL in your vite
+// environment to the deployed Cloudflare Worker endpoint.
+const SYNC_BASE_URL: string | undefined = (import.meta as any).env
+  ?.VITE_SYNC_BASE_URL;
 
 function getLastSyncTime(): string | null {
   if (typeof window === "undefined") return null;
@@ -10,30 +25,28 @@ function getLastSyncTime(): string | null {
     const raw = window.localStorage.getItem("finance-cockpit:last-sync");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed.remote_updated_at === "string" ? parsed.remote_updated_at : null;
+    return parsed && typeof parsed.remote_updated_at === "string"
+      ? parsed.remote_updated_at
+      : null;
   } catch {
     return null;
   }
 }
 
-async function sha256Hex(input: string): Promise<string> {
-  if (typeof crypto !== "undefined" && crypto.subtle) {
-    const data = new TextEncoder().encode(input);
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    const bytes = Array.from(new Uint8Array(digest));
-    return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  throw new Error("WebCrypto not available; cannot hash PIN.");
-}
-
 export default function SyncSection() {
-  const [sharedKey, setSharedKey] = useState("");
-  const [pin, setPin] = useState("");
-
-  const [lastSynced, setLastSynced] = useState<string | null>(getLastSyncTime());
+  const [sharedKey, setSharedKey] = useState<string>("");
+  const [lastSynced, setLastSynced] = useState<string | null>(
+    getLastSyncTime()
+  );
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Determine which adapter to use based on the presence of a
+  // configured base URL. If none is provided, the stub adapter is used.
+  const remoteAdapter = SYNC_BASE_URL
+    ? createCloudflareAdapter(SYNC_BASE_URL)
+    : stubRemoteAdapter;
 
   useEffect(() => {
     setLastSynced(getLastSyncTime());
@@ -42,36 +55,26 @@ export default function SyncSection() {
   async function handleSync() {
     setError(null);
     setMessage(null);
-
-    const key = sharedKey.trim();
-    const pinVal = pin.trim();
-
-    if (!key) return setError("Please enter a sync key.");
-    if (!pinVal) return setError("Please enter a sync PIN.");
-    if (!SYNC_BASE_URL) return setError("VITE_SYNC_BASE_URL is not set. Remote sync is not configured.");
-
+    if (!sharedKey || sharedKey.trim().length === 0) {
+      setError("Please enter a sync key");
+      return;
+    }
     setLoading(true);
     try {
-      const pinHash = await sha256Hex(pinVal);
-      const remote = createCloudflareAdapter(SYNC_BASE_URL, { pinHash });
-
-      const res = await syncNow(key, remote);
-
-      const actionWord =
-        res.direction === "push" ? "pushed" : res.direction === "pull" ? "pulled" : "initialised";
-
-      setMessage(`Sync OK — ${actionWord}. Updated at ${res.remoteUpdatedAt}.`);
-      setLastSynced(res.remoteUpdatedAt);
-    } catch (e: any) {
-      const msg = String(e?.message ?? "Sync failed");
-
-      if (msg.includes(": 401")) {
-        setError("Unauthorized: wrong Sync PIN for this key (or missing PIN).");
-      } else if (msg.includes(": 409")) {
-        setError("Conflict: another device updated the data. Sync again to pull latest.");
+      const res = await syncNow(sharedKey.trim(), remoteAdapter);
+      if (res.conflict) {
+        setError(
+          "Sync conflict detected. Please try again or resolve via another device."
+        );
       } else {
-        setError(msg);
+        const actionWord = res.direction === "push" ? "pushed" : res.direction === "pull" ? "pulled" : "initialised";
+        setMessage(
+          `Successfully ${actionWord} data. Updated at ${res.remoteUpdatedAt ?? "n/a"}.`
+        );
+        setLastSynced(res.remoteUpdatedAt ?? null);
       }
+    } catch (e: any) {
+      setError(e?.message ?? "Sync failed");
     } finally {
       setLoading(false);
     }
@@ -79,12 +82,12 @@ export default function SyncSection() {
 
   return (
     <div style={styles.card}>
-      <h3 style={styles.cardTitle}>Sync &amp; Multi-Device</h3>
-
+      <h3 style={styles.cardTitle}>Sync &amp; Multi‑Device</h3>
       <div style={{ marginBottom: 12, fontSize: 13, color: "#a1a1aa" }}>
-        Use a shared key + PIN to sync your data across devices. Use the same values everywhere.
+        Use a shared key to synchronise your Finance Cockpit state
+        across multiple devices. Enter the same key on each device,
+        then click “Sync now”.
       </div>
-
       <label style={{ ...styles.label, flexDirection: "column", alignItems: "flex-start" }}>
         <span style={{ marginBottom: 4 }}>Sync Key</span>
         <input
@@ -92,24 +95,9 @@ export default function SyncSection() {
           type="text"
           value={sharedKey}
           onChange={(e) => setSharedKey(e.target.value)}
-          placeholder="e.g. moona-home"
+          placeholder="Enter a sync key"
         />
       </label>
-
-      <label style={{ ...styles.label, flexDirection: "column", alignItems: "flex-start" }}>
-        <span style={{ marginBottom: 4 }}>Sync PIN</span>
-        <input
-          style={styles.input}
-          type="password"
-          value={pin}
-          onChange={(e) => setPin(e.target.value)}
-          placeholder="PIN (same across devices)"
-        />
-        <span style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
-          PIN is SHA-256 hashed in your browser; only the hash is sent.
-        </span>
-      </label>
-
       <button
         style={{
           ...styles.editButton,
@@ -123,30 +111,52 @@ export default function SyncSection() {
       >
         {loading ? "Syncing…" : "Sync now"}
       </button>
-
       {lastSynced && (
         <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>
           Last synced: {new Date(lastSynced).toLocaleString()}
         </div>
       )}
-      {message && <div style={{ marginTop: 8, fontSize: 12, color: "#4ade80" }}>{message}</div>}
-      {error && <div style={{ marginTop: 8, fontSize: 12, color: "#f87171" }}>{error}</div>}
+      {message && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "#4ade80" }}>
+          {message}
+        </div>
+      )}
+      {error && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "#f87171" }}>
+          {error}
+        </div>
+      )}
     </div>
   );
 }
 
+// These inline styles are a thin wrapper over the global styles
+// defined in App.tsx. They are duplicated here to avoid a direct
+// import from the App component (which would create a circular
+// dependency). If you modify card styling in App.tsx you may want
+// to update these as well.
 const styles: Record<string, any> = {
   card: {
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
-    background: "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
+    background:
+      "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
     border: "1px solid #27272a",
     boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
   },
-  cardTitle: { marginTop: 0, marginBottom: 12, fontSize: 16, fontWeight: 600, color: "#f4f4f5" },
+  cardTitle: {
+    marginTop: 0,
+    marginBottom: 12,
+    fontSize: 16,
+    fontWeight: 600,
+    color: "#f4f4f5",
+  },
   label: {
     display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
     marginBottom: 12,
     fontSize: 13,
