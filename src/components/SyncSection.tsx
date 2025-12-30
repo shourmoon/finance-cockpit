@@ -1,12 +1,5 @@
-// src/components/SyncSection.tsx
-//
-// Sync UI with PIN-gated remote sync.
-// Users enter a shared key + PIN. We SHA-256 hash the PIN in-browser,
-// then send it as X-Sync-Pin to the Cloudflare Worker.
-
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { syncNow } from "../domain/persistence/sync";
-import { stubRemoteAdapter } from "../domain/persistence/remote";
 import { createCloudflareAdapter } from "../domain/persistence/remoteCloudflare";
 
 const SYNC_BASE_URL: string | undefined = (import.meta as any).env?.VITE_SYNC_BASE_URL;
@@ -24,39 +17,26 @@ function getLastSyncTime(): string | null {
 }
 
 async function sha256Hex(input: string): Promise<string> {
-  // Browser crypto
   if (typeof crypto !== "undefined" && crypto.subtle) {
     const data = new TextEncoder().encode(input);
     const digest = await crypto.subtle.digest("SHA-256", data);
     const bytes = Array.from(new Uint8Array(digest));
     return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
   }
-
-  // Very old browsers: no secure fallback. Better to fail.
-  throw new Error("WebCrypto not available; cannot hash PIN securely.");
+  throw new Error("WebCrypto not available; cannot hash PIN.");
 }
 
 export default function SyncSection() {
-  const [sharedKey, setSharedKey] = useState<string>("");
-  const [pin, setPin] = useState<string>("");
+  const [sharedKey, setSharedKey] = useState("");
+  const [pin, setPin] = useState("");
 
   const [lastSynced, setLastSynced] = useState<string | null>(getLastSyncTime());
   const [loading, setLoading] = useState(false);
-
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLastSynced(getLastSyncTime());
-  }, []);
-
-  const adapter = useMemo(() => {
-    // Default to stub if base URL isn't configured
-    if (!SYNC_BASE_URL) return stubRemoteAdapter;
-
-    // We’ll create the adapter at sync time once we have pin hash.
-    // Here we return stub, and build real adapter inside handleSync.
-    return stubRemoteAdapter;
   }, []);
 
   async function handleSync() {
@@ -66,43 +46,28 @@ export default function SyncSection() {
     const key = sharedKey.trim();
     const pinVal = pin.trim();
 
-    if (!key) {
-      setError("Please enter a sync key.");
-      return;
-    }
-    if (!SYNC_BASE_URL) {
-      setError("VITE_SYNC_BASE_URL is not set. Remote sync is not configured.");
-      return;
-    }
-    if (!pinVal) {
-      setError("Please enter a sync PIN.");
-      return;
-    }
+    if (!key) return setError("Please enter a sync key.");
+    if (!pinVal) return setError("Please enter a sync PIN.");
+    if (!SYNC_BASE_URL) return setError("VITE_SYNC_BASE_URL is not set. Remote sync is not configured.");
 
     setLoading(true);
-
     try {
       const pinHash = await sha256Hex(pinVal);
-      const remoteAdapter = createCloudflareAdapter(SYNC_BASE_URL, { pinHash });
+      const remote = createCloudflareAdapter(SYNC_BASE_URL, { pinHash });
 
-      const res = await syncNow(key, remoteAdapter);
+      const res = await syncNow(key, remote);
 
       const actionWord =
-        res.direction === "push"
-          ? "pushed"
-          : res.direction === "pull"
-          ? "pulled"
-          : "initialised";
+        res.direction === "push" ? "pushed" : res.direction === "pull" ? "pulled" : "initialised";
 
-      setMessage(`Sync OK — ${actionWord}. Updated at ${res.remoteUpdatedAt ?? "n/a"}.`);
-      setLastSynced(res.remoteUpdatedAt ?? null);
+      setMessage(`Sync OK — ${actionWord}. Updated at ${res.remoteUpdatedAt}.`);
+      setLastSynced(res.remoteUpdatedAt);
     } catch (e: any) {
       const msg = String(e?.message ?? "Sync failed");
 
-      // Map common HTTP failures to user-friendly messages
-      if (msg.includes("Remote load failed: 401") || msg.includes("Remote save failed: 401")) {
-        setError("Unauthorized: wrong Sync PIN for this key (or PIN missing).");
-      } else if (msg.includes("Remote save failed: 409")) {
+      if (msg.includes(": 401")) {
+        setError("Unauthorized: wrong Sync PIN for this key (or missing PIN).");
+      } else if (msg.includes(": 409")) {
         setError("Conflict: another device updated the data. Sync again to pull latest.");
       } else {
         setError(msg);
@@ -117,8 +82,7 @@ export default function SyncSection() {
       <h3 style={styles.cardTitle}>Sync &amp; Multi-Device</h3>
 
       <div style={{ marginBottom: 12, fontSize: 13, color: "#a1a1aa" }}>
-        Use a shared key + PIN to sync your Finance Cockpit data across devices.
-        Use the <b>same</b> key and PIN on each device.
+        Use a shared key + PIN to sync your data across devices. Use the same values everywhere.
       </div>
 
       <label style={{ ...styles.label, flexDirection: "column", alignItems: "flex-start" }}>
@@ -139,10 +103,10 @@ export default function SyncSection() {
           type="password"
           value={pin}
           onChange={(e) => setPin(e.target.value)}
-          placeholder="Choose a PIN (same across devices)"
+          placeholder="PIN (same across devices)"
         />
         <span style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
-          PIN is SHA-256 hashed in your browser and only the hash is sent.
+          PIN is SHA-256 hashed in your browser; only the hash is sent.
         </span>
       </label>
 
@@ -165,23 +129,12 @@ export default function SyncSection() {
           Last synced: {new Date(lastSynced).toLocaleString()}
         </div>
       )}
-
-      {message && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "#4ade80" }}>
-          {message}
-        </div>
-      )}
-
-      {error && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "#f87171" }}>
-          {error}
-        </div>
-      )}
+      {message && <div style={{ marginTop: 8, fontSize: 12, color: "#4ade80" }}>{message}</div>}
+      {error && <div style={{ marginTop: 8, fontSize: 12, color: "#f87171" }}>{error}</div>}
     </div>
   );
 }
 
-// Inline styles (mirrors App.tsx card styling)
 const styles: Record<string, any> = {
   card: {
     borderRadius: 12,
@@ -191,18 +144,9 @@ const styles: Record<string, any> = {
     border: "1px solid #27272a",
     boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
   },
-  cardTitle: {
-    marginTop: 0,
-    marginBottom: 12,
-    fontSize: 16,
-    fontWeight: 600,
-    color: "#f4f4f5",
-  },
+  cardTitle: { marginTop: 0, marginBottom: 12, fontSize: 16, fontWeight: 600, color: "#f4f4f5" },
   label: {
     display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     gap: 8,
     marginBottom: 12,
     fontSize: 13,
