@@ -93,7 +93,7 @@ describe("sync helpers", () => {
     };
     const result = await syncNow("abc", fakeAdapter);
     expect(result.direction).toBe("init");
-    expect(result.conflict).toBe(false);
+    // syncNow throws on transport/auth errors; success does not include a conflict flag.
     expect(remote).not.toBeNull();
     expect(remote!.app_state.account.startingBalance).toBe(999);
     expect(remote!.mortgage_ui.terms.principal).toBe(333333);
@@ -127,7 +127,7 @@ describe("sync helpers", () => {
     // Ensure no last sync metadata exists (localStorage cleared in beforeEach)
     const result = await syncNow("abc", fakeAdapter);
     expect(result.direction).toBe("pull");
-    expect(result.conflict).toBe(false);
+    // syncNow throws on transport/auth errors; success does not include a conflict flag.
     // Local state should now match remote
     const localApp = loadAppState();
     const localMortgage = loadMortgageUIState();
