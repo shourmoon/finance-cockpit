@@ -97,6 +97,10 @@ export default function SyncSection() {
       setError("Please enter a sync key");
       return;
     }
+    if (hasRemote && !pin.trim()) {
+      setError("Please enter a Sync PIN (required for remote sync).");
+      return;
+    }
 
     // Remember key for convenience (PIN is never persisted).
     setRememberedSyncKey(key);
@@ -135,6 +139,13 @@ export default function SyncSection() {
       setLastSynced(remoteUpdatedAt ?? null);
     } catch (e: any) {
       const msg = String(e?.message ?? "Sync failed");
+      // Browsers often surface CORS / DNS / TLS / offline issues as a generic "Failed to fetch".
+      if (msg === "Failed to fetch" || msg.toLowerCase().includes("failed to fetch")) {
+        setError(
+          "Failed to reach the sync server. Check: (1) worker URL in VITE_SYNC_BASE_URL, (2) worker is deployed, and (3) CORS headers are enabled on the worker. Then hard refresh and try again."
+        );
+        return;
+      }
       if (msg.includes("Remote load failed: 401") || msg.includes("Remote save failed: 401")) {
         setError("Unauthorized: wrong Sync PIN for this key (or missing PIN).");
       } else if (msg.includes("Remote save failed: 409")) {
@@ -152,7 +163,7 @@ export default function SyncSection() {
       <h3 style={styles.cardTitle}>Sync &amp; Multi‑Device</h3>
 
       <div style={{ marginBottom: 12, fontSize: 13, color: "#a1a1aa" }}>
-        Use a shared key (and optional PIN) to synchronise your Finance Cockpit state across devices.
+        Use a shared key + PIN to synchronise your Finance Cockpit state across devices.
         Enter the same key and PIN on each device, then click “Sync now”.
       </div>
 
@@ -168,7 +179,7 @@ export default function SyncSection() {
       </label>
 
       <label style={{ ...styles.label, flexDirection: "column", alignItems: "flex-start" }}>
-        <span style={{ marginBottom: 4 }}>Sync PIN {hasRemote ? "(recommended)" : "(optional)"}</span>
+        <span style={{ marginBottom: 4 }}>Sync PIN {hasRemote ? "(required)" : "(optional)"}</span>
         <input
           style={styles.input}
           type="password"

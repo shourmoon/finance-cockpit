@@ -149,12 +149,19 @@ export async function syncNow(
 ): Promise<{
   direction: "init" | "pull" | "push";
   remoteUpdatedAt: string | null;
+  conflict: boolean;
 }> {
   // Load the last sync metadata. This may be null on first run.
   const lastSync = getLastSyncInfo();
-  // Fetch remote state. IMPORTANT: do NOT convert transport/auth errors into
-  // "conflict". Surface them so the UI can show the real cause (401/CORS/etc.).
-  const remoteState: RemoteStateResponse | null = await remoteAdapter.loadState(sharedKey);
+  // Attempt to fetch the remote state.
+  let remoteState: RemoteStateResponse | null = null;
+  try {
+    remoteState = await remoteAdapter.loadState(sharedKey);
+  } catch (e) {
+    // IMPORTANT: do not translate network/auth/CORS errors into "conflict".
+    // Bubble up the real failure so the UI can show the correct message.
+    throw e;
+  }
 
   // If the backend has no data for this key, push our local snapshot.
   if (!remoteState) {
@@ -166,7 +173,7 @@ export async function syncNow(
     };
     const updated = await remoteAdapter.saveState(sharedKey, payload);
     setLastSyncInfo({ remote_updated_at: updated });
-    return { direction: "init", remoteUpdatedAt: updated };
+    return { direction: "init", remoteUpdatedAt: updated, conflict: false };
   }
 
   const remoteUpdatedAt = remoteState.updated_at;
@@ -182,7 +189,7 @@ export async function syncNow(
       device_id: getDeviceId(),
     });
     setLastSyncInfo({ remote_updated_at: remoteUpdatedAt });
-    return { direction: "pull", remoteUpdatedAt };
+    return { direction: "pull", remoteUpdatedAt, conflict: false };
   }
 
   // If the remote has changed since last sync, prefer pulling the
@@ -198,7 +205,7 @@ export async function syncNow(
       device_id: getDeviceId(),
     });
     setLastSyncInfo({ remote_updated_at: remoteUpdatedAt });
-    return { direction: "pull", remoteUpdatedAt };
+    return { direction: "pull", remoteUpdatedAt, conflict: false };
   }
 
   // Otherwise push our local state. Use prev_updated_at for optimistic
@@ -213,5 +220,5 @@ export async function syncNow(
   };
   const newUpdated = await remoteAdapter.saveState(sharedKey, payload);
   setLastSyncInfo({ remote_updated_at: newUpdated });
-  return { direction: "push", remoteUpdatedAt: newUpdated };
+  return { direction: "push", remoteUpdatedAt: newUpdated, conflict: false };
 }
