@@ -213,4 +213,50 @@ describe("sync helpers", () => {
     expect(remote!.app_state.account.startingBalance).toBe(555);
     expect(remote!.mortgage_ui.terms.principal).toBe(444444);
   });
+
+  it("a pull silently overwrites local edits (characterization of pull-wins)", async () => {
+    // CHARACTERIZATION: when the remote changed since last sync, syncNow
+    // pulls and replaces local state with no merge and no backup. Local
+    // edits made since the last sync are lost. This documents the current
+    // behavior; a pre-pull backup is planned as a safety net.
+    window.localStorage.setItem(
+      "finance-cockpit:last-sync",
+      JSON.stringify({ remote_updated_at: "2025-02-01T00:00:00Z" })
+    );
+    const localApp = createInitialAppState();
+    localApp.account.startingBalance = 42; // unsynced local edit
+    saveAppState(localApp);
+    saveMortgageUIState(createDefaultMortgageUIState());
+
+    const remoteApp = createInitialAppState();
+    remoteApp.account.startingBalance = 7;
+    const fakeAdapter: RemotePersistenceAdapter = {
+      async loadState() {
+        return {
+          app_state: remoteApp,
+          mortgage_ui: createDefaultMortgageUIState(),
+          updated_at: "2025-03-01T00:00:00Z",
+        };
+      },
+      async saveState() {
+        throw new Error("should not push");
+      },
+    };
+
+    const res = await syncNow("abc", fakeAdapter);
+    expect(res.direction).toBe("pull");
+    expect(loadAppState()!.account.startingBalance).toBe(7); // local 42 is gone
+  });
+
+  it("syncNow propagates adapter load errors instead of swallowing them", async () => {
+    const failingAdapter: RemotePersistenceAdapter = {
+      async loadState() {
+        throw new Error("Remote load failed: 401");
+      },
+      async saveState() {
+        return "never";
+      },
+    };
+    await expect(syncNow("abc", failingAdapter)).rejects.toThrow("401");
+  });
 });

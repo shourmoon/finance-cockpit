@@ -245,3 +245,121 @@ describe("cashflowEngine - timeline & metrics", () => {
     expect(typeof result.metrics.balanceToday).toBe("number");
   });
 });
+
+describe("cashflowEngine - edge cases", () => {
+  test("monthly day 31 clamps to end of shorter months", () => {
+    const rule: RecurringRule = {
+      id: "rule-eom",
+      name: "End of month",
+      amount: 100,
+      isVariable: false,
+      schedule: { type: "monthly", day: 31 },
+    };
+    const settings: CashflowSettings = {
+      startDate: "2025-01-01",
+      horizonDays: 120,
+      minSafeBalance: 0,
+    };
+
+    const events = buildFutureEvents([rule], settings, {});
+    const dates = events.map((e) => e.date);
+    expect(dates).toContain("2025-01-31");
+    expect(dates).toContain("2025-02-28"); // 2025 is not a leap year
+    expect(dates).toContain("2025-03-31");
+    expect(dates).toContain("2025-04-30");
+  });
+
+  test("twiceMonth emits a single event when both days clamp to the same date", () => {
+    const rule: RecurringRule = {
+      id: "rule-collapse",
+      name: "Collapsing",
+      amount: 100,
+      isVariable: false,
+      schedule: { type: "twiceMonth", day1: 30, day2: 31 },
+    };
+    const settings: CashflowSettings = {
+      startDate: "2025-02-01",
+      horizonDays: 27, // February 2025 only
+      minSafeBalance: 0,
+    };
+
+    const events = buildFutureEvents([rule], settings, {});
+    // Both day 30 and day 31 clamp to Feb 28; only one event should be emitted.
+    expect(events).toHaveLength(1);
+    expect(events[0].date).toBe("2025-02-28");
+  });
+
+  test("biweekly anchor beyond the horizon yields no events", () => {
+    const rule: RecurringRule = {
+      id: "rule-future",
+      name: "Future anchor",
+      amount: 100,
+      isVariable: false,
+      schedule: { type: "biweekly", anchorDate: "2026-06-01" },
+    };
+    const settings: CashflowSettings = {
+      startDate: "2025-01-01",
+      horizonDays: 30,
+      minSafeBalance: 0,
+    };
+
+    expect(buildFutureEvents([rule], settings, {})).toHaveLength(0);
+  });
+
+  test("biweekly anchor far in the past lands on the 14-day grid inside the horizon", () => {
+    const rule: RecurringRule = {
+      id: "rule-past",
+      name: "Old anchor",
+      amount: 100,
+      isVariable: false,
+      schedule: { type: "biweekly", anchorDate: "2020-01-01" },
+    };
+    const settings: CashflowSettings = {
+      startDate: "2025-01-01",
+      horizonDays: 30,
+      minSafeBalance: 0,
+    };
+
+    const events = buildFutureEvents([rule], settings, {});
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) {
+      const diffDays =
+        (parseISODate(e.date).getTime() - parseISODate("2020-01-01").getTime()) /
+        (1000 * 60 * 60 * 24);
+      expect(diffDays % 14).toBe(0);
+      expect(e.date >= "2025-01-01").toBe(true);
+      expect(e.date <= "2025-01-31").toBe(true);
+    }
+  });
+
+  test("an override changes effectiveAmount for that occurrence only", () => {
+    const rule: RecurringRule = {
+      id: "rule-var",
+      name: "Variable bill",
+      amount: -100,
+      isVariable: true,
+      schedule: { type: "monthly", day: 15 },
+    };
+    const settings: CashflowSettings = {
+      startDate: "2025-01-01",
+      horizonDays: 60,
+      minSafeBalance: 0,
+    };
+    const overrides: EventOverridesMap = {
+      "rule-var__2025-01-15": {
+        eventKey: "rule-var__2025-01-15",
+        overrideAmount: -250,
+      },
+    };
+
+    const events = buildFutureEvents([rule], settings, overrides);
+    const jan = events.find((e) => e.date === "2025-01-15")!;
+    const feb = events.find((e) => e.date === "2025-02-15")!;
+
+    expect(jan.isOverridden).toBe(true);
+    expect(jan.effectiveAmount).toBe(-250);
+    expect(jan.defaultAmount).toBe(-100);
+    expect(feb.isOverridden).toBe(false);
+    expect(feb.effectiveAmount).toBe(-100);
+  });
+});

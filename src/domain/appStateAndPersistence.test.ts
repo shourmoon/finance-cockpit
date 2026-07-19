@@ -66,4 +66,40 @@ describe("appState & persistence", () => {
     // Because we remove the key, it returns null.
     expect(afterClear).toBeNull();
   });
+
+  test("upgradeAppState coerces junk rule fields to defaults", () => {
+    const raw: any = {
+      version: 1,
+      account: { startingBalance: 100 },
+      settings: { startDate: "2025-01-01", horizonDays: 30, minSafeBalance: 0 },
+      rules: [
+        { id: "r1", name: 42, amount: "oops", isVariable: "yes", schedule: { type: "monthly", day: 5 } },
+        { name: "no id, dropped" },
+        null,
+      ],
+      overrides: {},
+    };
+    const upgraded = upgradeAppState(raw);
+    expect(upgraded.rules).toHaveLength(1);
+    expect(upgraded.rules[0].name).toBe("Rule");
+    expect(upgraded.rules[0].amount).toBe(0);
+    expect(upgraded.rules[0].isVariable).toBe(true);
+  });
+
+  test("upgradeAppState currently passes schedules through unvalidated (characterization)", () => {
+    // CHARACTERIZATION: today a rule with a corrupt schedule survives the
+    // upgrade untouched and will crash the cashflow engine at
+    // `rule.schedule.type`. This test documents the current behavior; it
+    // should be inverted when schedule sanitization is added.
+    const raw: any = {
+      version: 1,
+      account: { startingBalance: 0 },
+      settings: { startDate: "2025-01-01", horizonDays: 30, minSafeBalance: 0 },
+      rules: [{ id: "r1", name: "Bad", amount: 1, isVariable: false, schedule: null }],
+      overrides: {},
+    };
+    const upgraded = upgradeAppState(raw);
+    expect(upgraded.rules).toHaveLength(1);
+    expect(upgraded.rules[0].schedule).toBeNull();
+  });
 });

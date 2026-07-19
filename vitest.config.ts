@@ -5,6 +5,10 @@ export default defineConfig({
   test: {
     globals: true,          // <-- enable describe/it/expect as globals
     environment: "jsdom",   // good default for React-ish code
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"]
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "workers/**/*.test.ts"
+    ]
   }
 });
