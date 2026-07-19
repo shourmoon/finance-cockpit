@@ -15,7 +15,7 @@ import { RemoteSyncError, stubRemoteAdapter } from "../domain/persistence/remote
 import { applySnapshot, getLocalSnapshot, syncNow } from "../domain/persistence/sync";
 import type { Snapshot } from "../domain/persistence/snapshot";
 
-const SYNC_BASE_URL: string | undefined = (import.meta as any).env?.VITE_SYNC_BASE_URL;
+import { SYNC_BASE_URL } from "../config";
 
 const SYNC_KEY_STORAGE = "finance-cockpit:sync-key";
 const LAST_SYNC_STORAGE = "finance-cockpit:last-sync";
