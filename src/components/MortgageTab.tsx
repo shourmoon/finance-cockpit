@@ -44,6 +44,7 @@ import {
 // (YYYY‑MM‑DD) into the display format required by the product
 // specification, e.g. "2025-01-26" → "26 Jan '25".
 import { formatDate } from "../utils/dates";
+import { DateInputWithDisplay } from "./shared";
 
 // Format a currency value (number) into a US dollar string with no
 // fractional digits.  If the input is null or NaN the em dash is
@@ -111,29 +112,7 @@ function parseNumber(value: string): number | null {
 // YYYY‑MM‑DD internally, users always see the DD MMM 'YY
 // representation alongside it.  Consumers must provide the value,
 // onChange handler and styling for the input.
-function DateInputWithDisplay({
-  value,
-  onChange,
-  inputStyle,
-}: {
-  value: string;
-  onChange: (val: string) => void;
-  inputStyle: React.CSSProperties;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
-      <input
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-      />
-      <span style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
-        {formatDate(value) || "—"}
-      </span>
-    </div>
-  );
-}
+// (The date input itself now lives in src/components/shared.tsx.)
 
 // A helper that combines a label with a date input.  It uses the
 // DateInputWithDisplay component internally and displays the label
@@ -153,6 +132,7 @@ function LabeledDateInput({
       <DateInputWithDisplay
         value={value}
         onChange={onChange}
+        captionStyle={{ fontSize: 10, marginTop: 2 }}
         inputStyle={{
           borderRadius: 6,
           border: "1px solid #27272a",
@@ -1169,6 +1149,7 @@ export default function MortgageTab() {
                 <DateInputWithDisplay
                   value={row.date}
                   onChange={(val) => updatePrepaymentRow(row.id, { date: val })}
+                  captionStyle={{ fontSize: 10, marginTop: 2 }}
                   inputStyle={styles.input}
                 />
                 <input

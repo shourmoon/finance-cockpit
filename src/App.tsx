@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
-import { computeSafeToSpend } from "./domain/safeToSpendEngine";
+import { computeSafeToSpendFromEvents } from "./domain/safeToSpendEngine";
 import type {
   AppState,
   FutureEvent,
@@ -18,15 +18,9 @@ import SyncSection from "./components/SyncSection";
 // Import a common date formatter to ensure all dates in the UI follow the
 // same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
 import { formatDate } from "./utils/dates";
+import { DateInputWithDisplay as SharedDateInput } from "./components/shared";
 
-// A tiny wrapper around the native date input that displays the chosen
-// date underneath in the product's human–friendly format.  This mirrors
-// the behaviour used in the Mortgage tab so that users always see
-// consistent date formatting across the entire app.  The styling of
-// the input is pulled from the surrounding component via the standard
-// `styles.input` definition.  The caller passes the value and
-// onChange callback and the component takes care of rendering the
-// formatted date below the input.
+// Shared date input bound to this screen's input styling.
 function DateInputWithDisplay({
   value,
   onChange,
@@ -35,19 +29,7 @@ function DateInputWithDisplay({
   onChange: (val: string) => void;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
-      <input
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={styles.input}
-      />
-      <span
-        style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}
-      >
-        {formatDate(value) || "—"}
-      </span>
-    </div>
+    <SharedDateInput value={value} onChange={onChange} inputStyle={styles.input} />
   );
 }
 
@@ -70,13 +52,28 @@ export default function App() {
     "dashboard" | "config" | "mortgage"
   >("dashboard");
 
-  const { metrics, events, timeline } = runCashflowProjection(state);
-  const safe = computeSafeToSpend(state);
+  const { metrics, events, timeline } = useMemo(
+    () => runCashflowProjection(state),
+    [state]
+  );
+  // Derive safe-to-spend from the projection above instead of re-running it.
+  const safe = useMemo(
+    () =>
+      computeSafeToSpendFromEvents(
+        state.account.startingBalance,
+        state.settings.minSafeBalance ?? 0,
+        events
+      ),
+    [state.account.startingBalance, state.settings.minSafeBalance, events]
+  );
 
-  const runningBalanceByDate = new Map<string, number>();
-  for (const point of timeline) {
-    runningBalanceByDate.set(point.date, point.balance);
-  }
+  const runningBalanceByDate = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const point of timeline) {
+      byDate.set(point.date, point.balance);
+    }
+    return byDate;
+  }, [timeline]);
 
   useEffect(() => {
     saveAppState(state);
