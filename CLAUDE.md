@@ -13,6 +13,8 @@ npx vitest run src/domain/cashflowEngine.test.ts   # Run a single test file
 npx vitest run -t "test name"        # Run tests matching a name
 ```
 
+CI (`.github/workflows/ci.yml`) runs `tsc --noEmit` and `npx vitest run` on every push/PR.
+
 Backend worker (optional, for sync):
 
 ```bash
@@ -27,7 +29,7 @@ Finance Cockpit is a local-first React 18 + TypeScript PWA (Vite + vite-plugin-p
 
 ### Domain / UI split — the central rule
 
-Everything under `src/domain/` is pure, framework-free TypeScript with no React imports. This is what makes the test suite (all tests live against `src/domain/`) fast and thorough. Keep business logic in `src/domain/` and out of components; components in `src/components/` and `App.tsx` are shells over domain functions.
+Everything under `src/domain/` is pure, framework-free TypeScript with no React imports. This is what makes the test suite (domain tests plus `workers/sync-worker/index.test.ts`) fast and thorough. Keep business logic in `src/domain/` and out of components; components in `src/components/` and `App.tsx` are shells over domain functions. Shared UI helpers (e.g. `DateInputWithDisplay`) live in `src/components/shared.tsx`.
 
 ### Three subsystems
 
@@ -44,14 +46,14 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
 
 3. **Sync** (`src/domain/persistence/`, `workers/sync-worker/`):
    - `snapshot.ts` defines the canonical envelope: `{ schemaVersion, app_state, mortgage_ui, updated_at, device_id }` — both `AppState` and `MortgageUIState` sync together as one unit.
-   - `sync.ts` `syncNow()` decides push vs. pull: no remote → push (init); never synced locally → pull; remote `updated_at` changed since last sync → pull (remote always wins, no merge); otherwise push with `prev_updated_at` for optimistic concurrency.
-   - The app talks only to the `RemotePersistenceAdapter` interface (`remote.ts`); `remoteCloudflare.ts` is the fetch-based implementation. The Worker (`workers/sync-worker/index.ts`) stores snapshots in KV, is PIN-gated (client sends `X-Sync-Pin: sha256(pin)`; first-seen hash is bound to the shared key), and returns `409` on `prev_updated_at` mismatch.
+   - `sync.ts` `syncNow()` decides push vs. pull: no remote → push (init); never synced locally → pull; remote `updated_at` changed since last sync → pull (remote always wins, no merge); otherwise push with `prev_updated_at` for optimistic concurrency. Before any pull overwrites local state, the current local snapshot is saved to a one-slot backup (`finance-cockpit:backup-before-pull`, readable via `loadPrePullBackup()`).
+   - The app talks only to the `RemotePersistenceAdapter` interface (`remote.ts`); `remoteCloudflare.ts` is the fetch-based implementation. Adapter failures are thrown as `RemoteSyncError` with a `kind` (`unauthorized`/`conflict`/`notFound`/`network`/`server`) — branch on `kind`, never string-match error messages. The Worker (`workers/sync-worker/index.ts`) stores snapshots in KV, is PIN-gated (client sends `X-Sync-Pin: sha256(pin)`; first-seen hash is bound to the shared key), and returns `409` on `prev_updated_at` mismatch.
    - Identity is a user-entered shared key remembered in localStorage (`SyncSection.tsx`); there are no user accounts.
 
 ### Persistence and migrations
 
-Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapshot()`, and mortgage persistence all validate field-by-field and fall back to defaults rather than throwing. `AppState` carries `version` (`APP_STATE_VERSION`); snapshots carry `schemaVersion` (`CURRENT_SCHEMA_VERSION`). When changing persisted shapes, bump the relevant version and extend the corresponding upgrade/parse function — never assume stored JSON is well-formed.
+Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapshot()`, and mortgage persistence all validate field-by-field and fall back to defaults rather than throwing. Rule schedules are validated by `sanitizeSchedule()` (rules with unusable schedules are dropped), snapshot payloads are sanitized via `upgradeAppState()`/`sanitizeMortgageUIState()`, and `parseISODate()` throws on malformed input (check with `isValidISODate()` first when the value is untrusted — the engine tolerates a transiently-invalid `startDate` by returning an empty projection). `AppState` carries `version` (`APP_STATE_VERSION`); snapshots carry `schemaVersion` (`CURRENT_SCHEMA_VERSION`). When changing persisted shapes, bump the relevant version and extend the corresponding upgrade/parse function — never assume stored JSON is well-formed.
 
 ### Date formatting in UI
 
-All user-facing dates go through `formatDate` in `src/utils/dates.ts` (DD MMM 'YY format). Date inputs pair the native `<input type="date">` with the formatted value displayed beneath (see `DateInputWithDisplay` in `App.tsx` and `MortgageTab.tsx`).
+All user-facing dates go through `formatDate` in `src/utils/dates.ts` (DD MMM 'YY format). Date inputs pair the native `<input type="date">` with the formatted value displayed beneath (`DateInputWithDisplay` in `src/components/shared.tsx`).

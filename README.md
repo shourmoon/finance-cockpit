@@ -1,73 +1,40 @@
-# React + TypeScript + Vite
+# Finance Cockpit
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A local-first personal-finance PWA: project your cash balance day by day, see what's safe to spend, and optimize mortgage prepayments. Built with React 18 + TypeScript + Vite. All data lives in your browser's localStorage; an optional Cloudflare Worker enables PIN-protected sync across devices.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Cashflow projection** — recurring income/expense rules (monthly, twice-a-month with US-Fed business-day adjustment, or biweekly) expanded over a configurable horizon into a daily balance timeline, with per-occurrence amount overrides.
+- **Safe to spend** — computes how much you can spend today without the projected balance ever dropping below your safety floor.
+- **Mortgage optimizer** — amortization with past prepayments, baseline-vs-actual comparison (interest and months saved), what-if scenarios (one-time / monthly / yearly / biweekly extra payments), and effective-APR calculation.
+- **Cross-device sync (optional)** — snapshots pushed/pulled through a Cloudflare Worker + KV, gated by a shared key and PIN, with optimistic concurrency and an in-app conflict resolver. A local backup is saved before any pull overwrites local data.
 
-## React Compiler
+## Quick start
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev        # Vite dev server
+npm test           # Vitest in watch mode
+npx vitest run     # run the whole suite once
+npm run build      # typecheck (tsc --noEmit) + production PWA build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Sync backend (optional)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+The app works fully offline without a backend. To enable cross-device sync:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+1. Create a Cloudflare KV namespace and set its IDs in `workers/sync-worker/wrangler.toml` (binding name `SYNC_KV`).
+2. Deploy the worker:
+
+   ```bash
+   cd workers/sync-worker
+   npx wrangler deploy
+   ```
+
+3. Build the app with `VITE_SYNC_BASE_URL` pointing at the deployed worker URL.
+
+On first sync from the Sync section of the app, pick a shared key and a PIN; the worker binds the PIN (as a SHA-256 hash) to that key on first use and requires it thereafter. Enter the same key + PIN on another device to link it.
+
+## Architecture
+
+Business logic is pure, framework-free TypeScript under `src/domain/` (cashflow engine, mortgage math, persistence/sync) with the React components in `src/components/` as thin shells over it. The test suite runs against the domain layer and the worker. See `CLAUDE.md` for a fuller architectural walkthrough.
