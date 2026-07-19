@@ -43,6 +43,20 @@ describe("snapshot helpers", () => {
     ).toBeNull();
   });
 
+  it("parseSnapshot rejects each individually malformed field", () => {
+    const base = {
+      schemaVersion: 1,
+      app_state: { version: 1 },
+      mortgage_ui: { terms: {} },
+      updated_at: "2025-01-01T00:00:00Z",
+      device_id: "d",
+    };
+    expect(parseSnapshot({ ...base, app_state: null })).toBeNull();
+    expect(parseSnapshot({ ...base, mortgage_ui: null })).toBeNull();
+    expect(parseSnapshot({ ...base, updated_at: "" })).toBeNull();
+    expect(parseSnapshot({ ...base, device_id: "" })).toBeNull();
+  });
+
   it("parseSnapshot round‑trips a snapshot", () => {
     const app = createInitialAppState();
     const mortgage = createDefaultMortgageUIState();

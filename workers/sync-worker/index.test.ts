@@ -195,6 +195,17 @@ describe("sync-worker fetch handler", () => {
     expect(env.SYNC_KV.store.get("k2:pin")).toBe(PIN_B);
   });
 
+  it("treats a whitespace-only pin header as missing (401)", async () => {
+    const res = await worker.fetch(getReq("k1", "   "), env);
+    expect(res.status).toBe(401);
+  });
+
+  it("throws when the SYNC_KV binding is missing", async () => {
+    await expect(
+      worker.fetch(getReq("k1", PIN_A), { SYNC_KV: undefined })
+    ).rejects.toThrow("SYNC_KV");
+  });
+
   it("returns 405 for unsupported methods", async () => {
     const res = await worker.fetch(
       new Request(`${BASE}/state?key=k1`, {

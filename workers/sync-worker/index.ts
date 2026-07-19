@@ -94,10 +94,12 @@ async function setStoredPinHash(env: any, sharedKey: string, pinHash: string): P
 }
 
 function readPinHashFromRequest(request: Request): string | null {
-  const v = request.headers.get(PIN_HEADER) ?? request.headers.get("X-Sync-Pin");
-  if (!v) return null;
-  const trimmed = v.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  // Headers.get is case-insensitive, so one lookup covers all spellings.
+  // Header values also arrive with surrounding whitespace already stripped,
+  // so an all-whitespace pin is delivered as "" and caught here.
+  const v = request.headers.get(PIN_HEADER);
+  if (!v || v.trim().length === 0) return null;
+  return v.trim();
 }
 
 async function requirePin(env: any, sharedKey: string, request: Request): Promise<Response | null> {

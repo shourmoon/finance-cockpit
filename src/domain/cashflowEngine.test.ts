@@ -355,6 +355,50 @@ describe("cashflowEngine - edge cases", () => {
     expect(result.metrics.firstNegativeDate).toBeNull();
   });
 
+  test("invalid startDate metrics reflect the starting balance status", () => {
+    const bad: CashflowSettings = { startDate: "", horizonDays: 30, minSafeBalance: 100 };
+
+    const negative = buildTimelineAndMetrics({ startingBalance: -5 }, bad, []);
+    expect(negative.metrics.status).toBe("alert");
+
+    const belowSafe = buildTimelineAndMetrics({ startingBalance: 50 }, bad, []);
+    expect(belowSafe.metrics.status).toBe("warning");
+
+    const ok = buildTimelineAndMetrics({ startingBalance: 500 }, bad, []);
+    expect(ok.metrics.status).toBe("ok");
+    expect(ok.timeline).toHaveLength(0);
+  });
+
+  test("a negative starting balance marks the start date as first-negative", () => {
+    const settings: CashflowSettings = {
+      startDate: "2025-01-01",
+      horizonDays: 5,
+      minSafeBalance: 0,
+    };
+    const { metrics } = buildTimelineAndMetrics({ startingBalance: -100 }, settings, []);
+    expect(metrics.firstNegativeDate).toBe("2025-01-01");
+    expect(metrics.status).toBe("alert");
+  });
+
+  test("two rules landing on the same date both contribute (compareISO equality)", () => {
+    const settings: CashflowSettings = {
+      startDate: "2025-01-01",
+      horizonDays: 40,
+      minSafeBalance: 0,
+    };
+    const a: RecurringRule = {
+      id: "a", name: "A", amount: 100, isVariable: false,
+      schedule: { type: "monthly", day: 10 },
+    };
+    const b: RecurringRule = {
+      id: "b", name: "B", amount: 200, isVariable: false,
+      schedule: { type: "monthly", day: 10 },
+    };
+    const events = buildFutureEvents([a, b], settings, {});
+    const jan10 = events.filter((e) => e.date === "2025-01-10");
+    expect(jan10).toHaveLength(2);
+  });
+
   test("a biweekly rule with an invalid anchor date is skipped, not fatal", () => {
     const settings: CashflowSettings = {
       startDate: "2025-01-01",

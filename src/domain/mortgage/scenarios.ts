@@ -275,6 +275,8 @@ function buildExtraByDateMap(
   const dueDay = Number(terms.startDate.split("-")[2]);
 
   function addExtra(date: ISODate, amount: Money) {
+    // Defensive: callers already skip non-positive pattern amounts.
+    /* v8 ignore next 1 */
     if (amount <= 0) return;
     if (compareIsoDates(date, asOfDate) <= 0) return;
     if (compareIsoDates(date, payoffDate) > 0) return;
@@ -303,6 +305,9 @@ function buildExtraByDateMap(
         for (const entry of baselineSchedule) {
           // Skip dates on or before the start; only future dates apply.
           if (compareIsoDates(entry.date, start) <= 0) continue;
+          // Defensive: the baseline schedule never extends past its own
+          // payoff date, so this break is not reachable in practice.
+          /* v8 ignore next 1 */
           if (compareIsoDates(entry.date, payoffDate) > 0) break;
 
           let targetDate: ISODate;
@@ -338,7 +343,9 @@ function buildExtraByDateMap(
             if (dateNum > lastDayOfMonth) {
               dateNum -= 7;
             }
-            // Clamp again just to be safe.
+            // Clamp again just to be safe (the nth-weekday formula already
+            // yields a day >= 1, so this is a defensive floor).
+            /* v8 ignore next 1 */
             if (dateNum < 1) dateNum = 1;
             const dStr = String(dateNum).padStart(2, "0");
             const mStrPad = String(m).padStart(2, "0");
@@ -438,15 +445,35 @@ function simulateFutureFromAsOf(
   // Safety cap: don't simulate more than original term + 600 months.
   const maxSteps = terms.termMonths + 600;
 
+  // Stream extras in date order and apply each one on the first payment
+  // date on or after its date, mirroring computeMortgageWithPrepayments in
+  // history.ts. This lets extras land between payment dates (yearly,
+  // nth-weekday, specific-day, biweekly) instead of only when they fall
+  // exactly on the monthly due date.
+  const sortedExtras = [...extraByDate.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0])
+  );
+  let extraIndex = 0;
+
   while (remaining > 0.01 && step <= maxSteps) {
     const date = addMonths(effectiveAsOf, step);
     const interest = r > 0 ? remaining * r : 0;
     let principal = monthlyPayment - interest;
+    // Unreachable: remainingAtAsOf never exceeds the original principal,
+    // so the annuity payment always beats interest.
+    /* v8 ignore next 3 */
     if (principal <= 0) {
       throw new Error("Monthly payment is too small to amortize the loan.");
     }
 
-    const extra = extraByDate.get(date) ?? 0;
+    let extra = 0;
+    while (
+      extraIndex < sortedExtras.length &&
+      sortedExtras[extraIndex][0] <= date
+    ) {
+      extra += sortedExtras[extraIndex][1];
+      extraIndex++;
+    }
     let totalPrincipal = principal + extra;
 
     if (totalPrincipal > remaining) {
@@ -472,6 +499,9 @@ function simulateFutureFromAsOf(
     step++;
   }
 
+  // Unreachable: an annuity payment sized for termMonths always amortizes
+  // within the termMonths + 600 cap.
+  /* v8 ignore next 3 */
   if (step > maxSteps && remaining > 0.01) {
     throw new Error("Future simulation did not converge.");
   }

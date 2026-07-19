@@ -13,6 +13,7 @@ Money,
 UUID,
 MonthlySchedule,
 TwiceMonthSchedule,
+BiweeklySchedule,
 } from "./types";
 
 import { addDays, toISODate, parseISODate, isValidISODate } from "./dateUtils";
@@ -63,13 +64,13 @@ function expandRuleToEvents(
 
   switch (rule.schedule.type) {
     case "monthly":
-      generateMonthlyEvents(rule, start, end, overrides, events);
+      generateMonthlyEvents(rule, rule.schedule, start, end, overrides, events);
       break;
     case "twiceMonth":
-      generateTwiceMonthEvents(rule, start, end, overrides, events);
+      generateTwiceMonthEvents(rule, rule.schedule, start, end, overrides, events);
       break;
     case "biweekly":
-      generateBiweeklyEvents(rule, start, end, overrides, events);
+      generateBiweeklyEvents(rule, rule.schedule, start, end, overrides, events);
       break;
   }
 
@@ -78,12 +79,12 @@ function expandRuleToEvents(
 
 function generateMonthlyEvents(
   rule: RecurringRule,
+  sched: MonthlySchedule,
   start: Date,
   end: Date,
   overrides: EventOverridesMap,
   out: FutureEvent[]
 ) {
-  const sched = rule.schedule as MonthlySchedule;
   const day = sched.day;
 
   let cursor = new Date(
@@ -118,13 +119,12 @@ function applyTwiceMonthBusinessConvention(
 
 function generateTwiceMonthEvents(
   rule: RecurringRule,
+  sched: TwiceMonthSchedule,
   start: Date,
   end: Date,
   overrides: EventOverridesMap,
   out: FutureEvent[]
 ) {
-  const sched = rule.schedule as TwiceMonthSchedule;
-
   let cursor = new Date(
     Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1)
   );
@@ -155,18 +155,15 @@ function generateTwiceMonthEvents(
 
 function generateBiweeklyEvents(
   rule: RecurringRule,
+  sched: BiweeklySchedule,
   start: Date,
   end: Date,
   overrides: EventOverridesMap,
   out: FutureEvent[]
 ) {
-  if (rule.schedule.type !== "biweekly") {
-    // Type guard to appease TS; other schedule types handled elsewhere.
-    return;
-  }
-  if (!isValidISODate(rule.schedule.anchorDate)) return;
+  if (!isValidISODate(sched.anchorDate)) return;
 
-  const anchor = parseISODate(rule.schedule.anchorDate);
+  const anchor = parseISODate(sched.anchorDate);
   let current = anchor;
 
   while (current.getTime() < start.getTime()) {
@@ -353,6 +350,9 @@ function computeSafeToSpendThisMonth(
   settings: CashflowSettings,
   timeline: TimelinePoint[]
 ): Money {
+  // Guard only: callers pass a non-empty timeline (the invalid-startDate
+  // path short-circuits before reaching here).
+  /* v8 ignore next 1 */
   if (timeline.length === 0) return 0;
 
   const minBalance = timeline.reduce(
@@ -364,6 +364,5 @@ function computeSafeToSpendThisMonth(
     return 0;
   }
 
-  const headroom = minBalance - settings.minSafeBalance;
-  return headroom > 0 ? headroom : 0;
+  return minBalance - settings.minSafeBalance;
 }

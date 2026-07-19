@@ -41,6 +41,9 @@ export function computeMortgageWithPrepayments(
     const interest = r > 0 ? remaining * r : 0;
     let principal = payment - interest;
 
+    // Unreachable: the annuity payment from computeMonthlyPayment always
+    // exceeds the first month's interest, and interest only shrinks.
+    /* v8 ignore next 3 */
     if (principal < 0) {
       throw new Error("Monthly payment too low to amortize the loan.");
     }

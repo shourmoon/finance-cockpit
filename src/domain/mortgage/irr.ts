@@ -53,6 +53,8 @@ export function computeEffectiveAnnualRateFromSchedule(
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
     const fMid = npv(mid);
+    // Exact floating-point zero is not reachable for real schedules.
+    /* v8 ignore next 4 */
     if (fMid === 0) {
       lo = hi = mid;
       break;

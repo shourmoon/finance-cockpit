@@ -1,10 +1,38 @@
 // src/domain/safeToSpendEngine.test.ts
-import { computeSafeToSpendFromEvents } from "./safeToSpendEngine";
-import type { Money } from "./types";
+import { computeSafeToSpendFromEvents, computeSafeToSpend } from "./safeToSpendEngine";
+import { createInitialAppState } from "./appState";
+import type { AppState, Money } from "./types";
 
 function evt(date: string, amount: Money) {
   return { date, effectiveAmount: amount };
 }
+
+describe("computeSafeToSpend (state wrapper)", () => {
+  it("runs the projection and returns a non-negative safe-to-spend", () => {
+    const state: AppState = {
+      ...createInitialAppState(),
+      account: { startingBalance: 10_000 },
+      settings: { startDate: "2025-01-01", horizonDays: 30, minSafeBalance: 0 },
+      rules: [],
+      overrides: {},
+    };
+    const result = computeSafeToSpend(state);
+    expect(result.projectedMinBalance).toBe(10_000);
+    expect(result.safeToSpendToday).toBe(10_000);
+  });
+
+  it("defaults minSafeBalance to 0 when it is missing", () => {
+    const state = {
+      ...createInitialAppState(),
+      account: { startingBalance: 500 },
+      settings: { startDate: "2025-01-01", horizonDays: 10 },
+      rules: [],
+      overrides: {},
+    } as unknown as AppState;
+    const result = computeSafeToSpend(state);
+    expect(result.safeToSpendToday).toBe(500);
+  });
+});
 
 describe("computeSafeToSpendFromEvents", () => {
   it("returns zero safe-to-spend when min balance is below safe threshold", () => {

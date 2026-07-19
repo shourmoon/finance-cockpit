@@ -1,4 +1,5 @@
 // src/domain/appStateAndPersistence.test.ts
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import { createInitialAppState, upgradeAppState, sanitizeSchedule } from "./appState";
 import { saveAppState, loadAppState, clearAppState } from "./persistence";
 import type { AppState } from "./types";
@@ -145,5 +146,66 @@ describe("sanitizeSchedule", () => {
     expect(sanitizeSchedule({ type: "twiceMonth", day1: 15 })).toBeNull();
     expect(sanitizeSchedule({ type: "biweekly", anchorDate: "2025-13-99" })).toBeNull();
     expect(sanitizeSchedule({ type: "weekly", day: 3 })).toBeNull();
+  });
+
+  test("preserves an explicit 'none' business-day convention", () => {
+    expect(
+      sanitizeSchedule({ type: "twiceMonth", day1: 1, day2: 15, businessDayConvention: "none" })
+    ).toEqual({ type: "twiceMonth", day1: 1, day2: 15, businessDayConvention: "none" });
+  });
+});
+
+describe("upgradeAppState - defaults for a current-version state with missing fields", () => {
+  test("fills account, settings, rules and overrides defaults", () => {
+    const upgraded = upgradeAppState({ version: 1 });
+    expect(upgraded.account.startingBalance).toBe(0);
+    expect(upgraded.settings.horizonDays).toBe(90);
+    expect(upgraded.settings.minSafeBalance).toBe(0);
+    expect(/^\d{4}-\d{2}-\d{2}$/.test(upgraded.settings.startDate)).toBe(true);
+    // rules missing (not an array) => default rule set
+    expect(upgraded.rules.length).toBeGreaterThan(0);
+    expect(upgraded.overrides).toEqual({});
+  });
+
+  test("discards a non-object overrides map", () => {
+    const upgraded = upgradeAppState({
+      version: 1,
+      rules: [],
+      overrides: "nope",
+    });
+    expect(upgraded.overrides).toEqual({});
+  });
+
+  test("treats a missing version as legacy and resets to fresh state", () => {
+    const upgraded = upgradeAppState({ account: { startingBalance: 500 } });
+    expect(upgraded.account.startingBalance).toBe(500);
+    expect(upgraded.version).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("persistence error paths", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  test("loadAppState recovers with a fresh state on malformed JSON", () => {
+    window.localStorage.setItem("finance-cockpit-app-state-v1", "{not json");
+    const loaded = loadAppState();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.version).toBe(createInitialAppState().version);
+  });
+
+  test("saveAppState swallows serialization failures", () => {
+    const circular: any = { version: 1 };
+    circular.self = circular; // JSON.stringify throws on this
+    expect(() => saveAppState(circular)).not.toThrow();
+  });
+
+  test("clearAppState swallows storage failures", () => {
+    const spy = vi
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("denied");
+      });
+    expect(() => clearAppState()).not.toThrow();
+    spy.mockRestore();
   });
 });

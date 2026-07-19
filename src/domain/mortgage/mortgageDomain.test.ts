@@ -6,6 +6,7 @@ import {
   compareBaselineWithPrepayments,
   computeEffectiveAnnualRateFromSchedule,
 } from "./index";
+import { computeMonthlyPayment } from "./baseline";
 
 describe("mortgage domain baseline, prepayments, and effective rate", () => {
   const terms = {
@@ -72,5 +73,62 @@ describe("mortgage domain baseline, prepayments, and effective rate", () => {
     expect(Number.isFinite(effWithPrepay)).toBe(true);
     expect(effWithPrepay).toBeGreaterThan(0);
     expect(effWithPrepay).toBeLessThan(0.2);
+  });
+});
+
+describe("computeMonthlyPayment / baseline edge cases", () => {
+  it("throws on a non-positive principal", () => {
+    expect(() =>
+      computeMonthlyPayment({ principal: 0, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" })
+    ).toThrow("principal must be positive");
+  });
+
+  it("throws on a non-positive term", () => {
+    expect(() =>
+      computeMonthlyPayment({ principal: 1000, annualRate: 0.05, termMonths: 0, startDate: "2025-01-01" })
+    ).toThrow("termMonths must be positive");
+  });
+
+  it("handles a zero-interest loan as simple division", () => {
+    const terms0 = { principal: 12_000, annualRate: 0, termMonths: 12, startDate: "2025-01-01" };
+    expect(computeMonthlyPayment(terms0)).toBeCloseTo(1000, 6);
+
+    const baseline = computeBaselineMortgage(terms0);
+    expect(baseline.totalInterest).toBeCloseTo(0, 6);
+    expect(baseline.schedule).toHaveLength(12);
+    expect(baseline.schedule[11].remaining).toBeCloseTo(0, 6);
+  });
+
+  it("applies prepayments on a zero-interest loan", () => {
+    const terms0 = { principal: 12_000, annualRate: 0, termMonths: 12, startDate: "2025-01-01" };
+    const withPrepay = computeMortgageWithPrepayments(terms0, [
+      { date: "2025-03-01", amount: 3_000 },
+    ]);
+    expect(withPrepay.totalInterest).toBeCloseTo(0, 6);
+    expect(withPrepay.schedule.length).toBeLessThan(12);
+  });
+});
+
+describe("computeEffectiveAnnualRateFromSchedule edge cases", () => {
+  it("throws on an empty schedule", () => {
+    expect(() => computeEffectiveAnnualRateFromSchedule([], 1000)).toThrow(
+      "Schedule is empty"
+    );
+  });
+
+  it("throws on a non-positive principal", () => {
+    const sched = [{ date: "2025-02-01", payment: 100, interest: 0, principal: 100, remaining: 0 }];
+    expect(() => computeEffectiveAnnualRateFromSchedule(sched, 0)).toThrow(
+      "principal must be positive"
+    );
+  });
+
+  it("returns 0 when NPV does not change sign over the search range", () => {
+    // Payments far smaller than principal => NPV positive across [0, hi],
+    // so the IRR is not well-defined and the function returns 0.
+    const sched = [
+      { date: "2025-02-01", payment: 1, interest: 0, principal: 1, remaining: 0 },
+    ];
+    expect(computeEffectiveAnnualRateFromSchedule(sched, 1_000_000)).toBe(0);
   });
 });

@@ -160,4 +160,13 @@ describe("createCloudflareAdapter", () => {
       RemoteSyncError
     );
   });
+
+  it("uses a default message when the rejected value has none", async () => {
+    fetchMock.mockRejectedValue({}); // no .message
+    const adapter = createCloudflareAdapter(BASE);
+    await expect(adapter.loadState("k")).rejects.toMatchObject({
+      kind: "network",
+      message: "Network request failed",
+    });
+  });
 });

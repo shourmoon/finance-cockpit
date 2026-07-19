@@ -1,11 +1,57 @@
 // src/domain/mortgage/mortgagePersistence.test.ts
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   loadMortgageUIState,
   saveMortgageUIState,
   createDefaultMortgageUIState,
+  sanitizeMortgageUIState,
   type MortgageUIState,
 } from "./persistence";
+
+const validTerms = {
+  principal: 300_000,
+  annualRate: 0.05,
+  termMonths: 360,
+  startDate: "2025-01-01",
+};
+
+describe("sanitizeMortgageUIState (validator branches)", () => {
+  it("rejects non-object and missing/invalid terms", () => {
+    expect(sanitizeMortgageUIState(null)).toBeNull();
+    expect(sanitizeMortgageUIState("nope")).toBeNull();
+    expect(sanitizeMortgageUIState({})).toBeNull(); // terms undefined
+    expect(sanitizeMortgageUIState({ terms: "x" })).toBeNull(); // terms not object
+    expect(sanitizeMortgageUIState({ terms: { principal: -1 } })).toBeNull();
+  });
+
+  it("drops falsy/invalid prepayment entries", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      prepayments: [null, { date: "2025-02-01", amount: 0 }, "x"],
+    });
+    expect(s!.prepayments).toEqual([]);
+  });
+
+  it("drops a non-array scenarios value and falsy scenario entries", () => {
+    expect(
+      sanitizeMortgageUIState({ terms: validTerms, scenarios: "nope" })!.scenarios
+    ).toEqual([]);
+    expect(
+      sanitizeMortgageUIState({ terms: validTerms, scenarios: [null, { id: 1 }] })!
+        .scenarios
+    ).toEqual([]);
+  });
+
+  it("keeps valid prepayments and scenarios", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      prepayments: [{ date: "2025-02-01", amount: 500 }],
+      scenarios: [{ id: "a", name: "A", active: true, patterns: [] }],
+    });
+    expect(s!.prepayments).toHaveLength(1);
+    expect(s!.scenarios).toHaveLength(1);
+  });
+});
 
 describe("mortgage persistence v2", () => {
   beforeEach(() => {
@@ -81,6 +127,113 @@ describe("mortgage persistence v2", () => {
 
     expect(state.terms.principal).toBe(defaults.terms.principal);
     expect(state.prepayments.length).toBe(0);
+  });
+
+  it("sanitizes invalid nested fields when loading v2 (keeps valid terms)", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v2",
+      JSON.stringify({
+        terms: { principal: 400_000, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
+        prepayments: [{ date: "2025-06-01", amount: -50 }], // invalid amount => dropped
+        asOfDate: "   ", // blank => falls back to startDate
+        scenarios: [{ id: 1, name: "bad" }], // invalid id type => empty
+      })
+    );
+    const state = loadMortgageUIState();
+    expect(state.terms.principal).toBe(400_000);
+    expect(state.prepayments).toEqual([]);
+    expect(state.asOfDate).toBe("2025-01-01");
+    expect(state.scenarios).toEqual([]);
+  });
+
+  it("treats a literal 'null' payload as empty and returns defaults", () => {
+    window.localStorage.setItem("finance-cockpit-mortgage-v2", "null");
+    expect(loadMortgageUIState()).toEqual(createDefaultMortgageUIState());
+  });
+
+  it("returns defaults when v2 terms are invalid", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v2",
+      JSON.stringify({ terms: { principal: -1 }, prepayments: [] })
+    );
+    const state = loadMortgageUIState();
+    expect(state).toEqual(createDefaultMortgageUIState());
+  });
+
+  it("saveMortgageUIState repairs invalid fields before persisting", () => {
+    const dirty = {
+      terms: { principal: -1, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
+      prepayments: "nope",
+      asOfDate: "",
+      scenarios: "nope",
+    } as any;
+    saveMortgageUIState(dirty);
+
+    const raw = JSON.parse(
+      window.localStorage.getItem("finance-cockpit-mortgage-v2")!
+    );
+    // Invalid terms are replaced with the default terms.
+    expect(raw.terms).toEqual(createDefaultMortgageUIState().terms);
+    expect(raw.prepayments).toEqual([]);
+    expect(raw.scenarios).toEqual([]);
+    // asOfDate falls back to the (dirty) state's terms.startDate.
+    expect(raw.asOfDate).toBe("2025-01-01");
+  });
+
+  it("saveMortgageUIState persists a fully valid state unchanged", () => {
+    const clean = createDefaultMortgageUIState();
+    clean.terms.principal = 250_000;
+    saveMortgageUIState(clean);
+    expect(loadMortgageUIState().terms.principal).toBe(250_000);
+  });
+
+  it("ignores a legacy v1 payload with invalid terms", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v1",
+      JSON.stringify({ terms: { principal: 0 }, prepayments: [] })
+    );
+    expect(loadMortgageUIState()).toEqual(createDefaultMortgageUIState());
+  });
+
+  it("migrates a v1 payload dropping invalid prepayments", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v1",
+      JSON.stringify({
+        terms: { principal: 500_000, annualRate: 0.04, termMonths: 360, startDate: "2020-01-01" },
+        prepayments: "not an array",
+      })
+    );
+    const state = loadMortgageUIState();
+    expect(state.terms.principal).toBe(500_000);
+    expect(state.prepayments).toEqual([]);
+  });
+
+  it("still migrates v1 even if persisting the upgrade throws", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v1",
+      JSON.stringify({
+        terms: { principal: 500_000, annualRate: 0.049, termMonths: 360, startDate: "2020-02-01" },
+        prepayments: [],
+      })
+    );
+    const spy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota");
+      });
+    const state = loadMortgageUIState();
+    expect(state.terms.principal).toBe(500_000);
+    spy.mockRestore();
+  });
+
+  it("saveMortgageUIState swallows storage write failures", () => {
+    const spy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota");
+      });
+    expect(() => saveMortgageUIState(createDefaultMortgageUIState())).not.toThrow();
+    spy.mockRestore();
   });
 
   it("migrates legacy v1 shape if present", () => {

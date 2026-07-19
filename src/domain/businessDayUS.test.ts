@@ -43,6 +43,38 @@ describe("businessDayUS", () => {
     expect(isUSFederalReserveBusinessDay(adjusted)).toBe(true);
   });
 
+  test("recognizes every fixed and floating federal holiday in 2025", () => {
+    const holidays2025 = [
+      "2025-01-01", // New Year's Day
+      "2025-01-20", // MLK Day (3rd Mon Jan)
+      "2025-02-17", // Washington's Birthday (3rd Mon Feb)
+      "2025-05-26", // Memorial Day (last Mon May)
+      "2025-06-19", // Juneteenth
+      "2025-07-04", // Independence Day
+      "2025-09-01", // Labor Day (1st Mon Sep)
+      "2025-10-13", // Columbus Day (2nd Mon Oct)
+      "2025-11-11", // Veterans Day
+      "2025-11-27", // Thanksgiving (4th Thu Nov)
+      "2025-12-25", // Christmas
+    ];
+    for (const iso of holidays2025) {
+      expect(isUSFederalReserveHoliday(parseISODate(iso))).toBe(true);
+    }
+  });
+
+  test("observes a Sunday fixed-date holiday on the following Monday", () => {
+    // Juneteenth 2022-06-19 was a Sunday -> observed Monday 2022-06-20.
+    expect(isUSFederalReserveHoliday(parseISODate("2022-06-20"))).toBe(true);
+    expect(isUSFederalReserveHoliday(parseISODate("2022-06-19"))).toBe(false);
+  });
+
+  test("a normal mid-week day is not a holiday", () => {
+    // 2025-03-12 (Wednesday) is an ordinary business day.
+    const d = parseISODate("2025-03-12");
+    expect(isUSFederalReserveHoliday(d)).toBe(false);
+    expect(isUSFederalReserveBusinessDay(d)).toBe(true);
+  });
+
   test("random mid-week days are usually business days unless a holiday", () => {
     // Quick randomized sample over some years
     for (let i = 0; i < 50; i++) {
