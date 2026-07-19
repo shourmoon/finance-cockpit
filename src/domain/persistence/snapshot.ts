@@ -8,7 +8,12 @@
 // migrations and synchronisation across devices much easier.
 
 import type { AppState } from "../types";
+import { upgradeAppState } from "../appState";
 import type { MortgageUIState } from "../mortgage/persistence";
+import {
+  createDefaultMortgageUIState,
+  sanitizeMortgageUIState,
+} from "../mortgage/persistence";
 
 /**
  * The current schema version for snapshots. Increment this number if
@@ -61,6 +66,10 @@ export function createSnapshot(
  * Best effort parsing of an arbitrary value into a Snapshot. Returns
  * null if the input does not resemble a snapshot. We deliberately
  * avoid throwing to ensure sync errors don't crash the app.
+ *
+ * The nested states are sanitized field-by-field (via upgradeAppState
+ * and sanitizeMortgageUIState) rather than trusted as-is, so corrupt
+ * remote data cannot crash the app after a pull.
  */
 export function parseSnapshot(value: unknown): Snapshot | null {
   if (!value || typeof value !== "object") return null;
@@ -73,8 +82,9 @@ export function parseSnapshot(value: unknown): Snapshot | null {
   if (typeof device_id !== "string" || !device_id) return null;
   return {
     schemaVersion,
-    app_state: app_state as AppState,
-    mortgage_ui: mortgage_ui as MortgageUIState,
+    app_state: upgradeAppState(app_state),
+    mortgage_ui:
+      sanitizeMortgageUIState(mortgage_ui) ?? createDefaultMortgageUIState(),
     updated_at,
     device_id,
   };

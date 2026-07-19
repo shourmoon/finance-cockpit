@@ -12,6 +12,16 @@ import type {
   RemoteStatePayload,
   RemoteStateResponse,
 } from "./remote";
+import { RemoteSyncError, remoteSyncErrorFromStatus } from "./remote";
+
+async function doFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (e: any) {
+    // fetch rejects only on transport-level failures (offline, CORS, DNS).
+    throw new RemoteSyncError("network", e?.message ?? "Network request failed");
+  }
+}
 
 /**
  * Construct a RemotePersistenceAdapter that talks to a Cloudflare
@@ -19,8 +29,10 @@ import type {
  *  - GET `/state?key=SHARED_KEY` which returns { app_state, mortgage_ui, updated_at }
  *  - PUT `/state?key=SHARED_KEY` with JSON { app_state, mortgage_ui, prev_updated_at }
  *    and returns { updated_at } if successful. If prev_updated_at does not
- *    match the current stored updated_at the worker should reject with
- *    a 409 Conflict status.
+ *    match the current stored updated_at the worker rejects with 409.
+ *
+ * Failures are thrown as RemoteSyncError so callers can branch on
+ * `err.kind` ("unauthorized" | "conflict" | "notFound" | "network" | "server").
  */
 export function createCloudflareAdapter(
   baseUrl: string,
@@ -33,10 +45,10 @@ export function createCloudflareAdapter(
   return {
     async loadState(sharedKey: string): Promise<RemoteStateResponse | null> {
       const url = `${baseUrl.replace(/\/$/, "")}/state?key=${encodeURIComponent(sharedKey)}`;
-      const res = await fetch(url, { method: "GET", headers: authHeaders });
+      const res = await doFetch(url, { method: "GET", headers: authHeaders });
       if (!res.ok) {
-        if (res.status === 404) return null;
-        throw new Error(`Remote load failed: ${res.status}`);
+        if (res.status === 404) return null; // no snapshot yet — not an error
+        throw remoteSyncErrorFromStatus(res.status, "Remote load");
       }
       const json = await res.json();
       return json as RemoteStateResponse;
@@ -46,17 +58,21 @@ export function createCloudflareAdapter(
       payload: RemoteStatePayload
     ): Promise<string> {
       const url = `${baseUrl.replace(/\/$/, "")}/state?key=${encodeURIComponent(sharedKey)}`;
-      const res = await fetch(url, {
+      const res = await doFetch(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        throw new Error(`Remote save failed: ${res.status}`);
+        throw remoteSyncErrorFromStatus(res.status, "Remote save");
       }
       const json: any = await res.json();
       if (!json || typeof json.updated_at !== "string") {
-        throw new Error("Remote save response missing updated_at");
+        throw new RemoteSyncError(
+          "server",
+          "Remote save response missing updated_at",
+          res.status
+        );
       }
       return json.updated_at as string;
     },

@@ -1,5 +1,5 @@
 // src/domain/appStateAndPersistence.test.ts
-import { createInitialAppState, upgradeAppState } from "./appState";
+import { createInitialAppState, upgradeAppState, sanitizeSchedule } from "./appState";
 import { saveAppState, loadAppState, clearAppState } from "./persistence";
 import type { AppState } from "./types";
 
@@ -86,20 +86,64 @@ describe("appState & persistence", () => {
     expect(upgraded.rules[0].isVariable).toBe(true);
   });
 
-  test("upgradeAppState currently passes schedules through unvalidated (characterization)", () => {
-    // CHARACTERIZATION: today a rule with a corrupt schedule survives the
-    // upgrade untouched and will crash the cashflow engine at
-    // `rule.schedule.type`. This test documents the current behavior; it
-    // should be inverted when schedule sanitization is added.
+  test("upgradeAppState drops rules with corrupt schedules", () => {
     const raw: any = {
       version: 1,
       account: { startingBalance: 0 },
       settings: { startDate: "2025-01-01", horizonDays: 30, minSafeBalance: 0 },
-      rules: [{ id: "r1", name: "Bad", amount: 1, isVariable: false, schedule: null }],
+      rules: [
+        { id: "r1", name: "Bad", amount: 1, isVariable: false, schedule: null },
+        { id: "r2", name: "Unknown type", amount: 1, isVariable: false, schedule: { type: "weekly", day: 3 } },
+        { id: "r3", name: "Bad day", amount: 1, isVariable: false, schedule: { type: "monthly", day: 42 } },
+        { id: "r4", name: "Bad anchor", amount: 1, isVariable: false, schedule: { type: "biweekly", anchorDate: "not-a-date" } },
+        { id: "r5", name: "Good", amount: 1, isVariable: false, schedule: { type: "monthly", day: 15 } },
+      ],
       overrides: {},
     };
     const upgraded = upgradeAppState(raw);
-    expect(upgraded.rules).toHaveLength(1);
-    expect(upgraded.rules[0].schedule).toBeNull();
+    expect(upgraded.rules.map((r) => r.id)).toEqual(["r5"]);
+  });
+
+  test("upgradeAppState replaces a malformed startDate with today", () => {
+    const raw: any = {
+      version: 1,
+      account: { startingBalance: 0 },
+      settings: { startDate: "garbage", horizonDays: 30, minSafeBalance: 0 },
+      rules: [],
+      overrides: {},
+    };
+    const upgraded = upgradeAppState(raw);
+    expect(/^\d{4}-\d{2}-\d{2}$/.test(upgraded.settings.startDate)).toBe(true);
+    expect(upgraded.settings.startDate).not.toBe("garbage");
+  });
+});
+
+describe("sanitizeSchedule", () => {
+  test("accepts the three valid schedule shapes", () => {
+    expect(sanitizeSchedule({ type: "monthly", day: 1 })).toEqual({ type: "monthly", day: 1 });
+    expect(
+      sanitizeSchedule({ type: "twiceMonth", day1: 15, day2: 31, businessDayConvention: "previousBusinessDayUS" })
+    ).toEqual({ type: "twiceMonth", day1: 15, day2: 31, businessDayConvention: "previousBusinessDayUS" });
+    expect(sanitizeSchedule({ type: "biweekly", anchorDate: "2025-06-01" })).toEqual({
+      type: "biweekly",
+      anchorDate: "2025-06-01",
+    });
+  });
+
+  test("drops unknown business day conventions but keeps the schedule", () => {
+    expect(
+      sanitizeSchedule({ type: "twiceMonth", day1: 1, day2: 15, businessDayConvention: "nextBusinessDay" })
+    ).toEqual({ type: "twiceMonth", day1: 1, day2: 15 });
+  });
+
+  test("rejects malformed schedules", () => {
+    expect(sanitizeSchedule(null)).toBeNull();
+    expect(sanitizeSchedule("monthly")).toBeNull();
+    expect(sanitizeSchedule({ type: "monthly" })).toBeNull();
+    expect(sanitizeSchedule({ type: "monthly", day: 0 })).toBeNull();
+    expect(sanitizeSchedule({ type: "monthly", day: 1.5 })).toBeNull();
+    expect(sanitizeSchedule({ type: "twiceMonth", day1: 15 })).toBeNull();
+    expect(sanitizeSchedule({ type: "biweekly", anchorDate: "2025-13-99" })).toBeNull();
+    expect(sanitizeSchedule({ type: "weekly", day: 3 })).toBeNull();
   });
 });

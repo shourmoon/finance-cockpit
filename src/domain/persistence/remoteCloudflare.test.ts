@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createCloudflareAdapter } from "./remoteCloudflare";
 import type { RemoteStatePayload } from "./remote";
+import { RemoteSyncError } from "./remote";
 import { createInitialAppState } from "../appState";
 import { createDefaultMortgageUIState } from "../mortgage/persistence";
 
@@ -123,6 +124,40 @@ describe("createCloudflareAdapter", () => {
     const adapter = createCloudflareAdapter(BASE);
     await expect(adapter.saveState("k", makePayload())).rejects.toThrow(
       "updated_at"
+    );
+  });
+
+  it("errors are RemoteSyncError instances with the right kind", async () => {
+    const adapter = createCloudflareAdapter(BASE);
+
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 401 }));
+    await expect(adapter.loadState("k")).rejects.toMatchObject({
+      name: "RemoteSyncError",
+      kind: "unauthorized",
+      status: 401,
+    });
+
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 409 }));
+    await expect(adapter.saveState("k", makePayload())).rejects.toMatchObject({
+      kind: "conflict",
+      status: 409,
+    });
+
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 500 }));
+    await expect(adapter.saveState("k", makePayload())).rejects.toMatchObject({
+      kind: "server",
+      status: 500,
+    });
+  });
+
+  it("wraps transport-level fetch failures as kind 'network'", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    const adapter = createCloudflareAdapter(BASE);
+    await expect(adapter.loadState("k")).rejects.toMatchObject({
+      kind: "network",
+    });
+    await expect(adapter.saveState("k", makePayload())).rejects.toBeInstanceOf(
+      RemoteSyncError
     );
   });
 });

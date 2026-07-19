@@ -332,6 +332,55 @@ describe("cashflowEngine - edge cases", () => {
     }
   });
 
+  test("an invalid startDate yields an empty projection instead of throwing", () => {
+    const base = makeBaseState();
+    const state: AppState = {
+      ...base,
+      settings: { ...base.settings, startDate: "" }, // e.g. cleared date input
+      rules: [
+        {
+          id: "r1",
+          name: "Rent",
+          amount: -500,
+          isVariable: false,
+          schedule: { type: "monthly", day: 1 },
+        },
+      ],
+    };
+
+    const result = runCashflowProjection(state);
+    expect(result.events).toHaveLength(0);
+    expect(result.timeline).toHaveLength(0);
+    expect(result.metrics.balanceToday).toBe(state.account.startingBalance);
+    expect(result.metrics.firstNegativeDate).toBeNull();
+  });
+
+  test("a biweekly rule with an invalid anchor date is skipped, not fatal", () => {
+    const settings: CashflowSettings = {
+      startDate: "2025-01-01",
+      horizonDays: 30,
+      minSafeBalance: 0,
+    };
+    const badRule: RecurringRule = {
+      id: "rule-bad-anchor",
+      name: "Bad anchor",
+      amount: 100,
+      isVariable: false,
+      schedule: { type: "biweekly", anchorDate: "garbage" },
+    };
+    const goodRule: RecurringRule = {
+      id: "rule-good",
+      name: "Good",
+      amount: 100,
+      isVariable: false,
+      schedule: { type: "monthly", day: 15 },
+    };
+
+    const events = buildFutureEvents([badRule, goodRule], settings, {});
+    expect(events.every((e) => e.ruleId === "rule-good")).toBe(true);
+    expect(events.length).toBeGreaterThan(0);
+  });
+
   test("an override changes effectiveAmount for that occurrence only", () => {
     const rule: RecurringRule = {
       id: "rule-var",

@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   getLocalSnapshot,
   applySnapshot,
+  loadPrePullBackup,
   syncNow,
 } from "./sync";
 import {
@@ -214,11 +215,7 @@ describe("sync helpers", () => {
     expect(remote!.mortgage_ui.terms.principal).toBe(444444);
   });
 
-  it("a pull silently overwrites local edits (characterization of pull-wins)", async () => {
-    // CHARACTERIZATION: when the remote changed since last sync, syncNow
-    // pulls and replaces local state with no merge and no backup. Local
-    // edits made since the last sync are lost. This documents the current
-    // behavior; a pre-pull backup is planned as a safety net.
+  it("a pull overwrites local edits (pull-wins) but leaves a recoverable backup", async () => {
     window.localStorage.setItem(
       "finance-cockpit:last-sync",
       JSON.stringify({ remote_updated_at: "2025-02-01T00:00:00Z" })
@@ -245,7 +242,35 @@ describe("sync helpers", () => {
 
     const res = await syncNow("abc", fakeAdapter);
     expect(res.direction).toBe("pull");
-    expect(loadAppState()!.account.startingBalance).toBe(7); // local 42 is gone
+    expect(loadAppState()!.account.startingBalance).toBe(7); // local 42 replaced…
+    const backup = loadPrePullBackup();
+    expect(backup).not.toBeNull(); // …but recoverable from the backup slot
+    expect(backup!.app_state.account.startingBalance).toBe(42);
+  });
+
+  it("a push does not touch the pre-pull backup slot", async () => {
+    window.localStorage.setItem(
+      "finance-cockpit:last-sync",
+      JSON.stringify({ remote_updated_at: "2025-05-01T00:00:00Z" })
+    );
+    saveAppState(createInitialAppState());
+    saveMortgageUIState(createDefaultMortgageUIState());
+    const fakeAdapter: RemotePersistenceAdapter = {
+      async loadState() {
+        return {
+          app_state: createInitialAppState(),
+          mortgage_ui: createDefaultMortgageUIState(),
+          updated_at: "2025-05-01T00:00:00Z",
+        };
+      },
+      async saveState() {
+        return "2025-05-02T00:00:00Z";
+      },
+    };
+
+    const res = await syncNow("abc", fakeAdapter);
+    expect(res.direction).toBe("push");
+    expect(loadPrePullBackup()).toBeNull();
   });
 
   it("syncNow propagates adapter load errors instead of swallowing them", async () => {

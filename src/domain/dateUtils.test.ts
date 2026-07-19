@@ -1,5 +1,5 @@
 // src/domain/dateUtils.test.ts
-import { addDays, toISODate, parseISODate, startOfMonth, endOfMonth, isSameDay } from "./dateUtils";
+import { addDays, toISODate, parseISODate, isValidISODate, startOfMonth, endOfMonth, isSameDay } from "./dateUtils";
 import type { ISODate } from "./types";
 
 describe("dateUtils", () => {
@@ -46,6 +46,26 @@ describe("dateUtils", () => {
 
     expect(isSameDay(a, b)).toBe(true);
     expect(isSameDay(a, c)).toBe(false);
+  });
+
+  test("isValidISODate accepts real dates and rejects malformed ones", () => {
+    expect(isValidISODate("2025-01-31")).toBe(true);
+    expect(isValidISODate("2024-02-29")).toBe(true); // leap day
+
+    expect(isValidISODate("")).toBe(false);
+    expect(isValidISODate("garbage")).toBe(false);
+    expect(isValidISODate("2025-13-99")).toBe(false);
+    expect(isValidISODate("2025-02-30")).toBe(false); // no Feb 30
+    expect(isValidISODate("2025-1-5")).toBe(false); // must be zero-padded
+    expect(isValidISODate("2025-01-05T00:00:00Z")).toBe(false);
+    expect(isValidISODate(null)).toBe(false);
+    expect(isValidISODate(20250105)).toBe(false);
+  });
+
+  test("parseISODate throws a clear error on malformed input", () => {
+    expect(() => parseISODate("")).toThrow("Invalid ISO date");
+    expect(() => parseISODate("garbage")).toThrow("Invalid ISO date");
+    expect(() => parseISODate("2025-13-99")).toThrow("Invalid ISO date");
   });
 
   test("parseISODate(toISODate(d)) round-trips day component (randomized)", () => {

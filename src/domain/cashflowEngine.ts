@@ -15,7 +15,7 @@ MonthlySchedule,
 TwiceMonthSchedule,
 } from "./types";
 
-import { addDays, toISODate, parseISODate } from "./dateUtils";
+import { addDays, toISODate, parseISODate, isValidISODate } from "./dateUtils";
 import { adjustToPreviousUSBusinessDay } from "./businessDayUS";
 
 // ------------------------
@@ -53,6 +53,10 @@ function expandRuleToEvents(
   overrides: EventOverridesMap
 ): FutureEvent[] {
   const events: FutureEvent[] = [];
+
+  // The start date can transiently be invalid while the user edits the
+  // date input; produce no events rather than throwing mid-render.
+  if (!isValidISODate(settings.startDate)) return events;
 
   const start = parseISODate(settings.startDate);
   const end = addDays(start, settings.horizonDays);
@@ -160,6 +164,7 @@ function generateBiweeklyEvents(
     // Type guard to appease TS; other schedule types handled elsewhere.
     return;
   }
+  if (!isValidISODate(rule.schedule.anchorDate)) return;
 
   const anchor = parseISODate(rule.schedule.anchorDate);
   let current = anchor;
@@ -246,6 +251,27 @@ export function buildTimelineAndMetrics(
   settings: CashflowSettings,
   events: FutureEvent[]
 ): { timeline: TimelinePoint[]; metrics: CashflowMetrics } {
+  if (!isValidISODate(settings.startDate)) {
+    // Transiently-invalid start date (e.g. cleared date input): return an
+    // empty timeline and neutral metrics instead of throwing mid-render.
+    return {
+      timeline: [],
+      metrics: {
+        balanceToday: account.startingBalance,
+        minBalance: account.startingBalance,
+        minBalanceDate: null,
+        status:
+          account.startingBalance < 0
+            ? "alert"
+            : account.startingBalance < settings.minSafeBalance
+              ? "warning"
+              : "ok",
+        safeToSpendThisMonth: 0,
+        firstNegativeDate: null,
+      },
+    };
+  }
+
   const start = parseISODate(settings.startDate);
   const end = addDays(start, settings.horizonDays);
 

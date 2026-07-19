@@ -23,6 +23,38 @@ export interface RemoteStatePayload {
   prev_updated_at?: string | null;
 }
 
+export type RemoteSyncErrorKind =
+  | "unauthorized" // 401: wrong or missing sync PIN
+  | "conflict" // 409: prev_updated_at mismatch
+  | "notFound" // 404 where it is unexpected
+  | "network" // fetch itself failed (offline, CORS, DNS)
+  | "server"; // any other non-OK response or malformed reply
+
+/**
+ * Typed error thrown by remote adapters so callers can branch on the
+ * failure kind instead of string-matching error messages.
+ */
+export class RemoteSyncError extends Error {
+  readonly kind: RemoteSyncErrorKind;
+  readonly status: number | null;
+
+  constructor(kind: RemoteSyncErrorKind, message: string, status: number | null = null) {
+    super(message);
+    this.name = "RemoteSyncError";
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+export function remoteSyncErrorFromStatus(
+  status: number,
+  context: string
+): RemoteSyncError {
+  const kind: RemoteSyncErrorKind =
+    status === 401 ? "unauthorized" : status === 409 ? "conflict" : status === 404 ? "notFound" : "server";
+  return new RemoteSyncError(kind, `${context} failed: ${status}`, status);
+}
+
 export interface RemotePersistenceAdapter {
   loadState(sharedKey: string): Promise<RemoteStateResponse | null>;
   saveState(

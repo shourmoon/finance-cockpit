@@ -4,10 +4,11 @@ import type {
 CashAccount,
 CashflowSettings,
 RecurringRule,
+RecurringSchedule,
 EventOverridesMap,
 UUID,
 } from "./types";
-import { toISODate } from "./dateUtils";
+import { toISODate, isValidISODate } from "./dateUtils";
 
 export const APP_STATE_VERSION = 1;
 
@@ -90,6 +91,51 @@ export function createInitialAppState(): AppState {
   };
 }
 
+function isDayOfMonth(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 31;
+}
+
+/**
+ * Validate a raw schedule object from storage. Returns a clean
+ * RecurringSchedule or null if the shape is not usable — rules with
+ * unusable schedules are dropped by upgradeAppState so the cashflow
+ * engine never sees them.
+ */
+export function sanitizeSchedule(raw: any): RecurringSchedule | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  switch (raw.type) {
+    case "monthly":
+      return isDayOfMonth(raw.day) ? { type: "monthly", day: raw.day } : null;
+
+    case "twiceMonth": {
+      if (!isDayOfMonth(raw.day1) || !isDayOfMonth(raw.day2)) return null;
+      const convention =
+        raw.businessDayConvention === "previousBusinessDayUS"
+          ? "previousBusinessDayUS"
+          : raw.businessDayConvention === "none" ||
+              raw.businessDayConvention === undefined
+            ? raw.businessDayConvention
+            : undefined;
+      const sched: RecurringSchedule = {
+        type: "twiceMonth",
+        day1: raw.day1,
+        day2: raw.day2,
+      };
+      if (convention !== undefined) sched.businessDayConvention = convention;
+      return sched;
+    }
+
+    case "biweekly":
+      return isValidISODate(raw.anchorDate)
+        ? { type: "biweekly", anchorDate: raw.anchorDate }
+        : null;
+
+    default:
+      return null;
+  }
+}
+
 /**
  * Upgrade raw JSON from storage into a valid AppState,
  * filling in defaults and migrating versions if needed.
@@ -118,7 +164,7 @@ export function upgradeAppState(raw: any): AppState {
 
   const settings: CashflowSettings = {
     startDate:
-      raw.settings && typeof raw.settings.startDate === "string"
+      raw.settings && isValidISODate(raw.settings.startDate)
         ? raw.settings.startDate
         : toISODate(new Date()),
     horizonDays:
@@ -134,13 +180,19 @@ export function upgradeAppState(raw: any): AppState {
   const rules: RecurringRule[] = Array.isArray(raw.rules)
     ? raw.rules
         .filter((r: any) => r && typeof r.id === "string")
-        .map((r: any) => ({
-          id: r.id,
-          name: typeof r.name === "string" ? r.name : "Rule",
-          amount: typeof r.amount === "number" ? r.amount : 0,
-          isVariable: !!r.isVariable,
-          schedule: r.schedule,
-        }))
+        .flatMap((r: any) => {
+          const schedule = sanitizeSchedule(r.schedule);
+          if (!schedule) return []; // drop rules the engine cannot run
+          return [
+            {
+              id: r.id,
+              name: typeof r.name === "string" ? r.name : "Rule",
+              amount: typeof r.amount === "number" ? r.amount : 0,
+              isVariable: !!r.isVariable,
+              schedule,
+            },
+          ];
+        })
     : createDefaultRules();
 
   const overrides: EventOverridesMap =

@@ -99,15 +99,14 @@ function isValidScenarioConfigArray(value: any): value is MortgageScenarioConfig
 }
 
 /**
- * Try to load v2 state. Returns null if not present or invalid.
+ * Field-by-field validation of an untrusted MortgageUIState-shaped value
+ * (from localStorage or a sync snapshot). Returns a clean state, or null
+ * if the terms — the one part with no sensible fallback — are invalid.
  */
-function loadV2FromStorage(): MortgageUIState | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(STORAGE_KEY_V2);
-  const parsed = tryParse<Partial<MortgageUIState>>(raw);
-  if (!parsed) return null;
-
-  const { terms, prepayments, asOfDate, scenarios } = parsed;
+export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null {
+  if (!value || typeof value !== "object") return null;
+  const { terms, prepayments, asOfDate, scenarios } =
+    value as Partial<MortgageUIState>;
 
   if (!isValidTerms(terms)) return null;
   const safePrepayments = isValidPrepayments(prepayments) ? prepayments! : [];
@@ -125,6 +124,15 @@ function loadV2FromStorage(): MortgageUIState | null {
     asOfDate: safeAsOfDate,
     scenarios: safeScenarios,
   };
+}
+
+/**
+ * Try to load v2 state. Returns null if not present or invalid.
+ */
+function loadV2FromStorage(): MortgageUIState | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(STORAGE_KEY_V2);
+  return sanitizeMortgageUIState(tryParse<Partial<MortgageUIState>>(raw));
 }
 
 /**

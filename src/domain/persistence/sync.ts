@@ -11,9 +11,12 @@
 import { createSnapshot } from "./snapshot";
 import type { Snapshot } from "./snapshot";
 import { loadAppState, saveAppState } from "../persistence";
+import { upgradeAppState } from "../appState";
 import {
+  createDefaultMortgageUIState,
   loadMortgageUIState,
   saveMortgageUIState,
+  sanitizeMortgageUIState,
 } from "../mortgage/persistence";
 import type {
   RemotePersistenceAdapter,
@@ -25,6 +28,7 @@ import type {
 // these keys change they should be migrated appropriately.
 const DEVICE_ID_KEY = "finance-cockpit:device-id";
 const LAST_SYNC_KEY = "finance-cockpit:last-sync";
+const PRE_PULL_BACKUP_KEY = "finance-cockpit:backup-before-pull";
 
 interface LastSyncInfo {
   /** The updated_at timestamp returned by the backend on the last sync. */
@@ -115,11 +119,45 @@ export function getLocalSnapshot(): Snapshot {
  * persistence functions update localStorage and trigger the
  * appropriate migrations. A new updated_at timestamp is NOT
  * generated here; the snapshot's timestamp is preserved.
+ *
+ * The snapshot's nested states are sanitized before persisting so a
+ * corrupt remote snapshot cannot poison local storage.
  */
 export function applySnapshot(snapshot: Snapshot): void {
-  // Persist app state and mortgage UI using the existing helpers.
-  saveAppState(snapshot.app_state);
-  saveMortgageUIState(snapshot.mortgage_ui);
+  saveAppState(upgradeAppState(snapshot.app_state));
+  saveMortgageUIState(
+    sanitizeMortgageUIState(snapshot.mortgage_ui) ??
+      createDefaultMortgageUIState()
+  );
+}
+
+/**
+ * Save the current local snapshot to a single backup slot before a
+ * pull overwrites it. The sync policy is "remote wins" with no merge,
+ * so this is the only way to recover local edits lost to a pull.
+ */
+function backupLocalBeforePull(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const local = getLocalSnapshot();
+    window.localStorage.setItem(PRE_PULL_BACKUP_KEY, JSON.stringify(local));
+  } catch {
+    // A failed backup must not block the pull itself.
+  }
+}
+
+/**
+ * Return the snapshot saved by the most recent pull's backup, if any.
+ */
+export function loadPrePullBackup(): Snapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(PRE_PULL_BACKUP_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Snapshot;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -181,6 +219,7 @@ export async function syncNow(
 
   // Case: never synced before locally (no lastRemote) => pull remote.
   if (!lastRemote) {
+    backupLocalBeforePull();
     applySnapshot({
       schemaVersion: 1,
       app_state: remoteState.app_state,
@@ -197,6 +236,7 @@ export async function syncNow(
   // sophisticated implementation could compare local modifications,
   // detect conflicts and surface them to the user.
   if (remoteUpdatedAt !== lastRemote) {
+    backupLocalBeforePull();
     applySnapshot({
       schemaVersion: 1,
       app_state: remoteState.app_state,

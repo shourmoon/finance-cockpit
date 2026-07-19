@@ -51,8 +51,45 @@ describe("snapshot helpers", () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.schemaVersion).toBe(original.schemaVersion);
     expect(parsed!.device_id).toBe(original.device_id);
-    expect(parsed!.app_state).toBe(original.app_state);
-    expect(parsed!.mortgage_ui).toBe(original.mortgage_ui);
+    // Nested states are sanitized copies, equal by value.
+    expect(parsed!.app_state).toEqual(original.app_state);
+    expect(parsed!.mortgage_ui).toEqual(original.mortgage_ui);
     expect(parsed!.updated_at).toBe(original.updated_at);
+  });
+
+  it("parseSnapshot sanitizes a corrupt app_state instead of trusting it", () => {
+    const corruptApp: any = {
+      version: 1,
+      account: { startingBalance: 50 },
+      settings: { startDate: "garbage", horizonDays: 30, minSafeBalance: 0 },
+      rules: [
+        { id: "bad", name: "Bad", amount: 1, isVariable: false, schedule: null },
+        { id: "good", name: "Good", amount: 1, isVariable: false, schedule: { type: "monthly", day: 1 } },
+      ],
+      overrides: {},
+    };
+    const parsed = parseSnapshot({
+      schemaVersion: 1,
+      app_state: corruptApp,
+      mortgage_ui: createDefaultMortgageUIState(),
+      updated_at: "2025-01-01T00:00:00Z",
+      device_id: "dev",
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.app_state.account.startingBalance).toBe(50);
+    expect(parsed!.app_state.rules.map((r) => r.id)).toEqual(["good"]);
+    expect(parsed!.app_state.settings.startDate).not.toBe("garbage");
+  });
+
+  it("parseSnapshot falls back to default mortgage state when mortgage_ui is corrupt", () => {
+    const parsed = parseSnapshot({
+      schemaVersion: 1,
+      app_state: createInitialAppState(),
+      mortgage_ui: { terms: { principal: "not a number" } },
+      updated_at: "2025-01-01T00:00:00Z",
+      device_id: "dev",
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.mortgage_ui).toEqual(createDefaultMortgageUIState());
   });
 });

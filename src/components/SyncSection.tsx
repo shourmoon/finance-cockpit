@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RemoteStateResponse } from "../domain/persistence/remote";
 import { createCloudflareAdapter } from "../domain/persistence/remoteCloudflare";
-import { stubRemoteAdapter } from "../domain/persistence/remote";
+import { RemoteSyncError, stubRemoteAdapter } from "../domain/persistence/remote";
 import { applySnapshot, getLocalSnapshot, syncNow } from "../domain/persistence/sync";
 import type { Snapshot } from "../domain/persistence/snapshot";
 
@@ -248,8 +248,7 @@ export default function SyncSection() {
         setRemoteUpdatedAt(updatedAt);
         setMessage("Pushed local snapshot to remote.");
       } catch (e: any) {
-        const msg = String(e?.message ?? "");
-        if (msg.includes("Remote save failed: 409")) {
+        if (e instanceof RemoteSyncError && e.kind === "conflict") {
           // Real conflict: remote changed between load and save.
           const latest = (await (adapter as any).loadState(key)) as RemoteStateResponse;
           setRemoteUpdatedAt(latest?.updated_at ?? null);
@@ -436,21 +435,24 @@ export default function SyncSection() {
 }
 
 function mapSyncError(e: any): string {
-  const msg = String(e?.message ?? "Sync failed");
-
-  if (msg === "Failed to fetch" || msg.toLowerCase().includes("failed to fetch")) {
-    return (
-      "Failed to reach the sync server. Check: (1) VITE_SYNC_BASE_URL is correct, " +
-      "(2) the Worker is deployed, and (3) the Worker returns CORS headers (OPTIONS + Access-Control-Allow-Origin)."
-    );
+  if (e instanceof RemoteSyncError) {
+    switch (e.kind) {
+      case "network":
+        return (
+          "Failed to reach the sync server. Check: (1) VITE_SYNC_BASE_URL is correct, " +
+          "(2) the Worker is deployed, and (3) the Worker returns CORS headers (OPTIONS + Access-Control-Allow-Origin)."
+        );
+      case "unauthorized":
+        return "Unauthorized: wrong Sync PIN for this key (or missing PIN).";
+      case "conflict":
+        return "Conflict: another device updated the remote state.";
+      case "notFound":
+        return "Nothing stored on the server for this key yet.";
+      case "server":
+        return `Sync server error: ${e.message}`;
+    }
   }
-  if (msg.includes("Remote load failed: 401") || msg.includes("Remote save failed: 401")) {
-    return "Unauthorized: wrong Sync PIN for this key (or missing PIN).";
-  }
-  if (msg.includes("Remote save failed: 409")) {
-    return "Conflict: another device updated the remote state.";
-  }
-  return msg;
+  return String(e?.message ?? "Sync failed");
 }
 
 const styles: Record<string, any> = {
