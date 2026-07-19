@@ -70,15 +70,6 @@ export default function App() {
     "dashboard" | "config" | "mortgage"
   >("dashboard");
 
-  // Mortgage UI state (local for now)
-  const [mortgagePrincipal, setMortgagePrincipal] = useState(400000);
-  const [mortgageRatePct, setMortgageRatePct] = useState(6.5); // % per year
-  const [mortgageTermYears, setMortgageTermYears] = useState(30);
-  const [mortgageStartDate, setMortgageStartDate] = useState(
-    state.settings.startDate
-  );
-  const [mortgageExtraPayment, setMortgageExtraPayment] = useState(0);
-
   const { metrics, events, timeline } = runCashflowProjection(state);
   const safe = computeSafeToSpend(state);
 
@@ -100,7 +91,6 @@ export default function App() {
       ...s,
       settings: { ...s.settings, startDate: val },
     }));
-    setMortgageStartDate((prev) => (prev ? prev : val));
   }
 
   function updateHorizonDays(val: number) {

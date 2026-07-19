@@ -42,17 +42,15 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
    - Has its own `Money`/`ISODate` aliases in `mortgage/types.ts` and its own persisted state (`MortgageUIState` in `mortgage/persistence.ts`), separate from `AppState`.
    - `src/components/MortgageTab.tsx` (~1,800 lines) is the UI over all of this.
 
-3. **Sync** (`src/domain/persistence/`, `src/domain/identity/`, `workers/sync-worker/`):
+3. **Sync** (`src/domain/persistence/`, `workers/sync-worker/`):
    - `snapshot.ts` defines the canonical envelope: `{ schemaVersion, app_state, mortgage_ui, updated_at, device_id }` — both `AppState` and `MortgageUIState` sync together as one unit.
    - `sync.ts` `syncNow()` decides push vs. pull: no remote → push (init); never synced locally → pull; remote `updated_at` changed since last sync → pull (remote always wins, no merge); otherwise push with `prev_updated_at` for optimistic concurrency.
    - The app talks only to the `RemotePersistenceAdapter` interface (`remote.ts`); `remoteCloudflare.ts` is the fetch-based implementation. The Worker (`workers/sync-worker/index.ts`) stores snapshots in KV, is PIN-gated (client sends `X-Sync-Pin: sha256(pin)`; first-seen hash is bound to the shared key), and returns `409` on `prev_updated_at` mismatch.
-   - Identity is a random shared key in localStorage (`identity/sharedKey.ts`); there are no user accounts.
+   - Identity is a user-entered shared key remembered in localStorage (`SyncSection.tsx`); there are no user accounts.
 
 ### Persistence and migrations
 
 Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapshot()`, and mortgage persistence all validate field-by-field and fall back to defaults rather than throwing. `AppState` carries `version` (`APP_STATE_VERSION`); snapshots carry `schemaVersion` (`CURRENT_SCHEMA_VERSION`). When changing persisted shapes, bump the relevant version and extend the corresponding upgrade/parse function — never assume stored JSON is well-formed.
-
-Note: `src/domain/persistence.ts` contains a legacy `PersistedMortgageSettings` section; the current mortgage persistence is `src/domain/mortgage/persistence.ts`.
 
 ### Date formatting in UI
 

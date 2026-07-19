@@ -124,30 +124,3 @@ export interface AppState {
   rules: RecurringRule[];
   overrides: EventOverridesMap;
 }
-
-// ------------------------
-// Mortgage types
-// ------------------------
-
-export interface MortgageConfig {
-  principal: Money;
-  annualRate: number; // e.g. 0.04 for 4%
-  termMonths: number;
-  startDate: ISODate;
-  monthlyPayment: Money; // contractual monthly payment
-}
-
-export interface MortgageScheduleEntry {
-  date: ISODate;
-  interest: Money;
-  principal: Money;
-  remainingBalance: Money;
-}
-
-export interface MortgageSimulationResult {
-  schedule: MortgageScheduleEntry[];
-  totalInterestPaid: Money;
-  payoffDate: ISODate;
-  interestSaved: Money;
-  baselineInterest: Money;
-}
