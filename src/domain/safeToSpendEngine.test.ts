@@ -7,6 +7,28 @@ function evt(date: string, amount: Money) {
   return { date, effectiveAmount: amount };
 }
 
+describe("computeSafeToSpend with ad-hoc transactions", () => {
+  it("an ad-hoc outflow inside the horizon lowers safe-to-spend", () => {
+    const base: AppState = {
+      ...createInitialAppState(),
+      account: { startingBalance: 1000 },
+      settings: { startDate: "2025-01-01", horizonDays: 30, minSafeBalance: 0 },
+      rules: [],
+      adhocTransactions: [],
+      overrides: {},
+    };
+    const without = computeSafeToSpend(base);
+    const withTxn = computeSafeToSpend({
+      ...base,
+      adhocTransactions: [
+        { id: "t1", name: "Repair", amount: -400, date: "2025-01-15" },
+      ],
+    });
+    expect(without.safeToSpendToday).toBe(1000);
+    expect(withTxn.safeToSpendToday).toBe(600);
+  });
+});
+
 describe("computeSafeToSpend (state wrapper)", () => {
   it("runs the projection and returns a non-negative safe-to-spend", () => {
     const state: AppState = {

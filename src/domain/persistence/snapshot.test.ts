@@ -95,6 +95,22 @@ describe("snapshot helpers", () => {
     expect(parsed!.app_state.settings.startDate).not.toBe("garbage");
   });
 
+  it("parseSnapshot preserves valid adhocTransactions and drops corrupt ones", () => {
+    const app: any = createInitialAppState();
+    app.adhocTransactions = [
+      { id: "keep", name: "Bonus", amount: 500, date: "2026-09-01" },
+      { id: "drop", name: "Bad", amount: 1, date: "not-a-date" },
+    ];
+    const parsed = parseSnapshot({
+      schemaVersion: 1,
+      app_state: app,
+      mortgage_ui: createDefaultMortgageUIState(),
+      updated_at: "2025-01-01T00:00:00Z",
+      device_id: "dev",
+    });
+    expect(parsed!.app_state.adhocTransactions.map((t) => t.id)).toEqual(["keep"]);
+  });
+
   it("parseSnapshot falls back to default mortgage state when mortgage_ui is corrupt", () => {
     const parsed = parseSnapshot({
       schemaVersion: 1,

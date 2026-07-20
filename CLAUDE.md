@@ -35,7 +35,8 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
 
 1. **Cashflow engine** (`src/domain/cashflowEngine.ts`, `safeToSpendEngine.ts`, `types.ts`):
    - `RecurringRule`s (positive amount = inflow, negative = outflow) with three schedule types: `monthly`, `twiceMonth` (optionally adjusted to the previous US Fed business day via `businessDayUS.ts`), and `biweekly` (14-day cadence from an anchor date).
-   - `runCashflowProjection(state)` expands rules into `FutureEvent`s over `[startDate, startDate + horizonDays]`, applies per-event overrides (keyed `${ruleId}__${date}`), and walks day-by-day to build a `TimelinePoint[]` and `CashflowMetrics`.
+   - `AdhocTransaction`s: first-class one-off inflows/outflows (`{ id, name, amount, date }` on `AppState.adhocTransactions`), expanded by `expandAdhocTransactions()` into at most one event each and merged into the same event stream.
+   - `runCashflowProjection(state)` expands rules and ad-hoc transactions into `FutureEvent`s over `[startDate, startDate + horizonDays]`, applies per-event overrides (keyed `${ruleId}__${date}`; ad-hoc events use their transaction id), and walks day-by-day to build a `TimelinePoint[]` and `CashflowMetrics`.
    - Safe-to-spend logic: spending X today shifts the whole future curve down by X, so `safeToSpendToday = max(0, projectedMinBalance − minSafeBalance)`.
    - **All date math is UTC** (`dateUtils.ts`): construct dates with `Date.UTC(...)` and read with `getUTC*()` to avoid timezone drift. Month days are clamped to end-of-month.
 
@@ -52,7 +53,7 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
 
 ### Persistence and migrations
 
-Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapshot()`, and mortgage persistence all validate field-by-field and fall back to defaults rather than throwing. Rule schedules are validated by `sanitizeSchedule()` (rules with unusable schedules are dropped), snapshot payloads are sanitized via `upgradeAppState()`/`sanitizeMortgageUIState()`, and `parseISODate()` throws on malformed input (check with `isValidISODate()` first when the value is untrusted — the engine tolerates a transiently-invalid `startDate` by returning an empty projection). `AppState` carries `version` (`APP_STATE_VERSION`); snapshots carry `schemaVersion` (`CURRENT_SCHEMA_VERSION`). When changing persisted shapes, bump the relevant version and extend the corresponding upgrade/parse function — never assume stored JSON is well-formed.
+Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapshot()`, and mortgage persistence all validate field-by-field and fall back to defaults rather than throwing. Rule schedules are validated by `sanitizeSchedule()` (rules with unusable schedules are dropped), ad-hoc transactions by `sanitizeAdhocTransaction()`, snapshot payloads via `upgradeAppState()`/`sanitizeMortgageUIState()`, and `parseISODate()` throws on malformed input (check with `isValidISODate()` first when the value is untrusted — the engine tolerates a transiently-invalid `startDate` by returning an empty projection). `AppState` carries `version` (`APP_STATE_VERSION`, currently 2; v1→v2 added `adhocTransactions` additively — v1 states migrate through the field-by-field path without losing rules, and only pre-v1 states are reset). Snapshots carry `schemaVersion` (`CURRENT_SCHEMA_VERSION`). When changing persisted shapes, bump the relevant version and extend the corresponding upgrade/parse function additively — never assume stored JSON is well-formed, and never let a version bump discard user data.
 
 ### Date formatting in UI
 

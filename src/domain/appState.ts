@@ -1,6 +1,7 @@
 // src/domain/appState.ts
 import type {
     AppState,
+AdhocTransaction,
 CashAccount,
 CashflowSettings,
 RecurringRule,
@@ -10,7 +11,9 @@ UUID,
 } from "./types";
 import { toISODate, isValidISODate } from "./dateUtils";
 
-export const APP_STATE_VERSION = 1;
+// v1 -> v2: added adhocTransactions (additive; v1 states migrate
+// field-by-field with an empty list, nothing is discarded).
+export const APP_STATE_VERSION = 2;
 
 function createDefaultAccount(): CashAccount {
   return {
@@ -87,6 +90,7 @@ export function createInitialAppState(): AppState {
     account: createDefaultAccount(),
     settings: createDefaultSettings(),
     rules: createDefaultRules(),
+    adhocTransactions: [],
     overrides: createDefaultOverrides(),
   };
 }
@@ -137,6 +141,23 @@ export function sanitizeSchedule(raw: any): RecurringSchedule | null {
 }
 
 /**
+ * Validate a raw ad-hoc transaction from storage. Returns a clean
+ * AdhocTransaction or null if the entry is unusable (no id, or a date
+ * the engine cannot place on the timeline).
+ */
+export function sanitizeAdhocTransaction(raw: any): AdhocTransaction | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || raw.id.length === 0) return null;
+  if (!isValidISODate(raw.date)) return null;
+  return {
+    id: raw.id,
+    name: typeof raw.name === "string" ? raw.name : "Transaction",
+    amount: typeof raw.amount === "number" ? raw.amount : 0,
+    date: raw.date,
+  };
+}
+
+/**
  * Upgrade raw JSON from storage into a valid AppState,
  * filling in defaults and migrating versions if needed.
  */
@@ -147,7 +168,10 @@ export function upgradeAppState(raw: any): AppState {
 
   const version = typeof raw.version === "number" ? raw.version : 0;
 
-  if (version < APP_STATE_VERSION) {
+  // True legacy (pre-v1, unknown shape): start fresh, keeping only the
+  // balance. v1 and later migrate additively through the field-by-field
+  // path below — never discard a user's rules on a version bump.
+  if (version < 1) {
     const fresh = createInitialAppState();
     if (raw.account && typeof raw.account.startingBalance === "number") {
       fresh.account.startingBalance = raw.account.startingBalance;
@@ -195,6 +219,15 @@ export function upgradeAppState(raw: any): AppState {
         })
     : createDefaultRules();
 
+  const adhocTransactions: AdhocTransaction[] = Array.isArray(
+    raw.adhocTransactions
+  )
+    ? raw.adhocTransactions.flatMap((t: any) => {
+        const txn = sanitizeAdhocTransaction(t);
+        return txn ? [txn] : [];
+      })
+    : [];
+
   const overrides: EventOverridesMap =
     raw.overrides && typeof raw.overrides === "object" ? raw.overrides : {};
 
@@ -203,6 +236,7 @@ export function upgradeAppState(raw: any): AppState {
     account,
     settings,
     rules,
+    adhocTransactions,
     overrides,
   };
 }

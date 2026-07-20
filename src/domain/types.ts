@@ -63,6 +63,17 @@ export interface EventOverride {
 export type EventOverridesMap = Record<string, EventOverride>;
 
 // ------------------------
+// Ad-hoc one-time transactions
+// ------------------------
+
+export interface AdhocTransaction {
+  id: UUID;
+  name: string;
+  amount: Money; // positive for inflow, negative for outflow
+  date: ISODate;
+}
+
+// ------------------------
 // Expanded future events
 // ------------------------
 
@@ -122,5 +133,6 @@ export interface AppState {
   account: CashAccount;
   settings: CashflowSettings;
   rules: RecurringRule[];
+  adhocTransactions: AdhocTransaction[];
   overrides: EventOverridesMap;
 }

@@ -1,6 +1,12 @@
 // src/domain/appStateAndPersistence.test.ts
 import { describe, test, expect, beforeEach, vi } from "vitest";
-import { createInitialAppState, upgradeAppState, sanitizeSchedule } from "./appState";
+import {
+  createInitialAppState,
+  upgradeAppState,
+  sanitizeSchedule,
+  sanitizeAdhocTransaction,
+  APP_STATE_VERSION,
+} from "./appState";
 import { saveAppState, loadAppState, clearAppState } from "./persistence";
 import type { AppState } from "./types";
 
@@ -180,6 +186,72 @@ describe("upgradeAppState - defaults for a current-version state with missing fi
     const upgraded = upgradeAppState({ account: { startingBalance: 500 } });
     expect(upgraded.account.startingBalance).toBe(500);
     expect(upgraded.version).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("sanitizeAdhocTransaction", () => {
+  test("accepts a valid transaction and coerces junk name/amount", () => {
+    expect(
+      sanitizeAdhocTransaction({ id: "t1", name: "Bonus", amount: 5000, date: "2026-08-15" })
+    ).toEqual({ id: "t1", name: "Bonus", amount: 5000, date: "2026-08-15" });
+    expect(
+      sanitizeAdhocTransaction({ id: "t2", name: 42, amount: "x", date: "2026-08-15" })
+    ).toEqual({ id: "t2", name: "Transaction", amount: 0, date: "2026-08-15" });
+  });
+
+  test("rejects malformed transactions", () => {
+    expect(sanitizeAdhocTransaction(null)).toBeNull();
+    expect(sanitizeAdhocTransaction("txn")).toBeNull();
+    expect(sanitizeAdhocTransaction({ name: "no id", amount: 1, date: "2026-08-15" })).toBeNull();
+    expect(sanitizeAdhocTransaction({ id: "", amount: 1, date: "2026-08-15" })).toBeNull();
+    expect(sanitizeAdhocTransaction({ id: "t", amount: 1, date: "garbage" })).toBeNull();
+  });
+});
+
+describe("upgradeAppState - v1 to v2 migration (adhocTransactions)", () => {
+  test("a v1 state keeps its rules, settings and overrides, gaining an empty list", () => {
+    const v1: any = {
+      version: 1,
+      account: { startingBalance: 777 },
+      settings: { startDate: "2026-01-01", horizonDays: 45, minSafeBalance: 50 },
+      rules: [
+        { id: "r1", name: "Rent", amount: -1500, isVariable: false, schedule: { type: "monthly", day: 1 } },
+      ],
+      overrides: { "r1__2026-02-01": { eventKey: "r1__2026-02-01", overrideAmount: -1600 } },
+    };
+    const upgraded = upgradeAppState(v1);
+    expect(upgraded.version).toBe(APP_STATE_VERSION);
+    expect(upgraded.account.startingBalance).toBe(777);
+    expect(upgraded.settings.horizonDays).toBe(45);
+    expect(upgraded.rules).toHaveLength(1);
+    expect(upgraded.overrides["r1__2026-02-01"].overrideAmount).toBe(-1600);
+    expect(upgraded.adhocTransactions).toEqual([]);
+  });
+
+  test("a legacy pre-v1 state still resets but keeps the balance", () => {
+    const upgraded = upgradeAppState({ version: 0, account: { startingBalance: 42 } });
+    expect(upgraded.version).toBe(APP_STATE_VERSION);
+    expect(upgraded.account.startingBalance).toBe(42);
+    expect(upgraded.adhocTransactions).toEqual([]);
+  });
+
+  test("sanitizes stored adhocTransactions, dropping corrupt entries", () => {
+    const upgraded = upgradeAppState({
+      version: 2,
+      rules: [],
+      adhocTransactions: [
+        { id: "good", name: "Bonus", amount: 100, date: "2026-09-01" },
+        { id: "bad-date", name: "X", amount: 1, date: "nope" },
+        null,
+      ],
+      overrides: {},
+    });
+    expect(upgraded.adhocTransactions.map((t) => t.id)).toEqual(["good"]);
+  });
+
+  test("a non-array adhocTransactions becomes an empty list", () => {
+    const upgraded = upgradeAppState({ version: 2, rules: [], adhocTransactions: "nope", overrides: {} });
+    expect(upgraded.adhocTransactions).toEqual([]);
   });
 });
 

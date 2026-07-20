@@ -1,6 +1,7 @@
 // src/domain/cashflowEngine.ts
 import type {
     AppState,
+AdhocTransaction,
 CashAccount,
 CashflowSettings,
 RecurringRule,
@@ -190,6 +191,53 @@ function generateBiweeklyEvents(
   }
 }
 
+/**
+ * Expand ad-hoc one-time transactions into FutureEvents. Each
+ * transaction contributes at most one event: its own date, when that
+ * falls inside the projection window. Overrides apply through the same
+ * `${id}__${date}` key used for rule events, so the dashboard's
+ * override flow works unchanged.
+ */
+export function expandAdhocTransactions(
+  txns: AdhocTransaction[],
+  settings: CashflowSettings,
+  overrides: EventOverridesMap
+): FutureEvent[] {
+  const events: FutureEvent[] = [];
+  if (!isValidISODate(settings.startDate)) return events;
+
+  const start = parseISODate(settings.startDate);
+  const end = addDays(start, settings.horizonDays);
+
+  for (const txn of txns) {
+    if (!isValidISODate(txn.date)) continue;
+    const date = parseISODate(txn.date);
+    if (date.getTime() < start.getTime() || date.getTime() > end.getTime()) {
+      continue;
+    }
+
+    const eventKey = makeEventKey(txn.id, txn.date);
+    const override = overrides[eventKey];
+    const effectiveAmount =
+      override && typeof override.overrideAmount === "number"
+        ? override.overrideAmount
+        : txn.amount;
+
+    events.push({
+      id: eventKey,
+      ruleId: txn.id,
+      ruleName: txn.name,
+      date: txn.date,
+      defaultAmount: txn.amount,
+      effectiveAmount,
+      isVariable: false,
+      isOverridden: !!override,
+    });
+  }
+
+  return events;
+}
+
 function pushEventForDate(
   rule: RecurringRule,
   date: Date,
@@ -231,7 +279,12 @@ export interface CashflowEngineResult {
 export function runCashflowProjection(state: AppState): CashflowEngineResult {
   const { account, settings, rules, overrides } = state;
 
-  const events = buildFutureEvents(rules, settings, overrides);
+  const events = buildFutureEvents(
+    rules,
+    settings,
+    overrides,
+    state.adhocTransactions
+  );
   const { timeline, metrics } = buildTimelineAndMetrics(
     account,
     settings,
@@ -244,7 +297,8 @@ export function runCashflowProjection(state: AppState): CashflowEngineResult {
 export function buildFutureEvents(
   rules: RecurringRule[],
   settings: CashflowSettings,
-  overrides: EventOverridesMap
+  overrides: EventOverridesMap,
+  adhocTransactions: AdhocTransaction[] = []
 ): FutureEvent[] {
   const all: FutureEvent[] = [];
 
@@ -252,6 +306,8 @@ export function buildFutureEvents(
     const evts = expandRuleToEvents(rule, settings, overrides);
     all.push(...evts);
   }
+
+  all.push(...expandAdhocTransactions(adhocTransactions, settings, overrides));
 
   all.sort((a, b) => compareISO(a.date, b.date));
   return all;

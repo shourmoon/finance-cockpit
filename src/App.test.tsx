@@ -63,7 +63,8 @@ describe("App shell", () => {
     fireEvent.click(screen.getByText("Settings & Rules"));
     const before = screen.getAllByText("Edit").length;
 
-    fireEvent.click(screen.getByText("+ Add"));
+    // Two + Add buttons exist now (rules card first, one-time transactions second).
+    fireEvent.click(screen.getAllByText("+ Add")[0]);
     fireEvent.change(screen.getByDisplayValue("New Rule"), {
       target: { value: "Gym Membership" },
     });
@@ -114,6 +115,63 @@ describe("App shell", () => {
     const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
     const rent = raw.rules.find((r: any) => r.name === "Rent");
     expect(rent.amount).toBe(-1600);
+  });
+
+  it("adds a one-time transaction and shows it in the projection", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    expect(screen.getByText(/No one-time transactions yet/)).toBeInTheDocument();
+
+    // The card has its own + Add button (the rules card has the other).
+    const addButtons = screen.getAllByText("+ Add");
+    fireEvent.click(addButtons[addButtons.length - 1]);
+
+    fireEvent.change(screen.getByLabelText("Transaction name"), {
+      target: { value: "Car repair" },
+    });
+    fireEvent.change(screen.getByLabelText("Transaction amount"), {
+      target: { value: "-800" },
+    });
+
+    const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+    expect(raw.adhocTransactions).toHaveLength(1);
+    expect(raw.adhocTransactions[0]).toMatchObject({
+      name: "Car repair",
+      amount: -800,
+    });
+
+    // It appears in the dashboard's upcoming events (dated startDate = today).
+    fireEvent.click(screen.getByText("Dashboard"));
+    expect(screen.getByText("Car repair")).toBeInTheDocument();
+    expect(screen.getAllByText("-$800.00").length).toBeGreaterThan(0);
+  });
+
+  it("deletes a one-time transaction", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    const addButtons = screen.getAllByText("+ Add");
+    fireEvent.click(addButtons[addButtons.length - 1]);
+    expect(screen.getByLabelText("Transaction name")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Delete transaction"));
+    expect(screen.getByText(/No one-time transactions yet/)).toBeInTheDocument();
+    const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+    expect(raw.adhocTransactions).toHaveLength(0);
+  });
+
+  it("changing a transaction's date moves it in the persisted state", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    const addButtons = screen.getAllByText("+ Add");
+    fireEvent.click(addButtons[addButtons.length - 1]);
+
+    // The transaction row's date input is the last date input on the tab.
+    const dateInputs = document.querySelectorAll('input[type="date"]');
+    const txnDate = dateInputs[dateInputs.length - 1];
+    fireEvent.change(txnDate, { target: { value: "2026-08-01" } });
+
+    const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+    expect(raw.adhocTransactions[0].date).toBe("2026-08-01");
   });
 
   it("restores persisted state on reload", () => {

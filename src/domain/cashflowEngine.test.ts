@@ -246,6 +246,111 @@ describe("cashflowEngine - timeline & metrics", () => {
   });
 });
 
+describe("cashflowEngine - ad-hoc one-time transactions", () => {
+  const settings: CashflowSettings = {
+    startDate: "2025-01-01",
+    horizonDays: 30,
+    minSafeBalance: 0,
+  };
+
+  test("a transaction inside the horizon appears in events and the timeline", () => {
+    const events = buildFutureEvents([], settings, {}, [
+      { id: "t1", name: "Car repair", amount: -800, date: "2025-01-10" },
+      { id: "t2", name: "Bonus", amount: 2000, date: "2025-01-20" },
+    ]);
+    expect(events.map((e) => e.date)).toEqual(["2025-01-10", "2025-01-20"]);
+    expect(events[0].ruleName).toBe("Car repair");
+    expect(events[0].id).toBe("t1__2025-01-10");
+
+    const { timeline, metrics } = buildTimelineAndMetrics(
+      { startingBalance: 1000 },
+      settings,
+      events
+    );
+    expect(timeline.find((p) => p.date === "2025-01-10")!.outflow).toBe(-800);
+    expect(timeline.find((p) => p.date === "2025-01-20")!.inflow).toBe(2000);
+    expect(metrics.minBalance).toBe(200); // 1000 - 800 before the bonus
+  });
+
+  test("transactions outside the horizon (or before start) are excluded", () => {
+    const events = buildFutureEvents([], settings, {}, [
+      { id: "past", name: "Old", amount: -100, date: "2024-12-31" },
+      { id: "far", name: "Future", amount: -100, date: "2025-03-01" },
+      { id: "edge", name: "Last day", amount: -100, date: "2025-01-31" },
+    ]);
+    expect(events.map((e) => e.ruleId)).toEqual(["edge"]);
+  });
+
+  test("a transaction with a corrupt date is skipped, not fatal", () => {
+    const events = buildFutureEvents([], settings, {}, [
+      { id: "bad", name: "Bad", amount: -100, date: "garbage" },
+    ]);
+    expect(events).toHaveLength(0);
+  });
+
+  test("an override applies to an ad-hoc event via the same key scheme", () => {
+    const events = buildFutureEvents(
+      [],
+      settings,
+      {
+        "t1__2025-01-10": { eventKey: "t1__2025-01-10", overrideAmount: -950 },
+      },
+      [{ id: "t1", name: "Car repair", amount: -800, date: "2025-01-10" }]
+    );
+    expect(events[0].isOverridden).toBe(true);
+    expect(events[0].effectiveAmount).toBe(-950);
+    expect(events[0].defaultAmount).toBe(-800);
+  });
+
+  test("ad-hoc and rule events on the same day both count", () => {
+    const rule: RecurringRule = {
+      id: "rent",
+      name: "Rent",
+      amount: -1500,
+      isVariable: false,
+      schedule: { type: "monthly", day: 10 },
+    };
+    const events = buildFutureEvents([rule], settings, {}, [
+      { id: "t1", name: "Repair", amount: -300, date: "2025-01-10" },
+    ]);
+    const jan10 = events.filter((e) => e.date === "2025-01-10");
+    expect(jan10).toHaveLength(2);
+    const { timeline } = buildTimelineAndMetrics(
+      { startingBalance: 5000 },
+      settings,
+      events
+    );
+    expect(timeline.find((p) => p.date === "2025-01-10")!.outflow).toBe(-1800);
+  });
+
+  test("an invalid startDate yields no ad-hoc events either", () => {
+    const events = buildFutureEvents(
+      [],
+      { ...settings, startDate: "" },
+      {},
+      [{ id: "t1", name: "X", amount: 100, date: "2025-01-10" }]
+    );
+    expect(events).toHaveLength(0);
+  });
+
+  test("runCashflowProjection includes state.adhocTransactions", () => {
+    const base = createInitialAppState();
+    const state: AppState = {
+      ...base,
+      account: { startingBalance: 100 },
+      settings,
+      rules: [],
+      adhocTransactions: [
+        { id: "t1", name: "Gift", amount: 50, date: "2025-01-05" },
+      ],
+      overrides: {},
+    };
+    const { events, timeline } = runCashflowProjection(state);
+    expect(events).toHaveLength(1);
+    expect(timeline.find((p) => p.date === "2025-01-05")!.balance).toBe(150);
+  });
+});
+
 describe("cashflowEngine - edge cases", () => {
   test("monthly day 31 clamps to end of shorter months", () => {
     const rule: RecurringRule = {

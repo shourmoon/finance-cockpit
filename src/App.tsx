@@ -4,6 +4,7 @@ import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
 import { computeSafeToSpendFromEvents } from "./domain/safeToSpendEngine";
 import type {
+  AdhocTransaction,
   AppState,
   FutureEvent,
   RecurringRule,
@@ -128,11 +129,46 @@ export default function App() {
     });
   }
 
+  function makeId(prefix: string): string {
+    return typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function addAdhocTransaction() {
+    const txn: AdhocTransaction = {
+      id: makeId("txn"),
+      name: "One-time transaction",
+      amount: 0,
+      date: state.settings.startDate,
+    };
+    setState((s) => ({
+      ...s,
+      adhocTransactions: [...s.adhocTransactions, txn],
+    }));
+  }
+
+  function updateAdhocTransaction(
+    id: string,
+    patch: Partial<Omit<AdhocTransaction, "id">>
+  ) {
+    setState((s) => ({
+      ...s,
+      adhocTransactions: s.adhocTransactions.map((t) =>
+        t.id === id ? { ...t, ...patch } : t
+      ),
+    }));
+  }
+
+  function deleteAdhocTransaction(id: string) {
+    setState((s) => ({
+      ...s,
+      adhocTransactions: s.adhocTransactions.filter((t) => t.id !== id),
+    }));
+  }
+
   function makeNewRule(): RecurringRule {
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `rule-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id = makeId("rule");
 
     return {
       id,
@@ -282,6 +318,69 @@ export default function App() {
                 </div>
               </div>
             ))}
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.cardHeaderRow}>
+              <h3 style={styles.cardTitle}>One-Time Transactions</h3>
+              <button style={styles.addButton} onClick={addAdhocTransaction}>
+                + Add
+              </button>
+            </div>
+
+            {state.adhocTransactions.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#9ca3af" }}>
+                No one-time transactions yet. Add a known one-off inflow or
+                expense (bonus, car repair, tuition…) and it will appear in
+                the projection alongside your recurring rules.
+              </div>
+            ) : (
+              [...state.adhocTransactions]
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map((txn) => (
+                  <div key={txn.id} style={styles.ruleRow}>
+                    <div style={styles.ruleInfo}>
+                      <input
+                        type="text"
+                        aria-label="Transaction name"
+                        value={txn.name}
+                        onChange={(e) =>
+                          updateAdhocTransaction(txn.id, { name: e.target.value })
+                        }
+                        style={{ ...styles.input, width: "100%" }}
+                      />
+                      <div style={{ marginTop: 6 }}>
+                        <DateInputWithDisplay
+                          value={txn.date}
+                          onChange={(val) => {
+                            if (val) updateAdhocTransaction(txn.id, { date: val });
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div style={styles.ruleControls}>
+                      <input
+                        type="number"
+                        aria-label="Transaction amount"
+                        value={txn.amount}
+                        onChange={(e) =>
+                          updateAdhocTransaction(txn.id, {
+                            amount: Number(e.target.value),
+                          })
+                        }
+                        style={styles.inputSmall}
+                      />
+                      <button
+                        style={styles.editButton}
+                        aria-label="Delete transaction"
+                        onClick={() => deleteAdhocTransaction(txn.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))
+            )}
           </div>
 
           {/* Sync & Multi-Device section: placed at the end of the
