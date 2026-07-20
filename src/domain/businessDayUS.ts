@@ -11,27 +11,36 @@ function isWeekend(date: Date): boolean {
 
 /**
  * Returns true if 'date' is an observed US Federal Reserve holiday.
+ *
+ * Observance follows the actual Federal Reserve rules: a holiday
+ * falling on Sunday is observed the following Monday; a holiday
+ * falling on Saturday is NOT observed — Federal Reserve Banks are
+ * open the preceding Friday. (This differs from the OPM rule for
+ * federal employees, which shifts Saturday holidays to Friday.)
+ * A useful consequence: no observance ever crosses a year boundary,
+ * so checking only the date's own year is sufficient.
  */
 export function isUSFederalReserveHoliday(date: Date): boolean {
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth(); // 0-based
   const day = date.getUTCDate();
 
-  const sameDay = (d: Date) =>
+  const sameDay = (d: Date | null) =>
+    d !== null &&
     d.getUTCFullYear() === year &&
     d.getUTCMonth() === month &&
     d.getUTCDate() === day;
 
-  function observedFixedDateHoliday(m: number, d: number): Date {
+  function observedFixedDateHoliday(m: number, d: number): Date | null {
     const holiday = new Date(Date.UTC(year, m, d));
     const wd = holiday.getUTCDay();
     if (wd === 0) {
-      // Sunday -> Monday
+      // Sunday -> observed the following Monday
       return addDays(holiday, 1);
     }
     if (wd === 6) {
-      // Saturday -> Friday
-      return addDays(holiday, -1);
+      // Saturday -> not observed; the Fed is open the preceding Friday
+      return null;
     }
     return holiday;
   }

@@ -136,6 +136,41 @@ describe("SyncSection - remote configured", () => {
     expect(await screen.findByText(/Failed to reach the sync server/)).toBeInTheDocument();
   });
 
+  it("Sync now opens the conflict resolver on a 409 during push", async () => {
+    setupRemote();
+    const remoteSnap = {
+      app_state: createInitialAppState(),
+      mortgage_ui: createDefaultMortgageUIState(),
+      updated_at: "2025-05-01T00:00:00Z",
+    };
+    // Last-sync matches the remote, so syncNow chooses the push path.
+    window.localStorage.setItem(
+      "finance-cockpit:last-sync",
+      JSON.stringify({ remote_updated_at: remoteSnap.updated_at })
+    );
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (!init || init.method === "GET") {
+        return Promise.resolve(
+          new Response(JSON.stringify(remoteSnap), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      return Promise.resolve(new Response("Conflict", { status: 409 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderSync();
+    fireEvent.change(screen.getByPlaceholderText(/moona-home/), { target: { value: "k" } });
+    fireEvent.change(screen.getByPlaceholderText(/never stored/), { target: { value: "1234" } });
+    fireEvent.click(screen.getByText("Sync now"));
+
+    expect(await screen.findByText("Conflict detected")).toBeInTheDocument();
+    expect(screen.getByText("Keep Local")).toBeInTheDocument();
+    expect(screen.getByText("Keep Remote")).toBeInTheDocument();
+  });
+
   it("Pull latest saves a pre-pull backup before overwriting local state", async () => {
     setupRemote();
     // Give local state a distinctive balance to find in the backup.

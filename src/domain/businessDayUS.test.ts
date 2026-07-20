@@ -9,15 +9,30 @@ describe("businessDayUS", () => {
     expect(isUSFederalReserveBusinessDay(d2025)).toBe(false);
   });
 
-  test("recognizes Independence Day observed on Friday when July 4 is Saturday", () => {
-    // 2020-07-04 was Saturday, observed on Friday 2020-07-03
-    const holidayObserved = parseISODate("2020-07-03");
-    expect(isUSFederalReserveHoliday(holidayObserved)).toBe(true);
-    expect(isUSFederalReserveBusinessDay(holidayObserved)).toBe(false);
+  test("a Saturday holiday is not observed — the Fed is open the preceding Friday", () => {
+    // 2020-07-04 was a Saturday. Federal Reserve Banks were open on
+    // Friday 2020-07-03 (unlike the OPM federal-employee observance).
+    const friday = parseISODate("2020-07-03");
+    expect(isUSFederalReserveHoliday(friday)).toBe(false);
+    expect(isUSFederalReserveBusinessDay(friday)).toBe(true);
 
     const actual4th = parseISODate("2020-07-04");
-    // weekend and holiday, but we treat weekend via weekend rule
+    // Saturday itself is still a non-business day via the weekend rule.
     expect(isUSFederalReserveBusinessDay(actual4th)).toBe(false);
+  });
+
+  test("no observance crosses a year boundary", () => {
+    // Jan 1, 2022 was a Saturday: not observed, so Friday Dec 31, 2021
+    // is an ordinary business day.
+    const dec31 = parseISODate("2021-12-31");
+    expect(isUSFederalReserveHoliday(dec31)).toBe(false);
+    expect(isUSFederalReserveBusinessDay(dec31)).toBe(true);
+  });
+
+  test("a payday on a Saturday holiday moves to the open Friday before it", () => {
+    // Payday Sat 2020-07-04 -> Fri 2020-07-03 (Fed open), not Thu 07-02.
+    const adjusted = adjustToPreviousUSBusinessDay(parseISODate("2020-07-04"));
+    expect(toISODate(adjusted)).toBe("2020-07-03");
   });
 
   test("recognizes Thanksgiving as holiday (4th Thursday of November)", () => {

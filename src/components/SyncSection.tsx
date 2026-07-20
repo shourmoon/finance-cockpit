@@ -187,6 +187,23 @@ export default function SyncSection() {
 
       setMessage(`${actionWord} successfully.`);
     } catch (e: any) {
+      // A 409 means the remote changed between syncNow's load and its
+      // push. Offer the same Keep Local / Keep Remote resolver as an
+      // explicit push instead of a dead-end error message.
+      if (e instanceof RemoteSyncError && e.kind === "conflict") {
+        try {
+          const adapter = await buildRemoteAdapter();
+          const latest = (await (adapter as any).loadState(req.key)) as RemoteStateResponse | null;
+          if (latest) {
+            setRemoteUpdatedAt(latest.updated_at ?? null);
+            setConflict({ sharedKey: req.key, remote: latest, local: getLocalSnapshot() });
+            setError("Conflict detected: remote changed. Choose Keep Local or Keep Remote.");
+            return;
+          }
+        } catch {
+          // Fall through to the generic error message below.
+        }
+      }
       setError(mapSyncError(e));
     } finally {
       setLoading(false);
