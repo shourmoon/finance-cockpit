@@ -399,6 +399,50 @@ describe("cashflowEngine - edge cases", () => {
     expect(jan10).toHaveLength(2);
   });
 
+  test("business-day adjustment pulling an event across months keeps both payments with unique ids", () => {
+    // Regression: day2=31 clamps to Fri 2025-02-28, and Mar 1 (Saturday)
+    // also adjusts back to 2025-02-28. Both paydays are real; they used to
+    // be emitted with identical ids.
+    const rule: RecurringRule = {
+      id: "pay",
+      name: "Paycheck",
+      amount: 1000,
+      isVariable: false,
+      schedule: {
+        type: "twiceMonth",
+        day1: 1,
+        day2: 31,
+        businessDayConvention: "previousBusinessDayUS",
+      },
+    };
+    const settings: CashflowSettings = {
+      startDate: "2025-02-01",
+      horizonDays: 40,
+      minSafeBalance: 0,
+    };
+
+    const events = buildFutureEvents([rule], settings, {});
+    const feb28 = events.filter((e) => e.date === "2025-02-28");
+    expect(feb28).toHaveLength(2); // both payments kept
+    expect(new Set(events.map((e) => e.id)).size).toBe(events.length); // ids unique
+
+    // The timeline counts both payments.
+    const { timeline } = buildTimelineAndMetrics(
+      { startingBalance: 0 },
+      settings,
+      events
+    );
+    const day = timeline.find((p) => p.date === "2025-02-28")!;
+    expect(day.inflow).toBe(2000);
+
+    // A date-keyed override intentionally applies to every occurrence.
+    const overridden = buildFutureEvents([rule], settings, {
+      "pay__2025-02-28": { eventKey: "pay__2025-02-28", overrideAmount: 500 },
+    });
+    const both = overridden.filter((e) => e.date === "2025-02-28");
+    expect(both.every((e) => e.isOverridden && e.effectiveAmount === 500)).toBe(true);
+  });
+
   test("a biweekly rule with an invalid anchor date is skipped, not fatal", () => {
     const settings: CashflowSettings = {
       startDate: "2025-01-01",

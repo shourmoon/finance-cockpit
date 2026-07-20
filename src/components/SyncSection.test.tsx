@@ -136,6 +136,40 @@ describe("SyncSection - remote configured", () => {
     expect(await screen.findByText(/Failed to reach the sync server/)).toBeInTheDocument();
   });
 
+  it("Pull latest saves a pre-pull backup before overwriting local state", async () => {
+    setupRemote();
+    // Give local state a distinctive balance to find in the backup.
+    const local = createInitialAppState();
+    local.account.startingBalance = 4242;
+    saveAppState(local);
+
+    const remoteSnap = {
+      app_state: { ...createInitialAppState(), account: { startingBalance: 7 } },
+      mortgage_ui: createDefaultMortgageUIState(),
+      updated_at: "2025-05-01T00:00:00Z",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(remoteSnap), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+
+    await renderSync();
+    fireEvent.change(screen.getByPlaceholderText(/moona-home/), { target: { value: "k" } });
+    fireEvent.change(screen.getByPlaceholderText(/never stored/), { target: { value: "1234" } });
+    fireEvent.click(screen.getByText("Pull latest"));
+    await screen.findByText(/Pulled latest remote snapshot/);
+
+    const backup = JSON.parse(
+      window.localStorage.getItem("finance-cockpit:backup-before-pull")!
+    );
+    expect(backup.app_state.account.startingBalance).toBe(4242);
+  });
+
   it("surfaces a conflict resolver when pushing over a changed remote", async () => {
     setupRemote();
     const remoteSnap = {
@@ -168,5 +202,9 @@ describe("SyncSection - remote configured", () => {
     await waitFor(() =>
       expect(screen.getByText(/keeping Remote/)).toBeInTheDocument()
     );
+    // The discarded local state is recoverable from the backup slot.
+    expect(
+      window.localStorage.getItem("finance-cockpit:backup-before-pull")
+    ).not.toBeNull();
   });
 });

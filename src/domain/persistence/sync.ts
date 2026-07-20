@@ -135,8 +135,12 @@ export function applySnapshot(snapshot: Snapshot): void {
  * Save the current local snapshot to a single backup slot before a
  * pull overwrites it. The sync policy is "remote wins" with no merge,
  * so this is the only way to recover local edits lost to a pull.
+ *
+ * Exported so that UI actions that overwrite local state directly
+ * (e.g. "Pull latest" / "Keep Remote") take the same backup as
+ * syncNow's automatic pulls.
  */
-function backupLocalBeforePull(): void {
+export function backupLocalBeforePull(): void {
   if (typeof window === "undefined") return;
   try {
     const local = getLocalSnapshot();

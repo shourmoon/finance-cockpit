@@ -12,7 +12,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { RemoteStateResponse } from "../domain/persistence/remote";
 import { createCloudflareAdapter } from "../domain/persistence/remoteCloudflare";
 import { RemoteSyncError, stubRemoteAdapter } from "../domain/persistence/remote";
-import { applySnapshot, getLocalSnapshot, syncNow } from "../domain/persistence/sync";
+import {
+  applySnapshot,
+  backupLocalBeforePull,
+  getLocalSnapshot,
+  syncNow,
+} from "../domain/persistence/sync";
 import type { Snapshot } from "../domain/persistence/snapshot";
 
 import { SYNC_BASE_URL } from "../config";
@@ -203,6 +208,9 @@ export default function SyncSection() {
         return;
       }
 
+      // Same safety net as syncNow's automatic pulls: keep a one-slot
+      // backup of the local state this pull is about to overwrite.
+      backupLocalBeforePull();
       applySnapshot({
         schemaVersion: 1,
         app_state: remote.app_state,
@@ -270,6 +278,8 @@ export default function SyncSection() {
     resetUiState();
     setLoading(true);
     try {
+      // Back up the local state being discarded in favour of remote.
+      backupLocalBeforePull();
       applySnapshot({
         schemaVersion: 1,
         app_state: conflict.remote.app_state,

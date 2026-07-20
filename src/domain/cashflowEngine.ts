@@ -74,6 +74,20 @@ function expandRuleToEvents(
       break;
   }
 
+  // Business-day adjustment can pull an event from one month into the
+  // previous one, where it may coincide with that month's own event
+  // (e.g. day2=31 -> Fri Feb 28, and Mar 1 falling on a Saturday also
+  // adjusting back to Feb 28). Both payments are real, so keep both —
+  // but suffix repeat ids so event identity and React keys stay unique.
+  // Overrides are keyed by rule+date and intentionally apply to every
+  // occurrence on that date.
+  const seen = new Map<string, number>();
+  for (const evt of events) {
+    const n = seen.get(evt.id) ?? 0;
+    seen.set(evt.id, n + 1);
+    if (n > 0) evt.id = `${evt.id}__${n + 1}`;
+  }
+
   return events;
 }
 
