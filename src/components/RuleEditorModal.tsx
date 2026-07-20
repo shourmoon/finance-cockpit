@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { RecurringRule } from "../domain/types";
 // Import date formatter to display anchor dates consistently
 import { formatDate } from "../utils/dates";
@@ -37,26 +37,30 @@ export default function RuleEditorModal({
 
   const [anchorDate, setAnchorDate] = useState(defaultStartDate);
 
-  useEffect(() => {
-    if (!rule) return;
+  // Load the form when a different rule is opened — the render-time
+  // state-adjustment pattern (no effect, no cascading re-render).
+  const [prevRule, setPrevRule] = useState<RecurringRule | null>(null);
+  if (rule !== prevRule) {
+    setPrevRule(rule);
+    if (rule) {
+      setName(rule.name);
+      setAmountStr(String(rule.amount));
+      setIsVariable(rule.isVariable);
 
-    setName(rule.name);
-    setAmountStr(String(rule.amount));
-    setIsVariable(rule.isVariable);
+      const sched = rule.schedule;
+      setScheduleType(sched.type);
 
-    const sched = rule.schedule;
-    setScheduleType(sched.type);
-
-    if (sched.type === "monthly") {
-      setDay(sched.day);
-    } else if (sched.type === "twiceMonth") {
-      setDay1(sched.day1);
-      setDay2(sched.day2);
-      setBusinessDayConvention(sched.businessDayConvention ?? "none");
-    } else if (sched.type === "biweekly") {
-      setAnchorDate(sched.anchorDate || defaultStartDate);
+      if (sched.type === "monthly") {
+        setDay(sched.day);
+      } else if (sched.type === "twiceMonth") {
+        setDay1(sched.day1);
+        setDay2(sched.day2);
+        setBusinessDayConvention(sched.businessDayConvention ?? "none");
+      } else if (sched.type === "biweekly") {
+        setAnchorDate(sched.anchorDate || defaultStartDate);
+      }
     }
-  }, [rule, defaultStartDate]);
+  }
 
   if (!rule) return null;
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { FutureEvent } from "../domain/types";
 // Use the shared date formatter so the modal displays dates consistently
 import { formatDate } from "../utils/dates";
@@ -12,11 +12,15 @@ interface Props {
 export default function OverrideModal({ event, onSave, onClose }: Props) {
   const [val, setVal] = useState<string>("");
 
-  useEffect(() => {
+  // Reset the input when a different event is shown — the render-time
+  // state-adjustment pattern (no effect, no cascading re-render).
+  const [prevEvent, setPrevEvent] = useState<FutureEvent | null>(null);
+  if (event !== prevEvent) {
+    setPrevEvent(event);
     if (event) {
       setVal(event.isOverridden ? String(event.effectiveAmount) : "");
     }
-  }, [event]);
+  }
 
   if (!event) return null;
 

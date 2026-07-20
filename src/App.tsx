@@ -17,9 +17,9 @@ import MortgageTab from "./components/MortgageTab";
 // operations. See src/components/SyncSection.tsx for details.
 import SyncSection from "./components/SyncSection";
 // Import a common date formatter to ensure all dates in the UI follow the
-// same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
+// same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
 import { formatDate } from "./utils/dates";
-import { DateInputWithDisplay as SharedDateInput } from "./components/shared";
+import { DateInputWithDisplay as SharedDateInput, NumberInput } from "./components/shared";
 
 // Shared date input bound to this screen's input styling.
 function DateInputWithDisplay({
@@ -242,21 +242,19 @@ export default function App() {
 
             <label style={styles.label}>
               Minimum Safe Balance:
-              <input
-                type="number"
+              <NumberInput
                 value={state.settings.minSafeBalance}
-                onChange={(e) => updateMinSafeBalance(Number(e.target.value))}
-                style={styles.input}
+                onChange={updateMinSafeBalance}
+                inputStyle={styles.input}
               />
             </label>
 
             <label style={styles.label}>
               Starting Balance:
-              <input
-                type="number"
+              <NumberInput
                 value={state.account.startingBalance}
-                onChange={(e) => updateStartingBalance(Number(e.target.value))}
-                style={styles.input}
+                onChange={updateStartingBalance}
+                inputStyle={styles.input}
               />
             </label>
           </div>
@@ -300,11 +298,10 @@ export default function App() {
                 </div>
 
                 <div style={styles.ruleControls}>
-                  <input
-                    type="number"
+                  <NumberInput
                     value={rule.amount}
-                    onChange={(e) => updateRuleAmount(rule, Number(e.target.value))}
-                    style={styles.inputSmall}
+                    onChange={(val) => updateRuleAmount(rule, val)}
+                    inputStyle={styles.inputSmall}
                   />
                   <button
                     style={styles.editButton}
@@ -359,16 +356,13 @@ export default function App() {
                       </div>
                     </div>
                     <div style={styles.ruleControls}>
-                      <input
-                        type="number"
-                        aria-label="Transaction amount"
+                      <NumberInput
+                        ariaLabel="Transaction amount"
                         value={txn.amount}
-                        onChange={(e) =>
-                          updateAdhocTransaction(txn.id, {
-                            amount: Number(e.target.value),
-                          })
+                        onChange={(val) =>
+                          updateAdhocTransaction(txn.id, { amount: val })
                         }
-                        style={styles.inputSmall}
+                        inputStyle={styles.inputSmall}
                       />
                       <button
                         style={styles.editButton}

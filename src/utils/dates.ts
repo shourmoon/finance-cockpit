@@ -1,13 +1,13 @@
 /**
  * Utility functions for date formatting throughout the UI. All dates in
  * the application should be presented in the same human friendly format
- * (DD MMM 'YY) to ensure consistency. Example: `2025-01-26` becomes
- * `26 Jan '25`.
+ * (DD MMM 'YY) to ensure consistency. Example: `2025-01-26` becomes
+ * `26 Jan '25`.
  */
 
 /**
  * Format an ISO‐8601 date string (YYYY‑MM‑DD) into a short display
- * string like "26 Jan '25". If the input is falsy or cannot be parsed,
+ * string like "26 Jan '25". If the input is falsy or cannot be parsed,
  * the original value is returned unchanged.
  *
  * @param isoDate An ISO date string (YYYY‑MM‑DD) or undefined.

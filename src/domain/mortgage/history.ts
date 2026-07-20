@@ -4,7 +4,6 @@ import type {
   AmortizationEntry,
   MortgageHistoryResult,
   PastPrepaymentLog,
-  Money,
 } from "./types";
 import { computeMonthlyPayment, addMonths } from "./baseline";
 

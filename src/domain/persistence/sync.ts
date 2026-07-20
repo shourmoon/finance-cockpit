@@ -47,7 +47,7 @@ function getDeviceId(): string {
     // For tests we can just return a constant.
     return "test-device";
   }
-  let existing = window.localStorage.getItem(DEVICE_ID_KEY);
+  const existing = window.localStorage.getItem(DEVICE_ID_KEY);
   if (existing && typeof existing === "string") {
     return existing;
   }
@@ -195,15 +195,11 @@ export async function syncNow(
 }> {
   // Load the last sync metadata. This may be null on first run.
   const lastSync = getLastSyncInfo();
-  // Attempt to fetch the remote state.
-  let remoteState: RemoteStateResponse | null = null;
-  try {
-    remoteState = await remoteAdapter.loadState(sharedKey);
-  } catch (e) {
-    // IMPORTANT: do not translate network/auth/CORS errors into "conflict".
-    // Bubble up the real failure so the UI can show the correct message.
-    throw e;
-  }
+  // Attempt to fetch the remote state. Adapter failures (network/auth/
+  // CORS) propagate as-is — they must never be translated into
+  // "conflict"; the UI branches on the typed RemoteSyncError kind.
+  const remoteState: RemoteStateResponse | null =
+    await remoteAdapter.loadState(sharedKey);
 
   // If the backend has no data for this key, push our local snapshot.
   if (!remoteState) {

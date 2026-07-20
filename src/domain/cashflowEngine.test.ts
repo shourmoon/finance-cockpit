@@ -5,14 +5,13 @@ buildFutureEvents,
 buildTimelineAndMetrics,
 } from "./cashflowEngine";
 import { createInitialAppState } from "./appState";
-import { toISODate, parseISODate, addDays } from "./dateUtils";
+import { toISODate, parseISODate } from "./dateUtils";
 import type {
 AppState,
 RecurringRule,
 CashflowSettings,
 EventOverridesMap,
 CashAccount,
-FutureEvent,
 } from "./types";
 
 function makeBaseState(): AppState {
@@ -331,6 +330,15 @@ describe("cashflowEngine - ad-hoc one-time transactions", () => {
       [{ id: "t1", name: "X", amount: 100, date: "2025-01-10" }]
     );
     expect(events).toHaveLength(0);
+  });
+
+  test("duplicate ad-hoc ids in corrupt data still yield unique event ids", () => {
+    const events = buildFutureEvents([], settings, {}, [
+      { id: "t1", name: "A", amount: -100, date: "2025-01-10" },
+      { id: "t1", name: "B", amount: -200, date: "2025-01-10" },
+    ]);
+    expect(events).toHaveLength(2);
+    expect(new Set(events.map((e) => e.id)).size).toBe(2);
   });
 
   test("runCashflowProjection includes state.adhocTransactions", () => {

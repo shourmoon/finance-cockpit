@@ -8,7 +8,7 @@
 // - Provide an in-app conflict resolver for real optimistic-concurrency conflicts (HTTP 409)
 // - Keep the contract robust: wrong PIN => 401, true conflict => 409, network/CORS => Failed to fetch
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { RemoteStateResponse } from "../domain/persistence/remote";
 import { createCloudflareAdapter } from "../domain/persistence/remoteCloudflare";
 import { RemoteSyncError, stubRemoteAdapter } from "../domain/persistence/remote";
@@ -114,10 +114,6 @@ export default function SyncSection() {
   const baseAdapter = useMemo(() => {
     return hasRemote ? createCloudflareAdapter(SYNC_BASE_URL!) : stubRemoteAdapter;
   }, [hasRemote]);
-
-  useEffect(() => {
-    setLastSynced(readLastSyncRemoteUpdatedAt());
-  }, []);
 
   async function buildRemoteAdapter() {
     if (!hasRemote) return baseAdapter;

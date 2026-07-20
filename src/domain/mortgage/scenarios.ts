@@ -328,7 +328,7 @@ function buildExtraByDateMap(
             const y = Number(yStr);
             const m = Number(mStr);
             const nth = p.nthWeekday ?? 1;
-            let weekday = p.weekday ?? 1; // 1=Monday by default
+            const weekday = p.weekday ?? 1; // 1=Monday by default
             // Convert to JS day-of-week: 0=Sunday,1=Monday,...6=Saturday
             const targetDow = (weekday % 7);
 
@@ -458,7 +458,7 @@ function simulateFutureFromAsOf(
   while (remaining > 0.01 && step <= maxSteps) {
     const date = addMonths(effectiveAsOf, step);
     const interest = r > 0 ? remaining * r : 0;
-    let principal = monthlyPayment - interest;
+    const principal = monthlyPayment - interest;
     // Unreachable: remainingAtAsOf never exceeds the original principal,
     // so the annuity payment always beats interest.
     /* v8 ignore next 3 */
@@ -536,8 +536,8 @@ export function runMortgageScenarios(
   );
 
   let remainingAtAsOf: Money;
-  let interestSoFar = 0;
-  let monthsSoFar = 0;
+  let interestSoFar: Money;
+  let monthsSoFar: number;
 
   if (lastIndex === -1) {
     // As-of before first payment: nothing has happened yet.
@@ -569,14 +569,6 @@ export function runMortgageScenarios(
     actualFullSchedule.length > 0
       ? actualFullSchedule[actualFullSchedule.length - 1].date
       : baseline.payoffDate;
-
-  const actualEffectiveRate =
-    actualFullSchedule.length > 0
-      ? computeEffectiveAnnualRateFromSchedule(
-          actualFullSchedule,
-          terms.principal
-        )
-      : null;
 
   // 5) Baseline totals for comparison.
   const baselineTotalInterest = baseline.totalInterest;

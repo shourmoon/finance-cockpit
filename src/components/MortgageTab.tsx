@@ -5,7 +5,7 @@
 // compare different future prepayment scenarios.  This version
 // includes several improvements:
 //   • A shared date format helper ensures that all dates on the UI
-//     use the `DD MMM 'YY` format (e.g. "26 Jan '25").
+//     use the `DD MMM 'YY` format (e.g. "26 Jan '25").
 //   • Each past prepayment row now shows both the cumulative savings
 //     versus the baseline mortgage and the incremental savings from
 //     that prepayment alone.
@@ -42,7 +42,7 @@ import {
 
 // Shared date formatting helper.  This utility converts ISO dates
 // (YYYY‑MM‑DD) into the display format required by the product
-// specification, e.g. "2025-01-26" → "26 Jan '25".
+// specification, e.g. "2025-01-26" → "26 Jan '25".
 import { formatDate } from "../utils/dates";
 import { DateInputWithDisplay } from "./shared";
 
@@ -72,7 +72,7 @@ function formatDateDisplay(value: string | null | undefined): string {
 }
 
 // Convert a number of months into a human friendly string of years
-// and months.  E.g. 34 → "2 yrs 10 mos".  Zero or negative values
+// and months.  E.g. 34 → "2 yrs 10 mos".  Zero or negative values
 // return an em dash to indicate no savings.
 function formatMonthsAsYearsMonths(
   totalMonths: number | null | undefined
@@ -109,7 +109,7 @@ function parseNumber(value: string): number | null {
 // Reusable component that wraps a native date input and shows the
 // selected date in the product's human‑friendly format underneath.
 // This ensures that even though the browser native input uses
-// YYYY‑MM‑DD internally, users always see the DD MMM 'YY
+// YYYY‑MM‑DD internally, users always see the DD MMM 'YY
 // representation alongside it.  Consumers must provide the value,
 // onChange handler and styling for the input.
 // (The date input itself now lives in src/components/shared.tsx.)
@@ -356,7 +356,7 @@ export default function MortgageTab() {
 
   const comparison = useMemo(
     () => compareBaselineWithPrepayments(terms, prepaymentLog),
-    [baseline, withPrepayments]
+    [terms, prepaymentLog]
   );
 
   const baselineEffectiveRate = useMemo(
@@ -420,7 +420,6 @@ export default function MortgageTab() {
         monthsSavedIncremental,
       };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepaymentLog, terms, baseline]);
 
   // -------- Scenario engine wiring --------

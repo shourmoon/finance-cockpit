@@ -1,5 +1,5 @@
 // src/App.test.tsx
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import App from "./App";
 
@@ -32,7 +32,7 @@ describe("App shell", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
 
-    const startingBalance = screen.getByRole("spinbutton", { name: /Starting Balance/i });
+    const startingBalance = screen.getByRole("textbox", { name: /Starting Balance/i });
     fireEvent.change(startingBalance, { target: { value: "5000" } });
 
     // Persisted state should reflect the new balance.
@@ -50,7 +50,7 @@ describe("App shell", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: /Horizon/i }), {
       target: { value: "10" },
     });
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Minimum Safe Balance/i }), {
+    fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
       target: { value: "200" },
     });
     const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
@@ -177,7 +177,7 @@ describe("App shell", () => {
   it("restores persisted state on reload", () => {
     const { unmount } = render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Starting Balance/i }), {
+    fireEvent.change(screen.getByRole("textbox", { name: /Starting Balance/i }), {
       target: { value: "4242" },
     });
     unmount();

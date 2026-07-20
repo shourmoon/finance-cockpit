@@ -75,20 +75,6 @@ function expandRuleToEvents(
       break;
   }
 
-  // Business-day adjustment can pull an event from one month into the
-  // previous one, where it may coincide with that month's own event
-  // (e.g. day2=31 -> Fri Feb 28, and Mar 1 falling on a Saturday also
-  // adjusting back to Feb 28). Both payments are real, so keep both —
-  // but suffix repeat ids so event identity and React keys stay unique.
-  // Overrides are keyed by rule+date and intentionally apply to every
-  // occurrence on that date.
-  const seen = new Map<string, number>();
-  for (const evt of events) {
-    const n = seen.get(evt.id) ?? 0;
-    seen.set(evt.id, n + 1);
-    if (n > 0) evt.id = `${evt.id}__${n + 1}`;
-  }
-
   return events;
 }
 
@@ -310,6 +296,21 @@ export function buildFutureEvents(
   all.push(...expandAdhocTransactions(adhocTransactions, settings, overrides));
 
   all.sort((a, b) => compareISO(a.date, b.date));
+
+  // Enforce event-id uniqueness across the whole merged stream. Repeat
+  // ids can arise from business-day adjustment pulling a rule's event
+  // into the previous month onto that month's own payday (both payments
+  // are real and both are kept), or from duplicate ad-hoc transaction
+  // ids in corrupt/synced data. Suffix repeats so event identity and
+  // React keys stay unique; overrides are keyed by rule+date and
+  // intentionally apply to every occurrence on that date.
+  const seen = new Map<string, number>();
+  for (const evt of all) {
+    const n = seen.get(evt.id) ?? 0;
+    seen.set(evt.id, n + 1);
+    if (n > 0) evt.id = `${evt.id}__${n + 1}`;
+  }
+
   return all;
 }
 
