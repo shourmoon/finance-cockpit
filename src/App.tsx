@@ -450,42 +450,42 @@ export default function App() {
                 No upcoming events in this horizon.
               </div>
             ) : (
-              <>
-                <div style={styles.eventHeaderRow}>
-                  <span style={styles.eventDateCell}>Date</span>
-                  <span style={styles.eventNameCell}>Name</span>
-                  <span style={styles.eventAmountCell}>Amount</span>
-                  <span style={styles.eventBalanceCell}>Balance</span>
-                </div>
-                {events.map((e) => {
-                  const runningBalance = runningBalanceByDate.get(e.date);
-                  return (
-                    <div
-                      key={e.id}
-                      style={styles.eventRow}
-                      onClick={() => setSelectedEvent(e)}
-                    >
-                      <span style={styles.eventDateCell}>{formatDate(e.date)}</span>
-                      <span style={styles.eventNameCell}>
+              /* Two-line rows instead of a fixed-column table so the list
+                 fits any screen width — on phones the old 90/110/120px
+                 columns overflowed the card and forced zooming. */
+              events.map((e) => {
+                const runningBalance = runningBalanceByDate.get(e.date);
+                return (
+                  <div
+                    key={e.id}
+                    style={styles.eventRow}
+                    onClick={() => setSelectedEvent(e)}
+                  >
+                    <div style={styles.eventTopRow}>
+                      <span style={styles.eventName}>
                         {e.ruleName}
                         {e.isOverridden && " *"}
                       </span>
                       <span
                         style={{
-                          ...styles.eventAmountCell,
+                          ...styles.eventAmount,
                           color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
-                          fontWeight: 600,
                         }}
                       >
                         {formatMoney(e.effectiveAmount)}
                       </span>
-                      <span style={styles.eventBalanceCell}>
-                        {runningBalance !== undefined ? formatMoney(runningBalance) : "—"}
+                    </div>
+                    <div style={styles.eventBottomRow}>
+                      <span>{formatDate(e.date)}</span>
+                      <span style={styles.eventBalance}>
+                        {runningBalance !== undefined
+                          ? `Balance ${formatMoney(runningBalance)}`
+                          : "—"}
                       </span>
                     </div>
-                  );
-                })}
-              </>
+                  </div>
+                );
+              })
             )}
           </div>
         </>
@@ -725,43 +725,41 @@ const styles: Record<string, any> = {
     borderColor: "rgba(248, 113, 113, 0.8)",
     color: "#fecaca",
   },
-  eventHeaderRow: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    fontSize: 11,
-    fontWeight: 600,
-    paddingBottom: 4,
-    borderBottom: "1px solid #1f2933",
-    marginBottom: 4,
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    color: "#9ca3af",
-  },
-  eventDateCell: {
-    flex: "0 0 90px",
-    textAlign: "left",
-  },
-  eventNameCell: {
-    flex: "1 1 auto",
-    textAlign: "left",
-  },
-  eventAmountCell: {
-    flex: "0 0 110px",
-    textAlign: "right",
-  },
-  eventBalanceCell: {
-    flex: "0 0 120px",
-    textAlign: "right",
-  },
   eventRow: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    fontSize: 14,
     paddingBottom: 8,
     borderBottom: "1px dashed #1f2933",
     marginBottom: 8,
     cursor: "pointer",
+  },
+  eventTopRow: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12,
+    fontSize: 14,
+  },
+  eventName: {
+    flex: "1 1 auto",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  eventAmount: {
+    flex: "0 0 auto",
+    whiteSpace: "nowrap",
+    fontWeight: 600,
+  },
+  eventBottomRow: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 2,
+    fontSize: 12,
+    color: "#9ca3af",
+  },
+  eventBalance: {
+    whiteSpace: "nowrap",
   },
 };

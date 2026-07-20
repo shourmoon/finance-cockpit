@@ -14,6 +14,8 @@ describe("App shell", () => {
     expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
     // Default rules produce upcoming events.
     expect(screen.getAllByText(/Paycheck|Rent/).length).toBeGreaterThan(0);
+    // Each event row shows its running balance on the second line.
+    expect(screen.getAllByText(/^Balance \$/).length).toBeGreaterThan(0);
   });
 
   it("switches between tabs", () => {
