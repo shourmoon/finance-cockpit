@@ -7,7 +7,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      // "prompt" (not autoUpdate) so a new version waits for the user to
+      // tap Refresh instead of silently swapping on the next load.
+      registerType: "prompt",
       includeAssets: ["favicon.svg", "robots.txt", "apple-touch-icon.png"],
       manifest: {
         name: "Finance Cockpit",

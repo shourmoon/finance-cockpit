@@ -18,6 +18,7 @@ export default defineConfig({
         "**/*.test.{ts,tsx}",
         "**/*.d.ts",
         "src/main.tsx",         // app bootstrap, nothing to unit test
+        "src/Root.tsx",         // service-worker update glue (virtual:pwa-register)
         "src/**/types.ts",      // type-only modules (no runtime code)
         "src/test/**",          // test setup helpers
       ],
