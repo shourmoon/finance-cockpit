@@ -33,6 +33,28 @@ function round(n: number): number {
 }
 
 /**
+ * Index of the chart point whose x-coordinate is nearest the given
+ * x (in viewBox units) — used to map a pointer/touch position on the
+ * chart to a data point for the scrub crosshair. Returns 0 for an empty
+ * point list.
+ */
+export function nearestPointIndex(
+  points: readonly ChartPoint[],
+  xInViewBox: number
+): number {
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const d = Math.abs(points[i].x - xInViewBox);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
  * Scale a balance timeline into chart coordinates. The value axis always
  * includes both zero and the safety floor so those reference lines are
  * on-canvas. Returns null for an empty timeline.

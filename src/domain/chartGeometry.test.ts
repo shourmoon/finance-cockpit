@@ -1,6 +1,6 @@
 // src/domain/chartGeometry.test.ts
 import { describe, it, expect } from "vitest";
-import { buildBalanceChartGeometry } from "./chartGeometry";
+import { buildBalanceChartGeometry, nearestPointIndex } from "./chartGeometry";
 import type { TimelinePoint } from "./types";
 
 function tp(date: string, balance: number): TimelinePoint {
@@ -73,5 +73,39 @@ describe("buildBalanceChartGeometry", () => {
     // Symmetric range [-100, 100] => zero at vertical center.
     expect(geo.zeroY).toBeGreaterThan(8);
     expect(geo.zeroY).toBeLessThan(132);
+  });
+});
+
+describe("nearestPointIndex", () => {
+  const geo = buildBalanceChartGeometry(
+    [
+      tp("2025-01-01", 100),
+      tp("2025-01-02", 200),
+      tp("2025-01-03", 300),
+      tp("2025-01-04", 400),
+    ],
+    0,
+    320,
+    140,
+    8
+  )!;
+
+  it("maps an x near the start to the first point", () => {
+    expect(nearestPointIndex(geo.points, geo.points[0].x - 5)).toBe(0);
+  });
+
+  it("maps an x near the end to the last point", () => {
+    expect(nearestPointIndex(geo.points, geo.points[3].x + 50)).toBe(3);
+  });
+
+  it("snaps to the closest point in the middle", () => {
+    const midX = (geo.points[1].x + geo.points[2].x) / 2;
+    // Exactly between two points rounds to the earlier one (strict <).
+    expect(nearestPointIndex(geo.points, midX - 1)).toBe(1);
+    expect(nearestPointIndex(geo.points, midX + 1)).toBe(2);
+  });
+
+  it("returns 0 for an empty point list", () => {
+    expect(nearestPointIndex([], 100)).toBe(0);
   });
 });
