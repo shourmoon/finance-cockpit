@@ -1,7 +1,49 @@
 // src/domain/safeToSpendEngine.test.ts
-import { computeSafeToSpendFromEvents, computeSafeToSpend } from "./safeToSpendEngine";
+import { computeSafeToSpendFromEvents, computeSafeToSpend, computeTopUpHint } from "./safeToSpendEngine";
 import { createInitialAppState } from "./appState";
-import type { AppState, Money } from "./types";
+import type { AppState, Money, TimelinePoint } from "./types";
+
+function tp(date: string, balance: number): TimelinePoint {
+  return { date, balance, inflow: 0, outflow: 0 };
+}
+
+describe("computeTopUpHint", () => {
+  it("returns null when the balance never dips below the floor", () => {
+    const timeline = [tp("2025-01-01", 500), tp("2025-01-02", 300), tp("2025-01-03", 400)];
+    expect(computeTopUpHint(timeline, 100)).toBeNull();
+  });
+
+  it("returns null for an empty timeline", () => {
+    expect(computeTopUpHint([], 100)).toBeNull();
+  });
+
+  it("reports the shortfall and the first breach date", () => {
+    const timeline = [
+      tp("2025-01-01", 500),
+      tp("2025-01-02", 50), // first below floor of 100
+      tp("2025-01-03", -30), // deeper minimum
+      tp("2025-01-04", 200),
+    ];
+    // Need floor(100) - min(-30) = 130 deposited, before the first breach.
+    expect(computeTopUpHint(timeline, 100)).toEqual({
+      amountNeeded: 130,
+      neededBy: "2025-01-02",
+    });
+  });
+
+  it("treats a balance exactly at the floor as safe (no top-up)", () => {
+    const timeline = [tp("2025-01-01", 100), tp("2025-01-02", 100)];
+    expect(computeTopUpHint(timeline, 100)).toBeNull();
+  });
+
+  it("works with a zero floor (top up to avoid going negative)", () => {
+    const timeline = [tp("2025-01-01", 200), tp("2025-01-02", -75)];
+    expect(computeTopUpHint(timeline, 0)).toEqual({
+      amountNeeded: 75,
+      neededBy: "2025-01-02",
+    });
+  });
+});
 
 function evt(date: string, amount: Money) {
   return { date, effectiveAmount: amount };

@@ -8,14 +8,38 @@ beforeEach(() => {
 });
 
 describe("App shell", () => {
-  it("renders the dashboard by default with projection metrics", () => {
+  it("renders the dashboard by default with the safe-to-spend hero", () => {
     render(<App />);
-    expect(screen.getByText("Projection Metrics")).toBeInTheDocument();
+    expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+    expect(screen.getByText("Balance today")).toBeInTheDocument();
     expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
     // Default rules produce upcoming events.
     expect(screen.getAllByText(/Paycheck|Rent/).length).toBeGreaterThan(0);
     // Each event row shows its running balance on the second line.
     expect(screen.getAllByText(/^Balance \$/).length).toBeGreaterThan(0);
+  });
+
+  it("shows a top-up hint when the projection dips below the safety floor", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    // Default starting balance is 0 and there are outflow rules, so with a
+    // positive floor the balance breaches it and a top-up is suggested.
+    fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
+      target: { value: "1000" },
+    });
+    fireEvent.click(screen.getByText("Dashboard"));
+    expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
+    expect(screen.getByText(/to stay above your floor/)).toBeInTheDocument();
+  });
+
+  it("hides the top-up hint when the balance stays above the floor", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    fireEvent.change(screen.getByRole("textbox", { name: /Starting Balance/i }), {
+      target: { value: "1000000" },
+    });
+    fireEvent.click(screen.getByText("Dashboard"));
+    expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
   });
 
   it("switches between tabs", () => {
@@ -27,7 +51,7 @@ describe("App shell", () => {
     expect(screen.getByText(/Original loan terms/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Dashboard"));
-    expect(screen.getByText("Projection Metrics")).toBeInTheDocument();
+    expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
   });
 
   it("edits settings and persists them to localStorage", () => {

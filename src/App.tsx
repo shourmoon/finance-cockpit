@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
-import { computeSafeToSpendFromEvents } from "./domain/safeToSpendEngine";
+import { computeSafeToSpendFromEvents, computeTopUpHint } from "./domain/safeToSpendEngine";
 import type {
   AdhocTransaction,
   AppState,
@@ -66,6 +66,11 @@ export default function App() {
         events
       ),
     [state.account.startingBalance, state.settings.minSafeBalance, events]
+  );
+
+  const topUp = useMemo(
+    () => computeTopUpHint(timeline, state.settings.minSafeBalance ?? 0),
+    [timeline, state.settings.minSafeBalance]
   );
 
   const runningBalanceByDate = useMemo(() => {
@@ -388,58 +393,88 @@ export default function App() {
       {activeTab === "dashboard" && (
         <>
           <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Projection Metrics</h3>
-
-            <div style={styles.metric}>
-              Balance Today:
-              <b> {formatMoney(state.account.startingBalance)}</b>
-            </div>
-
-            <div style={styles.metric}>
-              Minimum Balance:
-              <b> {formatMoney(metrics.minBalance)}</b>
-            </div>
-
-            <div style={styles.metric}>
-              Minimum Balance Date:
-              <b> {metrics.minBalanceDate ? formatDate(metrics.minBalanceDate) : "—"}</b>
-            </div>
-
-            <div style={styles.metric}>
-              Projected Minimum Balance:
-              <b> {formatMoney(safe.projectedMinBalance)}</b>
-            </div>
-
-            <div style={styles.metric}>
-              Safe to Spend (based on projection):
-              <b> {formatMoney(safe.safeToSpendToday)}</b>
+            {/* Hero: the number the user opens the app for. */}
+            <div style={styles.heroLabel}>Safe to Spend today</div>
+            <div style={{ ...styles.heroValue, color: statusColor(metrics.status) }}>
+              {formatMoney(safe.safeToSpendToday)}
             </div>
             <div style={styles.impactRow}>
               <span
                 style={{
                   ...styles.impactBadge,
-                  ...(safe.safeToSpendToday > 0
+                  ...(metrics.status === "ok"
                     ? styles.impactPositive
-                    : safe.safeToSpendToday === 0
+                    : metrics.status === "warning"
                     ? styles.impactNeutral
                     : styles.impactNegative),
                 }}
               >
-                {safe.safeToSpendToday > 0
+                {metrics.status === "ok"
                   ? "You have room to spend"
-                  : safe.safeToSpendToday === 0
+                  : metrics.status === "warning"
                   ? "Right at your safety floor"
                   : "Below safety floor"}
               </span>
               <span>
-                Min balance over horizon stays at {formatMoney(metrics.minBalance)} on{' '}
+                Min balance over horizon is {formatMoney(metrics.minBalance)} on{" "}
                 {metrics.minBalanceDate ? formatDate(metrics.minBalanceDate) : "—"}
               </span>
             </div>
 
-            <div style={styles.metric}>
-              First Negative Date:
-              <b> {metrics.firstNegativeDate ? formatDate(metrics.firstNegativeDate) : "None"}</b>
+            {/* Top-up hint: for topping this account up from savings. */}
+            {topUp && (
+              <div style={styles.topUpRow}>
+                <span style={styles.topUpAmount}>
+                  Top up {formatMoney(topUp.amountNeeded)}
+                </span>
+                <span style={styles.topUpBy}>
+                  by {formatDate(topUp.neededBy)} to stay above your floor
+                </span>
+              </div>
+            )}
+
+            <div style={styles.metricGrid}>
+              <div style={styles.metricCell}>
+                <span style={styles.metricKey}>Balance today</span>
+                <span style={styles.metricVal}>
+                  {formatMoney(state.account.startingBalance)}
+                </span>
+              </div>
+              <div style={styles.metricCell}>
+                <span style={styles.metricKey}>Minimum balance</span>
+                <span
+                  style={{
+                    ...styles.metricVal,
+                    color:
+                      metrics.minBalance < 0
+                        ? "#f97373"
+                        : metrics.minBalance < state.settings.minSafeBalance
+                        ? "#fbbf24"
+                        : "#e4e4e7",
+                  }}
+                >
+                  {formatMoney(metrics.minBalance)}
+                </span>
+              </div>
+              <div style={styles.metricCell}>
+                <span style={styles.metricKey}>Min balance date</span>
+                <span style={styles.metricVal}>
+                  {metrics.minBalanceDate ? formatDate(metrics.minBalanceDate) : "—"}
+                </span>
+              </div>
+              <div style={styles.metricCell}>
+                <span style={styles.metricKey}>First negative date</span>
+                <span
+                  style={{
+                    ...styles.metricVal,
+                    color: metrics.firstNegativeDate ? "#f97373" : "#e4e4e7",
+                  }}
+                >
+                  {metrics.firstNegativeDate
+                    ? formatDate(metrics.firstNegativeDate)
+                    : "None"}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -450,42 +485,46 @@ export default function App() {
                 No upcoming events in this horizon.
               </div>
             ) : (
-              /* Two-line rows instead of a fixed-column table so the list
-                 fits any screen width — on phones the old 90/110/120px
-                 columns overflowed the card and forced zooming. */
-              events.map((e) => {
-                const runningBalance = runningBalanceByDate.get(e.date);
-                return (
-                  <div
-                    key={e.id}
-                    style={styles.eventRow}
-                    onClick={() => setSelectedEvent(e)}
-                  >
-                    <div style={styles.eventTopRow}>
-                      <span style={styles.eventName}>
-                        {e.ruleName}
-                        {e.isOverridden && " *"}
-                      </span>
-                      <span
-                        style={{
-                          ...styles.eventAmount,
-                          color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
-                        }}
-                      >
-                        {formatMoney(e.effectiveAmount)}
-                      </span>
+              <>
+                <div style={styles.eventsHint}>Tap a row to override its amount</div>
+                {/* Two-line rows instead of a fixed-column table so the list
+                    fits any screen width — on phones the old 90/110/120px
+                    columns overflowed the card and forced zooming. */}
+                {events.map((e) => {
+                  const runningBalance = runningBalanceByDate.get(e.date);
+                  return (
+                    <div
+                      key={e.id}
+                      style={styles.eventRow}
+                      onClick={() => setSelectedEvent(e)}
+                    >
+                      <div style={styles.eventTopRow}>
+                        <span style={styles.eventName}>
+                          {e.ruleName}
+                          {e.isOverridden && " *"}
+                        </span>
+                        <span
+                          style={{
+                            ...styles.eventAmount,
+                            color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
+                          }}
+                        >
+                          {formatMoney(e.effectiveAmount)}
+                        </span>
+                        <span style={styles.eventChevron}>›</span>
+                      </div>
+                      <div style={styles.eventBottomRow}>
+                        <span>{formatDate(e.date)}</span>
+                        <span style={styles.eventBalance}>
+                          {runningBalance !== undefined
+                            ? `Balance ${formatMoney(runningBalance)}`
+                            : "—"}
+                        </span>
+                      </div>
                     </div>
-                    <div style={styles.eventBottomRow}>
-                      <span>{formatDate(e.date)}</span>
-                      <span style={styles.eventBalance}>
-                        {runningBalance !== undefined
-                          ? `Balance ${formatMoney(runningBalance)}`
-                          : "—"}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </>
             )}
           </div>
         </>
@@ -545,6 +584,10 @@ function formatMoney(amount: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function statusColor(status: "ok" | "warning" | "alert"): string {
+  return status === "ok" ? "#4ade80" : status === "warning" ? "#fbbf24" : "#f97373";
 }
 
 const styles: Record<string, any> = {
@@ -761,5 +804,68 @@ const styles: Record<string, any> = {
   },
   eventBalance: {
     whiteSpace: "nowrap",
+  },
+  eventChevron: {
+    flex: "0 0 auto",
+    color: "#52525b",
+    fontSize: 18,
+    lineHeight: 1,
+  },
+  eventsHint: {
+    fontSize: 11,
+    color: "#6b7280",
+    marginBottom: 10,
+  },
+  heroLabel: {
+    fontSize: 13,
+    color: "#a1a1aa",
+    marginBottom: 2,
+  },
+  heroValue: {
+    fontSize: 34,
+    fontWeight: 700,
+    lineHeight: 1.1,
+    marginBottom: 8,
+  },
+  topUpRow: {
+    marginTop: 12,
+    padding: "8px 12px",
+    borderRadius: 8,
+    background: "rgba(251, 191, 36, 0.1)",
+    border: "1px solid rgba(251, 191, 36, 0.35)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+  topUpAmount: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: "#fbbf24",
+  },
+  topUpBy: {
+    fontSize: 12,
+    color: "#d4d4d8",
+  },
+  metricGrid: {
+    marginTop: 14,
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  },
+  metricCell: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+  metricKey: {
+    fontSize: 11,
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  metricVal: {
+    fontSize: 15,
+    fontWeight: 600,
+    color: "#e4e4e7",
   },
 };
