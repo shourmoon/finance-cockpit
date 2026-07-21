@@ -37,3 +37,26 @@ export function formatDate(isoDate: string | undefined | null): string {
   const shortYear = year.slice(2);
   return `${parseInt(day, 10)} ${monthName} '${shortYear}`;
 }
+
+/**
+ * Month-and-year label for grouping, like "Aug '25". Returns the input
+ * unchanged if it is not a parseable YYYY-MM-DD string.
+ *
+ * @param isoDate An ISO date string (YYYY-MM-DD) or undefined.
+ */
+export function monthYearLabel(isoDate: string | undefined | null): string {
+  if (!isoDate) return "";
+  const [year, month] = isoDate.split("-");
+  if (!year || !month) return isoDate;
+  const monthNames = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  const monthName = monthNames[parseInt(month, 10) - 1] ?? month;
+  return `${monthName} '${year.slice(2)}`;
+}
+
+/** The "YYYY-MM" key used to detect month boundaries in a sorted list. */
+export function monthKey(isoDate: string): string {
+  return isoDate.slice(0, 7);
+}

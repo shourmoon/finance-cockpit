@@ -204,6 +204,51 @@ describe("App shell", () => {
     expect(raw.adhocTransactions[0].date).toBe("2026-08-01");
   });
 
+  it("groups events under month separators", () => {
+    render(<App />);
+    // Default horizon is 90 days, so events span multiple months.
+    const labels = screen.getAllByText(/^[A-Z][a-z]{2} '\d{2}$/);
+    expect(labels.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("collapses long event lists behind a show-all button", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    // A long horizon produces well over 25 events.
+    fireEvent.click(screen.getByText("180d"));
+    fireEvent.click(screen.getByText("Dashboard"));
+
+    const showAll = screen.getByText(/Show all \d+ events/);
+    expect(showAll).toBeInTheDocument();
+    fireEvent.click(showAll);
+    expect(screen.queryByText(/Show all \d+ events/)).not.toBeInTheDocument();
+  });
+
+  it("quick-adds a one-time transaction from the dashboard", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("+ One-time"));
+    fireEvent.change(screen.getByLabelText("Transaction name"), {
+      target: { value: "Brakes" },
+    });
+    fireEvent.change(screen.getByLabelText("Transaction amount"), {
+      target: { value: "-400" },
+    });
+    fireEvent.click(screen.getByText("Add"));
+
+    expect(screen.getByText("Brakes")).toBeInTheDocument();
+    const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+    expect(raw.adhocTransactions).toHaveLength(1);
+    expect(raw.adhocTransactions[0]).toMatchObject({ name: "Brakes", amount: -400 });
+  });
+
+  it("sets the horizon from a preset chip", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    fireEvent.click(screen.getByText("60d"));
+    const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+    expect(raw.settings.horizonDays).toBe(60);
+  });
+
   it("restores persisted state on reload", () => {
     const { unmount } = render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));

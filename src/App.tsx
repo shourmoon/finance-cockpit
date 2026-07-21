@@ -19,8 +19,9 @@ import BalanceChart from "./components/BalanceChart";
 import SyncSection from "./components/SyncSection";
 // Import a common date formatter to ensure all dates in the UI follow the
 // same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
-import { formatDate } from "./utils/dates";
+import { formatDate, monthYearLabel, monthKey } from "./utils/dates";
 import { DateInputWithDisplay as SharedDateInput, NumberInput } from "./components/shared";
+import QuickAddTransactionModal from "./components/QuickAddTransactionModal";
 
 // Shared date input bound to this screen's input styling.
 function DateInputWithDisplay({
@@ -53,6 +54,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "config" | "mortgage"
   >("dashboard");
+
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [showAllEvents, setShowAllEvents] = useState(false);
+
+  const EVENTS_PREVIEW_COUNT = 25;
 
   const { metrics, events, timeline } = useMemo(
     () => runCashflowProjection(state),
@@ -236,7 +242,13 @@ export default function App() {
               />
             </label>
 
-            <label style={styles.label}>
+            <label
+              style={{
+                ...styles.label,
+                flexDirection: "column",
+                alignItems: "flex-start",
+              }}
+            >
               Horizon (days):
               <input
                 type="number"
@@ -244,6 +256,22 @@ export default function App() {
                 onChange={(e) => updateHorizonDays(Number(e.target.value))}
                 style={styles.input}
               />
+              <div style={styles.presetRow}>
+                {[30, 60, 90, 180].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => updateHorizonDays(days)}
+                    style={
+                      state.settings.horizonDays === days
+                        ? styles.presetChipActive
+                        : styles.presetChip
+                    }
+                  >
+                    {days}d
+                  </button>
+                ))}
+              </div>
             </label>
 
             <label style={styles.label}>
@@ -497,7 +525,15 @@ export default function App() {
           )}
 
           <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Upcoming Events</h3>
+            <div style={styles.cardHeaderRow}>
+              <h3 style={styles.cardTitle}>Upcoming Events</h3>
+              <button
+                style={styles.addButton}
+                onClick={() => setQuickAddOpen(true)}
+              >
+                + One-time
+              </button>
+            </div>
             {events.length === 0 ? (
               <div style={{ fontSize: 13, color: "#9ca3af" }}>
                 No upcoming events in this horizon.
@@ -507,46 +543,84 @@ export default function App() {
                 <div style={styles.eventsHint}>Tap a row to override its amount</div>
                 {/* Two-line rows instead of a fixed-column table so the list
                     fits any screen width — on phones the old 90/110/120px
-                    columns overflowed the card and forced zooming. */}
-                {events.map((e) => {
+                    columns overflowed the card and forced zooming. Month
+                    separators break the list up; only the first
+                    EVENTS_PREVIEW_COUNT show until "Show all" is tapped. */}
+                {(showAllEvents
+                  ? events
+                  : events.slice(0, EVENTS_PREVIEW_COUNT)
+                ).map((e, i, shown) => {
                   const runningBalance = runningBalanceByDate.get(e.date);
+                  const newMonth =
+                    i === 0 || monthKey(e.date) !== monthKey(shown[i - 1].date);
                   return (
-                    <div
-                      key={e.id}
-                      style={styles.eventRow}
-                      onClick={() => setSelectedEvent(e)}
-                    >
-                      <div style={styles.eventTopRow}>
-                        <span style={styles.eventName}>
-                          {e.ruleName}
-                          {e.isOverridden && " *"}
-                        </span>
-                        <span
-                          style={{
-                            ...styles.eventAmount,
-                            color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
-                          }}
-                        >
-                          {formatMoney(e.effectiveAmount)}
-                        </span>
-                        <span style={styles.eventChevron}>›</span>
-                      </div>
-                      <div style={styles.eventBottomRow}>
-                        <span>{formatDate(e.date)}</span>
-                        <span style={styles.eventBalance}>
-                          {runningBalance !== undefined
-                            ? `Balance ${formatMoney(runningBalance)}`
-                            : "—"}
-                        </span>
+                    <div key={e.id}>
+                      {newMonth && (
+                        <div style={styles.monthSeparator}>
+                          {monthYearLabel(e.date)}
+                        </div>
+                      )}
+                      <div
+                        style={styles.eventRow}
+                        onClick={() => setSelectedEvent(e)}
+                      >
+                        <div style={styles.eventTopRow}>
+                          <span style={styles.eventName}>
+                            {e.ruleName}
+                            {e.isOverridden && " *"}
+                          </span>
+                          <span
+                            style={{
+                              ...styles.eventAmount,
+                              color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
+                            }}
+                          >
+                            {formatMoney(e.effectiveAmount)}
+                          </span>
+                          <span style={styles.eventChevron}>›</span>
+                        </div>
+                        <div style={styles.eventBottomRow}>
+                          <span>{formatDate(e.date)}</span>
+                          <span style={styles.eventBalance}>
+                            {runningBalance !== undefined
+                              ? `Balance ${formatMoney(runningBalance)}`
+                              : "—"}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   );
                 })}
+                {!showAllEvents && events.length > EVENTS_PREVIEW_COUNT && (
+                  <button
+                    style={styles.showMoreButton}
+                    onClick={() => setShowAllEvents(true)}
+                  >
+                    Show all {events.length} events
+                  </button>
+                )}
               </>
             )}
           </div>
         </>
       )}
+
+      {/* QUICK-ADD ONE-TIME TRANSACTION (from Dashboard) */}
+      <QuickAddTransactionModal
+        open={quickAddOpen}
+        defaultDate={state.settings.startDate}
+        onAdd={(values) => {
+          setState((s) => ({
+            ...s,
+            adhocTransactions: [
+              ...s.adhocTransactions,
+              { id: makeId("txn"), ...values },
+            ],
+          }));
+          setQuickAddOpen(false);
+        }}
+        onClose={() => setQuickAddOpen(false)}
+      />
 
       {/* MORTGAGE TAB */}
       {activeTab === "mortgage" && <MortgageTab />}
@@ -838,6 +912,50 @@ const styles: Record<string, any> = {
     marginTop: 8,
     fontSize: 11,
     color: "#9ca3af",
+  },
+  monthSeparator: {
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    color: "#71717a",
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  showMoreButton: {
+    width: "100%",
+    marginTop: 8,
+    padding: "8px 12px",
+    fontSize: 13,
+    borderRadius: 8,
+    border: "1px solid #27272a",
+    background: "#18181b",
+    color: "#93c5fd",
+    cursor: "pointer",
+  },
+  presetRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  presetChip: {
+    padding: "4px 10px",
+    fontSize: 12,
+    borderRadius: 999,
+    border: "1px solid #3f3f46",
+    background: "transparent",
+    color: "#a1a1aa",
+    cursor: "pointer",
+  },
+  presetChipActive: {
+    padding: "4px 10px",
+    fontSize: 12,
+    borderRadius: 999,
+    border: "1px solid #3b82f6",
+    background: "#3b82f6",
+    color: "#f9fafb",
+    cursor: "pointer",
   },
   heroLabel: {
     fontSize: 13,
