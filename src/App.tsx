@@ -22,6 +22,7 @@ import SyncSection from "./components/SyncSection";
 import { formatDate, monthYearLabel, monthKey } from "./utils/dates";
 import { DateInputWithDisplay as SharedDateInput, NumberInput } from "./components/shared";
 import QuickAddTransactionModal from "./components/QuickAddTransactionModal";
+import { ui } from "./components/ui";
 
 // Shared date input bound to this screen's input styling.
 function DateInputWithDisplay({
@@ -742,24 +743,8 @@ const styles: Record<string, any> = {
     color: "#f9fafb",
     fontSize: 14,
   },
-  card: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    // Match the mortgage tab cards with a subtle gradient and border.  The
-    // gradient adds depth while staying within the dark palette.
-    background:
-      "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
-    border: "1px solid #27272a",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
-  },
-  cardTitle: {
-    marginTop: 0,
-    marginBottom: 12,
-    fontSize: 16,
-    fontWeight: 600,
-    color: "#f4f4f5",
-  },
+  card: ui.card,
+  cardTitle: ui.cardTitle,
   label: {
     display: "flex",
     flexDirection: "row",
@@ -794,15 +779,7 @@ const styles: Record<string, any> = {
     alignItems: "center",
     marginBottom: 8,
   },
-  addButton: {
-    padding: "4px 10px",
-    fontSize: 14,
-    borderRadius: 999,
-    border: "none",
-    background: "#22c55e",
-    color: "#022c22",
-    fontWeight: 600,
-  },
+  addButton: ui.addButton,
   ruleRow: {
     display: "flex",
     justifyContent: "space-between",
@@ -830,14 +807,7 @@ const styles: Record<string, any> = {
     alignItems: "center",
     gap: 8,
   },
-  editButton: {
-    padding: "4px 8px",
-    fontSize: 13,
-    borderRadius: 999,
-    border: "none",
-    background: "#3b82f6",
-    color: "#f9fafb",
-  },
+  editButton: ui.primaryButton,
   metric: {
     marginBottom: 8,
     fontSize: 13,
@@ -957,24 +927,8 @@ const styles: Record<string, any> = {
     gap: 6,
     marginTop: 6,
   },
-  presetChip: {
-    padding: "4px 10px",
-    fontSize: 12,
-    borderRadius: 999,
-    border: "1px solid #3f3f46",
-    background: "transparent",
-    color: "#a1a1aa",
-    cursor: "pointer",
-  },
-  presetChipActive: {
-    padding: "4px 10px",
-    fontSize: 12,
-    borderRadius: 999,
-    border: "1px solid #3b82f6",
-    background: "#3b82f6",
-    color: "#f9fafb",
-    cursor: "pointer",
-  },
+  presetChip: ui.chip,
+  presetChipActive: ui.chipActive,
   heroLabel: {
     fontSize: 13,
     color: "#a1a1aa",

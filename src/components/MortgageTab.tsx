@@ -45,6 +45,7 @@ import {
 // specification, e.g. "2025-01-26" → "26 Jan '25".
 import { formatDate } from "../utils/dates";
 import { DateInputWithDisplay } from "./shared";
+import { ui } from "./ui";
 
 // Format a currency value (number) into a US dollar string with no
 // fractional digits.  If the input is null or NaN the em dash is
@@ -127,20 +128,13 @@ function LabeledDateInput({
   onChange: (val: string) => void;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-      <span style={{ fontSize: 11, color: "#a1a1aa", marginBottom: 2 }}>{label}</span>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 130 }}>
+      <span style={ui.fieldLabel}>{label}</span>
       <DateInputWithDisplay
         value={value}
         onChange={onChange}
         captionStyle={{ fontSize: 10, marginTop: 2 }}
-        inputStyle={{
-          borderRadius: 6,
-          border: "1px solid #27272a",
-          padding: "4px 6px",
-          backgroundColor: "#020617",
-          color: "#e4e4e7",
-          fontSize: 11,
-        }}
+        inputStyle={ui.input}
       />
     </div>
   );
@@ -167,8 +161,8 @@ function LabeledNumberInput({
   step?: number;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-      <span style={{ fontSize: 11, color: "#a1a1aa", marginBottom: 2 }}>{label}</span>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 130 }}>
+      <span style={ui.fieldLabel}>{label}</span>
       <input
         type="number"
         value={value}
@@ -176,14 +170,7 @@ function LabeledNumberInput({
         placeholder={placeholder}
         min={min}
         step={step}
-        style={{
-          borderRadius: 6,
-          border: "1px solid #27272a",
-          padding: "4px 6px",
-          backgroundColor: "#020617",
-          color: "#e4e4e7",
-          fontSize: 11,
-        }}
+        style={ui.input}
       />
     </div>
   );
@@ -205,31 +192,9 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div
-      style={{
-        borderRadius: 12,
-        padding: 16,
-        background: "linear-gradient(145deg, rgba(24, 24, 27, 0.98), rgba(9, 9, 11, 0.98))",
-        border: "1px solid #27272a",
-        boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)",
-        marginBottom: 24,
-        width: "100%",
-      }}
-    >
-      <h3
-        style={{
-          margin: 0,
-          marginBottom: subtitle ? 4 : 12,
-          fontSize: 16,
-          fontWeight: 600,
-          color: "#f4f4f5",
-        }}
-      >
-        {title}
-      </h3>
-      {subtitle && (
-        <div style={{ fontSize: 12, color: "#a1a1aa", marginBottom: 12 }}>{subtitle}</div>
-      )}
+    <div style={ui.card}>
+      <h3 style={{ ...ui.cardTitle, marginBottom: subtitle ? 4 : 12 }}>{title}</h3>
+      {subtitle && <div style={ui.subtitle}>{subtitle}</div>}
       <div>{children}</div>
     </div>
   );
@@ -1143,48 +1108,42 @@ export default function MortgageTab() {
             {prepayments.map((row) => (
               <div key={row.id} style={styles.prepayCard}>
                 <div style={styles.prepayTopRow}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={styles.prepayFieldLabel}>Date</span>
+                  <div style={{ flex: 1.1, minWidth: 0 }}>
                     <DateInputWithDisplay
                       value={row.date}
                       onChange={(val) => updatePrepaymentRow(row.id, { date: val })}
                       captionStyle={{ fontSize: 10, marginTop: 2 }}
-                      inputStyle={{ ...styles.input, width: "100%" }}
+                      inputStyle={ui.input}
                     />
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={styles.prepayFieldLabel}>Amount</span>
-                    <input
-                      style={{ ...styles.input, width: "100%" }}
-                      type="text"
-                      inputMode="decimal"
-                      aria-label="Prepayment amount"
-                      value={row.amount.toString()}
-                      onChange={(e) => {
-                        const n = parseNumber(e.target.value) ?? 0;
-                        updatePrepaymentRow(row.id, { amount: n });
-                      }}
-                    />
-                  </div>
+                  <input
+                    style={{ ...ui.input, flex: 1, minWidth: 0 }}
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Prepayment amount"
+                    placeholder="Amount"
+                    value={row.amount.toString()}
+                    onChange={(e) => {
+                      const n = parseNumber(e.target.value) ?? 0;
+                      updatePrepaymentRow(row.id, { amount: n });
+                    }}
+                  />
                   <button
-                    style={styles.prepayDeleteButton}
+                    style={ui.deleteButton}
                     aria-label="Delete prepayment"
                     onClick={() => deletePrepaymentRow(row.id)}
                   >
                     ✕
                   </button>
                 </div>
-                <div>
-                  <span style={styles.prepayFieldLabel}>Note</span>
-                  <input
-                    style={{ ...styles.input, width: "100%" }}
-                    type="text"
-                    aria-label="Prepayment note"
-                    value={row.note ?? ""}
-                    placeholder="Optional"
-                    onChange={(e) => updatePrepaymentRow(row.id, { note: e.target.value })}
-                  />
-                </div>
+                <input
+                  style={{ ...ui.input, fontSize: 13, padding: 6 }}
+                  type="text"
+                  aria-label="Prepayment note"
+                  value={row.note ?? ""}
+                  placeholder="Note (optional)"
+                  onChange={(e) => updatePrepaymentRow(row.id, { note: e.target.value })}
+                />
               </div>
             ))}
           </div>
@@ -1498,14 +1457,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: "#a1a1aa",
   },
-  input: {
-    borderRadius: 8,
-    border: "1px solid #3f3f46",
-    padding: "6px 8px",
-    backgroundColor: "#18181b",
-    color: "#e4e4e7",
-    fontSize: 13,
-  },
+  input: ui.input,
   summaryRow: {
     display: "flex",
     justifyContent: "space-between",
@@ -1514,16 +1466,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#d4d4d8",
     gap: 12,
   },
-  addButton: {
-    fontSize: 12,
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid #4ade80",
-    background:
-      "radial-gradient(circle at top left, #22c55e 0, #16a34a 45%, #15803d 100%)",
-    color: "#ecfdf5",
-    cursor: "pointer",
-  },
+  addButton: ui.addButton,
   emptyState: {
     fontSize: 13,
     color: "#a1a1aa",
@@ -1532,52 +1475,25 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px dashed #27272a",
     backgroundColor: "#09090b",
   },
-  deleteButton: {
-    fontSize: 12,
-    padding: "2px 6px",
-    borderRadius: 999,
-    border: "1px solid #52525b",
-    backgroundColor: "#18181b",
-    color: "#fda4af",
-    cursor: "pointer",
-  },
+  deleteButton: ui.deleteButton,
   prepayList: {
     display: "flex",
     flexDirection: "column",
-    gap: 10,
+    gap: 8,
   },
   prepayCard: {
     borderRadius: 10,
     border: "1px solid #27272a",
     backgroundColor: "#09090b",
-    padding: 10,
+    padding: 8,
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 6,
   },
   prepayTopRow: {
     display: "flex",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 8,
-  },
-  prepayFieldLabel: {
-    display: "block",
-    fontSize: 10,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-    color: "#a1a1aa",
-    marginBottom: 2,
-  },
-  prepayDeleteButton: {
-    flex: "0 0 auto",
-    fontSize: 14,
-    padding: "6px 10px",
-    borderRadius: 8,
-    border: "1px solid #52525b",
-    backgroundColor: "#18181b",
-    color: "#fda4af",
-    cursor: "pointer",
-    alignSelf: "stretch",
   },
   scenarioCard: {
     borderRadius: 10,
