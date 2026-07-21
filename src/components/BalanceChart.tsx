@@ -34,7 +34,7 @@ export default function BalanceChart({
   const geo = buildBalanceChartGeometry(timeline, minSafeBalance, W, H);
   if (!geo) return null;
 
-  const { points, linePath, floorY, zeroY, padding } = geo;
+  const { points, linePath, trendPath, floorY, zeroY, padding } = geo;
   const bottom = H - padding;
   const first = points[0];
   const last = points[points.length - 1];
@@ -104,13 +104,25 @@ export default function BalanceChart({
           opacity="0.8"
         />
 
-        {/* Balance line (thin, calm) */}
+        {/* Smoothed trend overlay (soft, behind the true line) */}
+        <path
+          d={trendPath}
+          fill="none"
+          stroke="#818cf8"
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity="0.55"
+        />
+
+        {/* Balance line — true daily values, thin and crisp on top */}
         <path
           d={linePath}
           fill="none"
           stroke="#60a5fa"
-          strokeWidth="1.5"
+          strokeWidth="1.25"
           strokeLinejoin="round"
+          opacity="0.85"
         />
 
         {/* Deepest point (hidden while actively scrubbing to reduce clutter) */}

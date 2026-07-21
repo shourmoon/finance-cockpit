@@ -17,6 +17,8 @@ export interface BalanceChartGeometry {
   points: ChartPoint[];
   /** SVG path string for the balance line ("M x y L x y …"). */
   linePath: string;
+  /** SVG path for the smoothed (moving-average) trend overlay. */
+  trendPath: string;
   /** y-coordinate of the safety-floor line. */
   floorY: number;
   /** y-coordinate of the zero line (always within the plot area). */
@@ -30,6 +32,34 @@ export interface BalanceChartGeometry {
 
 function round(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+/**
+ * Centered moving average of a numeric series. Each output value is the
+ * mean of up to `window` neighbours centered on that index (clamped at
+ * the ends), so the result has the same length as the input and smooths
+ * the daily paycheck/payment spikes into a trend. `window` is coerced to
+ * an odd number >= 1.
+ */
+export function movingAverage(
+  values: readonly number[],
+  window: number
+): number[] {
+  const w = Math.max(1, Math.floor(window));
+  const half = Math.floor(w / 2);
+  const out: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let j = i - half; j <= i + half; j++) {
+      if (j >= 0 && j < values.length) {
+        sum += values[j];
+        count++;
+      }
+    }
+    out.push(sum / count);
+  }
+  return out;
 }
 
 /**
@@ -103,9 +133,21 @@ export function buildBalanceChartGeometry(
     .map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`)
     .join(" ");
 
+  // Smoothed trend overlay: window scales with the horizon so daily and
+  // biweekly-payday spikes flatten into a trajectory (clamped 5–31).
+  const trendWindow = Math.min(31, Math.max(5, Math.round(n / 12)));
+  const smoothed = movingAverage(
+    timeline.map((p) => p.balance),
+    trendWindow
+  );
+  const trendPath = smoothed
+    .map((v, i) => `${i === 0 ? "M" : "L"} ${round(xOf(i))} ${round(yOf(v))}`)
+    .join(" ");
+
   return {
     points,
     linePath,
+    trendPath,
     floorY: round(yOf(minSafeBalance)),
     zeroY: round(yOf(0)),
     minIndex,

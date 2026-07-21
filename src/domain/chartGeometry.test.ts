@@ -1,6 +1,6 @@
 // src/domain/chartGeometry.test.ts
 import { describe, it, expect } from "vitest";
-import { buildBalanceChartGeometry, nearestPointIndex } from "./chartGeometry";
+import { buildBalanceChartGeometry, nearestPointIndex, movingAverage } from "./chartGeometry";
 import type { TimelinePoint } from "./types";
 
 function tp(date: string, balance: number): TimelinePoint {
@@ -107,5 +107,51 @@ describe("nearestPointIndex", () => {
 
   it("returns 0 for an empty point list", () => {
     expect(nearestPointIndex([], 100)).toBe(0);
+  });
+});
+
+describe("movingAverage", () => {
+  it("returns a same-length smoothed series", () => {
+    const out = movingAverage([0, 10, 0, 10, 0], 3);
+    expect(out).toHaveLength(5);
+    // Interior points average their 3-neighbourhood.
+    expect(out[1]).toBeCloseTo((0 + 10 + 0) / 3, 6);
+    expect(out[2]).toBeCloseTo((10 + 0 + 10) / 3, 6);
+  });
+
+  it("clamps the window at the ends (partial neighbourhoods)", () => {
+    const out = movingAverage([2, 4, 6], 3);
+    expect(out[0]).toBeCloseTo((2 + 4) / 2, 6); // no left neighbour
+    expect(out[2]).toBeCloseTo((4 + 6) / 2, 6); // no right neighbour
+  });
+
+  it("leaves a series unchanged with window 1", () => {
+    expect(movingAverage([1, 2, 3], 1)).toEqual([1, 2, 3]);
+  });
+
+  it("smooths a spiky series toward its mean", () => {
+    const spiky = [0, 100, 0, 100, 0, 100, 0];
+    const smoothed = movingAverage(spiky, 5);
+    // Interior smoothed values sit well inside the 0..100 range.
+    for (let i = 2; i < smoothed.length - 2; i++) {
+      expect(smoothed[i]).toBeGreaterThan(20);
+      expect(smoothed[i]).toBeLessThan(80);
+    }
+  });
+
+  it("handles an empty series", () => {
+    expect(movingAverage([], 5)).toEqual([]);
+  });
+});
+
+describe("buildBalanceChartGeometry trend path", () => {
+  it("produces a trend path spanning the same points", () => {
+    const geo = buildBalanceChartGeometry(
+      [tp("2025-01-01", 100), tp("2025-01-02", 900), tp("2025-01-03", 100)],
+      0
+    )!;
+    expect(geo.trendPath.startsWith("M ")).toBe(true);
+    // One move + two line segments.
+    expect(geo.trendPath.match(/L /g)).toHaveLength(2);
   });
 });

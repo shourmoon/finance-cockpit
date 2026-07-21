@@ -17,6 +17,20 @@ export default function Root() {
     onOfflineReady() {
       console.log("Finance Cockpit is ready to work offline.");
     },
+    onRegisteredSW(_swUrl, registration) {
+      // A prompt-mode SW only surfaces a new version while the app is
+      // open. Poll hourly (and on tab refocus) so a long-open session
+      // actually catches a deploy and shows the update banner, instead
+      // of only picking it up silently on the next full app restart.
+      if (!registration) return;
+      const check = () => {
+        if (navigator.onLine) registration.update();
+      };
+      setInterval(check, 60 * 60 * 1000);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") check();
+      });
+    },
   });
 
   return (

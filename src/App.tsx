@@ -519,8 +519,8 @@ export default function App() {
                 minSafeBalance={state.settings.minSafeBalance}
               />
               <div style={styles.chartCaption}>
-                Blue line = projected balance · amber dashed = your floor ·
-                red = below $0
+                Soft line = trend · thin line = daily balance · amber dashed =
+                your floor · red = below $0. Drag to inspect any day.
               </div>
             </div>
           )}
