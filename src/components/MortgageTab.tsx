@@ -1136,43 +1136,55 @@ export default function MortgageTab() {
             No prepayments defined yet. Add rows to reflect extra principal payments you've already made in the past.
           </div>
         ) : (
-          <div style={styles.table}>
-            <div style={styles.tableHeaderRow}>
-              <div style={styles.th}>Date</div>
-              <div style={styles.th}>Amount</div>
-              <div style={styles.th}>Note</div>
-              <div />
-            </div>
+          /* Stacked cards rather than a fixed 4-column grid: the note
+             field and delete button used to be clipped off-screen on
+             phones because three inputs could not fit side by side. */
+          <div style={styles.prepayList}>
             {prepayments.map((row) => (
-              <div key={row.id} style={styles.tableRow}>
-                <DateInputWithDisplay
-                  value={row.date}
-                  onChange={(val) => updatePrepaymentRow(row.id, { date: val })}
-                  captionStyle={{ fontSize: 10, marginTop: 2 }}
-                  inputStyle={styles.input}
-                />
-                <input
-                  style={styles.input}
-                  type="text"
-                  value={row.amount.toString()}
-                  onChange={(e) => {
-                    const n = parseNumber(e.target.value) ?? 0;
-                    updatePrepaymentRow(row.id, { amount: n });
-                  }}
-                />
-                <input
-                  style={styles.input}
-                  type="text"
-                  value={row.note ?? ""}
-                  placeholder="Optional"
-                  onChange={(e) => updatePrepaymentRow(row.id, { note: e.target.value })}
-                />
-                <button
-                  style={styles.deleteButton}
-                  onClick={() => deletePrepaymentRow(row.id)}
-                >
-                  ✕
-                </button>
+              <div key={row.id} style={styles.prepayCard}>
+                <div style={styles.prepayTopRow}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={styles.prepayFieldLabel}>Date</span>
+                    <DateInputWithDisplay
+                      value={row.date}
+                      onChange={(val) => updatePrepaymentRow(row.id, { date: val })}
+                      captionStyle={{ fontSize: 10, marginTop: 2 }}
+                      inputStyle={{ ...styles.input, width: "100%" }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={styles.prepayFieldLabel}>Amount</span>
+                    <input
+                      style={{ ...styles.input, width: "100%" }}
+                      type="text"
+                      inputMode="decimal"
+                      aria-label="Prepayment amount"
+                      value={row.amount.toString()}
+                      onChange={(e) => {
+                        const n = parseNumber(e.target.value) ?? 0;
+                        updatePrepaymentRow(row.id, { amount: n });
+                      }}
+                    />
+                  </div>
+                  <button
+                    style={styles.prepayDeleteButton}
+                    aria-label="Delete prepayment"
+                    onClick={() => deletePrepaymentRow(row.id)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div>
+                  <span style={styles.prepayFieldLabel}>Note</span>
+                  <input
+                    style={{ ...styles.input, width: "100%" }}
+                    type="text"
+                    aria-label="Prepayment note"
+                    value={row.note ?? ""}
+                    placeholder="Optional"
+                    onChange={(e) => updatePrepaymentRow(row.id, { note: e.target.value })}
+                  />
+                </div>
               </div>
             ))}
           </div>
@@ -1520,36 +1532,6 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px dashed #27272a",
     backgroundColor: "#09090b",
   },
-  table: {
-    borderRadius: 8,
-    border: "1px solid #27272a",
-    overflow: "hidden",
-  },
-  tableHeaderRow: {
-    display: "grid",
-    gridTemplateColumns: "1.2fr 1.2fr 1.6fr 0.4fr",
-    padding: "6px 8px",
-    gap: 4,
-    background:
-      "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
-    borderBottom: "1px solid #3f3f46",
-    fontSize: 12,
-    color: "#a1a1aa",
-  },
-  tableRow: {
-    display: "grid",
-    gridTemplateColumns: "1.2fr 1.2fr 1.6fr 0.4fr",
-    padding: "6px 8px",
-    gap: 4,
-    backgroundColor: "#09090b",
-    borderTop: "1px solid #18181b",
-  },
-  th: {
-    paddingRight: 4,
-  },
-  thSmall: {
-    textAlign: "right",
-  },
   deleteButton: {
     fontSize: 12,
     padding: "2px 6px",
@@ -1558,6 +1540,44 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#18181b",
     color: "#fda4af",
     cursor: "pointer",
+  },
+  prepayList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  prepayCard: {
+    borderRadius: 10,
+    border: "1px solid #27272a",
+    backgroundColor: "#09090b",
+    padding: 10,
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  prepayTopRow: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  prepayFieldLabel: {
+    display: "block",
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    color: "#a1a1aa",
+    marginBottom: 2,
+  },
+  prepayDeleteButton: {
+    flex: "0 0 auto",
+    fontSize: 14,
+    padding: "6px 10px",
+    borderRadius: 8,
+    border: "1px solid #52525b",
+    backgroundColor: "#18181b",
+    color: "#fda4af",
+    cursor: "pointer",
+    alignSelf: "stretch",
   },
   scenarioCard: {
     borderRadius: 10,

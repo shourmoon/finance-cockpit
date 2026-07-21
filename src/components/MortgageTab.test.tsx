@@ -68,6 +68,28 @@ describe("MortgageTab", () => {
     expect(persisted().prepayments).toHaveLength(0);
   });
 
+  it("exposes the amount, note and delete controls on a prepayment row", () => {
+    // Regression: on phones the note field and delete button used to be
+    // clipped off-screen by the old fixed-column grid. Assert they are all
+    // reachable and functional via their labels.
+    render(<MortgageTab />);
+    fireEvent.click(screen.getByText("+ Add prepayment"));
+
+    fireEvent.change(screen.getByLabelText("Prepayment amount"), {
+      target: { value: "12000" },
+    });
+    fireEvent.change(screen.getByLabelText("Prepayment note"), {
+      target: { value: "Tax refund" },
+    });
+    expect(persisted().prepayments[0]).toMatchObject({
+      amount: 12000,
+      note: "Tax refund",
+    });
+
+    fireEvent.click(screen.getByLabelText("Delete prepayment"));
+    expect(persisted().prepayments).toHaveLength(0);
+  });
+
   it("adds a scenario and shows its results, then deletes it", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add scenario"));
