@@ -1658,15 +1658,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     color: "#a1a1aa",
   },
-  scenarioPatternAddButton: {
-    fontSize: 11,
-    padding: "4px 8px",
-    borderRadius: 999,
-    border: "1px solid #3f3f46",
-    backgroundColor: "#18181b",
-    color: "#e4e4e7",
-    cursor: "pointer",
-  },
+  scenarioPatternAddButton: ui.chip,
   // New styles for the redesigned scenario pattern cards.
   // Each pattern card is its own vertical container with a small
   // header and labelled field rows.  This layout scales nicely on

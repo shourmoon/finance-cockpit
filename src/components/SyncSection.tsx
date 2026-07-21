@@ -12,6 +12,7 @@ import { useMemo, useState } from "react";
 import type { RemoteStateResponse } from "../domain/persistence/remote";
 import { createCloudflareAdapter } from "../domain/persistence/remoteCloudflare";
 import { RemoteSyncError, stubRemoteAdapter } from "../domain/persistence/remote";
+import { ui } from "./ui";
 import {
   applySnapshot,
   backupLocalBeforePull,
@@ -479,21 +480,8 @@ function mapSyncError(e: any): string {
 }
 
 const styles: Record<string, any> = {
-  card: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    background: "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
-    border: "1px solid #27272a",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
-  },
-  cardTitle: {
-    marginTop: 0,
-    marginBottom: 12,
-    fontSize: 16,
-    fontWeight: 600,
-    color: "#f4f4f5",
-  },
+  card: ui.card,
+  cardTitle: ui.cardTitle,
   label: {
     display: "flex",
     gap: 8,
@@ -501,15 +489,7 @@ const styles: Record<string, any> = {
     fontSize: 13,
     color: "#a1a1aa",
   },
-  input: {
-    padding: 8,
-    fontSize: 14,
-    borderRadius: 8,
-    border: "1px solid #3f3f46",
-    background: "#18181b",
-    color: "#e4e4e7",
-    width: "100%",
-  },
+  input: ui.input,
   kvRow: {
     display: "grid",
     gridTemplateColumns: "170px 1fr",
