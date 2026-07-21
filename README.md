@@ -4,10 +4,11 @@ A local-first personal-finance PWA: project your cash balance day by day, see wh
 
 ## Features
 
-- **Cashflow projection** — recurring income/expense rules (monthly, twice-a-month with US-Fed business-day adjustment, or biweekly) plus ad-hoc one-time transactions, expanded over a configurable horizon into a daily balance timeline, with per-occurrence amount overrides.
-- **Safe to spend** — computes how much you can spend today without the projected balance ever dropping below your safety floor.
+- **Cashflow projection** — recurring income/expense rules (monthly, twice-a-month with US-Fed business-day adjustment, or biweekly) plus ad-hoc one-time transactions, expanded over a configurable horizon into a daily balance timeline, with per-occurrence amount overrides. The dashboard shows a balance-over-horizon chart, month-grouped upcoming events, and a one-tap quick-add for one-off transactions.
+- **Safe to spend & top-up hint** — computes how much you can spend today without the projected balance dropping below your safety floor; when it would breach, it tells you the single deposit (amount + date) that keeps the whole horizon above the floor — handy when this account is topped up from savings on demand.
 - **Mortgage optimizer** — amortization with past prepayments, baseline-vs-actual comparison (interest and months saved), what-if scenarios (one-time / monthly / yearly / biweekly extra payments), and effective-APR calculation.
 - **Cross-device sync (optional)** — snapshots pushed/pulled through a Cloudflare Worker + KV, gated by a shared key and PIN, with optimistic concurrency and an in-app conflict resolver. A local backup is saved before any pull overwrites local data.
+- **Installable PWA** — works offline; new versions prompt for a one-tap refresh rather than swapping silently. Phone-first responsive layout.
 
 ## Quick start
 

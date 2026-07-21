@@ -13,7 +13,12 @@ npx vitest run src/domain/cashflowEngine.test.ts   # Run a single test file
 npx vitest run -t "test name"        # Run tests matching a name
 ```
 
-CI (`.github/workflows/ci.yml`) runs `tsc --noEmit` and `npx vitest run` on every push/PR.
+```bash
+npm run lint                         # eslint (flat config in eslint.config.js)
+npx vitest run --coverage            # enforces per-directory coverage thresholds
+```
+
+CI (`.github/workflows/ci.yml`) runs `tsc --noEmit`, `eslint .`, and `npx vitest run --coverage` on every push/PR. Coverage thresholds (in `vitest.config.ts`) require **100%** on `src/domain`, `src/utils`, and `workers`; UI components have pragmatic floors. `main.tsx` and `Root.tsx` (service-worker glue) are excluded from coverage.
 
 Backend worker (optional, for sync):
 
@@ -37,7 +42,8 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
    - `RecurringRule`s (positive amount = inflow, negative = outflow) with three schedule types: `monthly`, `twiceMonth` (optionally adjusted to the previous US Fed business day via `businessDayUS.ts`), and `biweekly` (14-day cadence from an anchor date).
    - `AdhocTransaction`s: first-class one-off inflows/outflows (`{ id, name, amount, date }` on `AppState.adhocTransactions`), expanded by `expandAdhocTransactions()` into at most one event each and merged into the same event stream.
    - `runCashflowProjection(state)` expands rules and ad-hoc transactions into `FutureEvent`s over `[startDate, startDate + horizonDays]`, applies per-event overrides (keyed `${ruleId}__${date}`; ad-hoc events use their transaction id), and walks day-by-day to build a `TimelinePoint[]` and `CashflowMetrics`.
-   - Safe-to-spend logic: spending X today shifts the whole future curve down by X, so `safeToSpendToday = max(0, projectedMinBalance − minSafeBalance)`.
+   - Safe-to-spend logic: spending X today shifts the whole future curve down by X, so `safeToSpendToday = max(0, projectedMinBalance − minSafeBalance)`. `computeTopUpHint()` (same file) returns the single yield-optimal deposit (amount sized to the horizon's lowest point, deadline = first floor breach) that keeps the whole horizon above the floor — for accounts topped up from savings on demand.
+   - Event-id uniqueness is enforced centrally in `buildFutureEvents` (repeats — from a business-day-adjusted payday colliding with the previous month's, or duplicate ad-hoc ids in corrupt data — get an occurrence suffix). The dashboard balance chart is driven by the pure `src/domain/chartGeometry.ts` (`buildBalanceChartGeometry`), rendered by the dependency-free SVG `src/components/BalanceChart.tsx`.
    - **All date math is UTC** (`dateUtils.ts`): construct dates with `Date.UTC(...)` and read with `getUTC*()` to avoid timezone drift. Month days are clamped to end-of-month.
 
 2. **Mortgage module** (`src/domain/mortgage/`):
@@ -57,4 +63,8 @@ Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapsho
 
 ### Date formatting in UI
 
-All user-facing dates go through `formatDate` in `src/utils/dates.ts` (DD MMM 'YY format). Date inputs pair the native `<input type="date">` with the formatted value displayed beneath (`DateInputWithDisplay` in `src/components/shared.tsx`).
+All user-facing dates go through `formatDate` in `src/utils/dates.ts` (DD MMM 'YY format; `monthYearLabel`/`monthKey` there drive the events list's month separators). Date inputs pair the native `<input type="date">` with the formatted value beneath (`DateInputWithDisplay` in `src/components/shared.tsx`); money inputs use `NumberInput` (same file), which keeps raw text locally so an in-progress `-` isn't coerced to 0.
+
+### Service worker / PWA updates
+
+`vite-plugin-pwa` runs in `registerType: "prompt"` mode. `src/Root.tsx` wires `virtual:pwa-register/react`'s `useRegisterSW` to the `UpdateBanner` component so a new version waits for a user tap instead of swapping silently. The pure banner (`src/components/UpdateBanner.tsx`) is unit-tested; `Root.tsx` is the untestable runtime glue.
