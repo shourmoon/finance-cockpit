@@ -12,6 +12,7 @@ import type {
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
 import MortgageTab from "./components/MortgageTab";
+import BalanceChart from "./components/BalanceChart";
 // Import the SyncSection UI for cross-device synchronisation. This
 // component exposes a form to enter a sync key and trigger sync
 // operations. See src/components/SyncSection.tsx for details.
@@ -425,10 +426,13 @@ export default function App() {
             {topUp && (
               <div style={styles.topUpRow}>
                 <span style={styles.topUpAmount}>
-                  Top up {formatMoney(topUp.amountNeeded)}
+                  Top up {formatMoney(topUp.amountNeeded)} by{" "}
+                  {formatDate(topUp.neededBy)}
                 </span>
                 <span style={styles.topUpBy}>
-                  by {formatDate(topUp.neededBy)} to stay above your floor
+                  {topUp.lowestDate === topUp.neededBy
+                    ? "keeps you above your floor"
+                    : `sized for the ${formatDate(topUp.lowestDate)} low of ${formatMoney(topUp.lowestBalance)} — one transfer covers the whole horizon`}
                 </span>
               </div>
             )}
@@ -477,6 +481,20 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {timeline.length > 0 && (
+            <div style={styles.card}>
+              <h3 style={styles.cardTitle}>Balance over horizon</h3>
+              <BalanceChart
+                timeline={timeline}
+                minSafeBalance={state.settings.minSafeBalance}
+              />
+              <div style={styles.chartCaption}>
+                Blue line = projected balance · amber dashed = your floor ·
+                red = below $0
+              </div>
+            </div>
+          )}
 
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Upcoming Events</h3>
@@ -815,6 +833,11 @@ const styles: Record<string, any> = {
     fontSize: 11,
     color: "#6b7280",
     marginBottom: 10,
+  },
+  chartCaption: {
+    marginTop: 8,
+    fontSize: 11,
+    color: "#9ca3af",
   },
   heroLabel: {
     fontSize: 13,

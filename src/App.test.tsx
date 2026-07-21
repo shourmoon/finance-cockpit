@@ -29,7 +29,11 @@ describe("App shell", () => {
     });
     fireEvent.click(screen.getByText("Dashboard"));
     expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
-    expect(screen.getByText(/to stay above your floor/)).toBeInTheDocument();
+    // Wording explains the amount is sized for the horizon low, or the
+    // simple case when the first breach is itself the lowest point.
+    expect(
+      screen.getByText(/above your floor|covers the whole horizon/)
+    ).toBeInTheDocument();
   });
 
   it("hides the top-up hint when the balance stays above the floor", () => {

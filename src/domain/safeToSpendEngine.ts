@@ -5,31 +5,50 @@ import { runCashflowProjection } from "./cashflowEngine";
 export interface TopUpHint {
   /** Amount to deposit so the balance never dips below the safety floor. */
   amountNeeded: Money;
-  /** Date of the first projected dip below the floor — deposit before this. */
+  /** Date of the first projected dip below the floor — deposit by this. */
   neededBy: ISODate;
+  /** The deepest projected balance over the horizon (drives the amount). */
+  lowestBalance: Money;
+  /** Date of that deepest point (may be later than neededBy). */
+  lowestDate: ISODate;
 }
 
 /**
  * For users who park cash elsewhere and top up this account on demand:
- * if the projected balance ever dips below minSafeBalance, return how
- * much must be deposited (before the first breach date) to keep the
- * whole horizon at or above the floor. Returns null when no top-up is
- * needed.
+ * if the projected balance ever dips below minSafeBalance, return the
+ * single deposit that keeps the whole horizon at or above the floor.
+ *
+ * This is the yield-optimal single transfer: the amount is sized to the
+ * horizon's deepest point (`lowestBalance`/`lowestDate`), and `neededBy`
+ * is the first breach date — the latest you can deposit and still keep
+ * every day above the floor, since a deposit only lifts days on or after
+ * it. Returns null when no top-up is needed.
  */
 export function computeTopUpHint(
   timeline: readonly TimelinePoint[],
   minSafeBalance: Money
 ): TopUpHint | null {
-  let minBalance = Infinity;
+  let lowestBalance = Infinity;
+  let lowestDate: ISODate | null = null;
   let neededBy: ISODate | null = null;
 
   for (const p of timeline) {
-    if (p.balance < minBalance) minBalance = p.balance;
+    if (p.balance < lowestBalance) {
+      lowestBalance = p.balance;
+      lowestDate = p.date;
+    }
     if (neededBy === null && p.balance < minSafeBalance) neededBy = p.date;
   }
 
-  if (neededBy === null) return null; // never breaches the floor (or empty)
-  return { amountNeeded: minSafeBalance - minBalance, neededBy };
+  // neededBy is null exactly when nothing breaches the floor (incl. empty
+  // timeline); lowestDate is then also null.
+  if (neededBy === null || lowestDate === null) return null;
+  return {
+    amountNeeded: minSafeBalance - lowestBalance,
+    neededBy,
+    lowestBalance,
+    lowestDate,
+  };
 }
 
 export interface SafeToSpendResult {

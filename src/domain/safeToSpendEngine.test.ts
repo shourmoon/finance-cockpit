@@ -25,9 +25,13 @@ describe("computeTopUpHint", () => {
       tp("2025-01-04", 200),
     ];
     // Need floor(100) - min(-30) = 130 deposited, before the first breach.
+    // Deadline is the first breach (01-02); the amount is sized to the
+    // deeper low that follows (01-03).
     expect(computeTopUpHint(timeline, 100)).toEqual({
       amountNeeded: 130,
       neededBy: "2025-01-02",
+      lowestBalance: -30,
+      lowestDate: "2025-01-03",
     });
   });
 
@@ -41,6 +45,8 @@ describe("computeTopUpHint", () => {
     expect(computeTopUpHint(timeline, 0)).toEqual({
       amountNeeded: 75,
       neededBy: "2025-01-02",
+      lowestBalance: -75,
+      lowestDate: "2025-01-02",
     });
   });
 });
