@@ -15,8 +15,9 @@ describe("App shell", () => {
     expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
     // Default rules produce upcoming events.
     expect(screen.getAllByText(/Paycheck|Rent/).length).toBeGreaterThan(0);
-    // Each event row shows its running balance on the second line.
-    expect(screen.getAllByText(/^Balance \$/).length).toBeGreaterThan(0);
+    // Each event row shows its signed transaction amount beneath the
+    // running-balance hero.
+    expect(screen.getAllByText(/^[+-]\$/).length).toBeGreaterThan(0);
   });
 
   it("shows a top-up hint when the projection dips below the safety floor", () => {

@@ -564,6 +564,9 @@ export default function App() {
                         style={styles.eventRow}
                         onClick={() => setSelectedEvent(e)}
                       >
+                        {/* Running balance is the hero — it's what you watch
+                            to time transfers. The transaction amount is the
+                            secondary delta beneath it. */}
                         <div style={styles.eventTopRow}>
                           <span style={styles.eventName}>
                             {e.ruleName}
@@ -571,20 +574,33 @@ export default function App() {
                           </span>
                           <span
                             style={{
-                              ...styles.eventAmount,
-                              color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
+                              ...styles.eventBalanceHero,
+                              color:
+                                runningBalance === undefined
+                                  ? "#e4e4e7"
+                                  : runningBalance < 0
+                                  ? "#f97373"
+                                  : runningBalance < state.settings.minSafeBalance
+                                  ? "#fbbf24"
+                                  : "#e4e4e7",
                             }}
                           >
-                            {formatMoney(e.effectiveAmount)}
+                            {runningBalance !== undefined
+                              ? formatMoney(runningBalance)
+                              : "—"}
                           </span>
                           <span style={styles.eventChevron}>›</span>
                         </div>
                         <div style={styles.eventBottomRow}>
                           <span>{formatDate(e.date)}</span>
-                          <span style={styles.eventBalance}>
-                            {runningBalance !== undefined
-                              ? `Balance ${formatMoney(runningBalance)}`
-                              : "—"}
+                          <span
+                            style={{
+                              ...styles.eventAmountSecondary,
+                              color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
+                            }}
+                          >
+                            {e.effectiveAmount >= 0 ? "+" : ""}
+                            {formatMoney(e.effectiveAmount)}
                           </span>
                         </div>
                       </div>
@@ -880,10 +896,11 @@ const styles: Record<string, any> = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  eventAmount: {
+  eventBalanceHero: {
     flex: "0 0 auto",
     whiteSpace: "nowrap",
-    fontWeight: 600,
+    fontWeight: 700,
+    fontSize: 17,
   },
   eventBottomRow: {
     display: "flex",
@@ -894,8 +911,9 @@ const styles: Record<string, any> = {
     fontSize: 12,
     color: "#9ca3af",
   },
-  eventBalance: {
+  eventAmountSecondary: {
     whiteSpace: "nowrap",
+    fontWeight: 600,
   },
   eventChevron: {
     flex: "0 0 auto",
