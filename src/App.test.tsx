@@ -37,6 +37,36 @@ describe("App shell", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a multi-transfer plan when the balance dips below the floor twice", () => {
+    // Two separate below-floor stretches: an outflow drops below the floor,
+    // an inflow recovers it, then a later outflow dips again. The dashboard
+    // should offer one just-in-time transfer per stretch rather than a single
+    // front-loaded top-up.
+    window.localStorage.setItem(
+      "finance-cockpit-app-state-v1",
+      JSON.stringify({
+        version: 2,
+        account: { startingBalance: 200 },
+        settings: { startDate: "2026-07-01", horizonDays: 40, minSafeBalance: 100 },
+        rules: [],
+        adhocTransactions: [
+          { id: "a1", name: "Dip one", amount: -150, date: "2026-07-05" },
+          { id: "a2", name: "Refill", amount: 200, date: "2026-07-15" },
+          { id: "a3", name: "Dip two", amount: -250, date: "2026-07-25" },
+        ],
+        overrides: {},
+      })
+    );
+    render(<App />);
+    expect(screen.getByText(/transfers keep you above your floor/)).toBeInTheDocument();
+    expect(screen.getByText(/2 transfers/)).toBeInTheDocument();
+    // The plan does not collapse into the single-hint wording.
+    expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/rest stays earning yield/)
+    ).toBeInTheDocument();
+  });
+
   it("hides the top-up hint when the balance stays above the floor", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));

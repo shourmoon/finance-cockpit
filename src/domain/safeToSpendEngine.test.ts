@@ -1,5 +1,5 @@
 // src/domain/safeToSpendEngine.test.ts
-import { computeSafeToSpendFromEvents, computeSafeToSpend, computeTopUpHint } from "./safeToSpendEngine";
+import { computeSafeToSpendFromEvents, computeSafeToSpend, computeTopUpHint, computeTopUpSchedule } from "./safeToSpendEngine";
 import { createInitialAppState } from "./appState";
 import type { AppState, Money, TimelinePoint } from "./types";
 
@@ -48,6 +48,70 @@ describe("computeTopUpHint", () => {
       lowestBalance: -75,
       lowestDate: "2025-01-02",
     });
+  });
+});
+
+describe("computeTopUpSchedule", () => {
+  it("returns an empty plan when the balance never dips below the floor", () => {
+    const timeline = [tp("2025-01-01", 500), tp("2025-01-02", 300), tp("2025-01-03", 400)];
+    expect(computeTopUpSchedule(timeline, 100)).toEqual([]);
+  });
+
+  it("returns an empty plan for an empty timeline", () => {
+    expect(computeTopUpSchedule([], 100)).toEqual([]);
+  });
+
+  it("makes one deposit per stretch, at the first breach, sized to its deepest point", () => {
+    const timeline = [
+      tp("2025-01-01", 500),
+      tp("2025-01-02", 50), // first below floor of 100
+      tp("2025-01-03", -30), // deeper — same stretch
+      tp("2025-01-04", 200), // recovers
+    ];
+    // A single below-floor stretch: deposit lands on the first breach (01-02)
+    // but is sized to the stretch's deepest adjusted point (-30 → 130), so we
+    // never top up twice in the same dip. Matches the single-hint amount/date.
+    const plan = computeTopUpSchedule(timeline, 100);
+    expect(plan).toEqual([{ date: "2025-01-02", amount: 130, balanceBefore: 50 }]);
+    const hint = computeTopUpHint(timeline, 100)!;
+    expect(plan[0].date).toBe(hint.neededBy);
+    expect(plan[0].amount).toBe(hint.amountNeeded);
+  });
+
+  it("splits separate dips into their own just-in-time deposits", () => {
+    const timeline = [
+      tp("2025-01-01", 500),
+      tp("2025-01-02", -100), // first stretch below floor of 0
+      tp("2025-01-03", 400), // recovers (with the first deposit carried forward)
+      tp("2025-01-04", -300), // second, deeper stretch
+    ];
+    const plan = computeTopUpSchedule(timeline, 0);
+    // First deposit lifts 01-02 to 0. It carries forward, so on 01-04 the raw
+    // -300 is already -200 and only 200 more is needed.
+    expect(plan).toEqual([
+      { date: "2025-01-02", amount: 100, balanceBefore: -100 },
+      { date: "2025-01-04", amount: 200, balanceBefore: -200 },
+    ]);
+    // Total matches the single-hint amount (floor - deepest raw low).
+    const total = plan.reduce((s, d) => s + d.amount, 0);
+    expect(total).toBe(computeTopUpHint(timeline, 0)!.amountNeeded);
+  });
+
+  it("does not deposit again once carried-forward top-ups keep later days safe", () => {
+    const timeline = [
+      tp("2025-01-01", 500),
+      tp("2025-01-02", -100), // deposit 100 (its own stretch, recovers next)
+      tp("2025-01-03", 40), // above floor of 0 → ends the stretch
+      tp("2025-01-04", -50), // -50 + 100 carried = 50 >= 0, no new deposit
+    ];
+    expect(computeTopUpSchedule(timeline, 0)).toEqual([
+      { date: "2025-01-02", amount: 100, balanceBefore: -100 },
+    ]);
+  });
+
+  it("treats a balance exactly at the floor as safe", () => {
+    const timeline = [tp("2025-01-01", 100), tp("2025-01-02", 100)];
+    expect(computeTopUpSchedule(timeline, 100)).toEqual([]);
   });
 });
 

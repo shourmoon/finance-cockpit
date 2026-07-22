@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
-import { computeSafeToSpendFromEvents, computeTopUpHint } from "./domain/safeToSpendEngine";
+import { computeSafeToSpendFromEvents, computeTopUpHint, computeTopUpSchedule } from "./domain/safeToSpendEngine";
 import type {
   AdhocTransaction,
   AppState,
@@ -78,6 +78,11 @@ export default function App() {
 
   const topUp = useMemo(
     () => computeTopUpHint(timeline, state.settings.minSafeBalance ?? 0),
+    [timeline, state.settings.minSafeBalance]
+  );
+
+  const topUpSchedule = useMemo(
+    () => computeTopUpSchedule(timeline, state.settings.minSafeBalance ?? 0),
     [timeline, state.settings.minSafeBalance]
   );
 
@@ -451,19 +456,43 @@ export default function App() {
               </span>
             </div>
 
-            {/* Top-up hint: for topping this account up from savings. */}
-            {topUp && (
+            {/* Transfer plan: topping this account up from savings, keeping
+                the most cash in high-yield for the longest. One deposit per
+                below-floor stretch; falls back to the single hint otherwise. */}
+            {topUpSchedule.length > 1 ? (
               <div style={styles.topUpRow}>
                 <span style={styles.topUpAmount}>
-                  Top up {formatMoney(topUp.amountNeeded)} by{" "}
-                  {formatDate(topUp.neededBy)}
+                  {topUpSchedule.length} transfers keep you above your floor
                 </span>
+                {topUpSchedule.map((d, idx) => (
+                  <span key={`${d.date}-${idx}`} style={styles.topUpDeposit}>
+                    <span style={styles.topUpDepositAmount}>
+                      {formatMoney(d.amount)}
+                    </span>
+                    <span style={styles.topUpDepositBy}>
+                      by {formatDate(d.date)}
+                    </span>
+                  </span>
+                ))}
                 <span style={styles.topUpBy}>
-                  {topUp.lowestDate === topUp.neededBy
-                    ? "keeps you above your floor"
-                    : `sized for the ${formatDate(topUp.lowestDate)} low of ${formatMoney(topUp.lowestBalance)} — one transfer covers the whole horizon`}
+                  each transfer is the latest, smallest one that holds — the
+                  rest stays earning yield
                 </span>
               </div>
+            ) : (
+              topUp && (
+                <div style={styles.topUpRow}>
+                  <span style={styles.topUpAmount}>
+                    Top up {formatMoney(topUp.amountNeeded)} by{" "}
+                    {formatDate(topUp.neededBy)}
+                  </span>
+                  <span style={styles.topUpBy}>
+                    {topUp.lowestDate === topUp.neededBy
+                      ? "keeps you above your floor"
+                      : `sized for the ${formatDate(topUp.lowestDate)} low of ${formatMoney(topUp.lowestBalance)} — one transfer covers the whole horizon`}
+                  </span>
+                </div>
+              )
             )}
 
             <div style={styles.metricGrid}>
@@ -956,6 +985,21 @@ const styles: Record<string, any> = {
     color: "#fbbf24",
   },
   topUpBy: {
+    fontSize: 12,
+    color: "#d4d4d8",
+  },
+  topUpDeposit: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    marginTop: 2,
+  },
+  topUpDepositAmount: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: "#fbbf24",
+  },
+  topUpDepositBy: {
     fontSize: 12,
     color: "#d4d4d8",
   },

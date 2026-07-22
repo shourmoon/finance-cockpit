@@ -51,6 +51,69 @@ export function computeTopUpHint(
   };
 }
 
+export interface TopUpDeposit {
+  /** The latest date this deposit can be made — the day the balance would
+   *  otherwise breach the floor. */
+  date: ISODate;
+  /** How much to move in on that date (sized to reach the floor exactly). */
+  amount: Money;
+  /** Projected balance on `date` before this deposit (always below floor). */
+  balanceBefore: Money;
+}
+
+/**
+ * The just-in-time transfer plan for users who park cash in high-yield
+ * savings and top this account up only when a payment is due.
+ *
+ * `computeTopUpHint` gives one deposit sized to the horizon's deepest
+ * point, made by the first breach. When the balance dips below the floor
+ * in several separate stretches, that front-loads the whole amount into
+ * the first transfer even though later dips are months away, leaving cash
+ * sitting idle in checking. This schedule instead makes one deposit per
+ * below-floor stretch: at the stretch's first day (the latest moment you
+ * can still stay at the floor, since a deposit only lifts days on or after
+ * it) and sized to that stretch's deepest point (so you never have to top
+ * up twice in the same stretch). Deposits carry forward, so an earlier
+ * top-up can lift a later raw dip clear of the floor on its own.
+ *
+ * The deposits' total equals the single-hint amount, but split so the
+ * maximum cash stays earning yield for the maximum time, with the fewest
+ * transfers. Returns [] when no top-up is ever needed.
+ */
+export function computeTopUpSchedule(
+  timeline: readonly TimelinePoint[],
+  minSafeBalance: Money
+): TopUpDeposit[] {
+  const deposits: TopUpDeposit[] = [];
+  let deposited = 0; // cumulative top-ups scheduled so far
+  let i = 0;
+
+  while (i < timeline.length) {
+    const running = timeline[i].balance + deposited;
+    if (running >= minSafeBalance) {
+      i++;
+      continue;
+    }
+    // Start of a below-floor stretch at the first breach day. Scan to its
+    // end (where the raw balance, plus deposits so far, recovers to the
+    // floor on its own) and find its deepest adjusted point.
+    const breachDate = timeline[i].date;
+    let lowest = Infinity;
+    let j = i;
+    while (j < timeline.length && timeline[j].balance + deposited < minSafeBalance) {
+      const adjusted = timeline[j].balance + deposited;
+      if (adjusted < lowest) lowest = adjusted;
+      j++;
+    }
+    const amount = minSafeBalance - lowest;
+    deposits.push({ date: breachDate, amount, balanceBefore: running });
+    deposited += amount;
+    i = j;
+  }
+
+  return deposits;
+}
+
 export interface SafeToSpendResult {
   projectedMinBalance: Money;
   safeToSpendToday: Money;
