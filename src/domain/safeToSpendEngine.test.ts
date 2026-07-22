@@ -1,5 +1,11 @@
 // src/domain/safeToSpendEngine.test.ts
-import { computeSafeToSpendFromEvents, computeSafeToSpend, computeTopUpHint, computeTopUpSchedule } from "./safeToSpendEngine";
+import {
+  computeSafeToSpendFromEvents,
+  computeSafeToSpend,
+  computeTopUpHint,
+  computeTopUpSchedule,
+  transferDepositToTransaction,
+} from "./safeToSpendEngine";
 import { createInitialAppState } from "./appState";
 import type { AppState, Money, TimelinePoint } from "./types";
 
@@ -112,6 +118,30 @@ describe("computeTopUpSchedule", () => {
   it("treats a balance exactly at the floor as safe", () => {
     const timeline = [tp("2025-01-01", 100), tp("2025-01-02", 100)];
     expect(computeTopUpSchedule(timeline, 100)).toEqual([]);
+  });
+});
+
+describe("transferDepositToTransaction", () => {
+  it("maps a deposit to a positive-amount ad-hoc inflow on the same date", () => {
+    const txn = transferDepositToTransaction({
+      date: "2025-03-10",
+      amount: 250,
+      balanceBefore: -50,
+    });
+    expect(txn).toEqual({
+      name: "Transfer from savings",
+      amount: 250,
+      date: "2025-03-10",
+    });
+  });
+
+  it("rounds sub-cent amounts to the nearest cent", () => {
+    const txn = transferDepositToTransaction({
+      date: "2025-03-10",
+      amount: 130.00000000000003,
+      balanceBefore: -30,
+    });
+    expect(txn.amount).toBe(130);
   });
 });
 

@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
-import { computeSafeToSpendFromEvents, computeTopUpHint, computeTopUpSchedule } from "./domain/safeToSpendEngine";
+import {
+  computeSafeToSpendFromEvents,
+  computeTopUpHint,
+  computeTopUpSchedule,
+  transferDepositToTransaction,
+  type TopUpDeposit,
+} from "./domain/safeToSpendEngine";
 import type {
   AdhocTransaction,
   AppState,
@@ -147,10 +153,27 @@ export default function App() {
     });
   }
 
+  // Fallback id generator, always invoked from event handlers (see call
+  // sites below), never during render. Suppressed below: this experimental
+  // rule misclassifies a .map()-nested onClick closure as render-time
+  // execution once a second such closure exists.
   function makeId(prefix: string): string {
-    return typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+    // eslint-disable-next-line react-hooks/purity
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function applyTransfer(deposit: TopUpDeposit) {
+    const txn: AdhocTransaction = {
+      id: makeId("txn"),
+      ...transferDepositToTransaction(deposit),
+    };
+    setState((s) => ({
+      ...s,
+      adhocTransactions: [...s.adhocTransactions, txn],
+    }));
   }
 
   function addAdhocTransaction() {
@@ -472,6 +495,13 @@ export default function App() {
                     <span style={styles.topUpDepositBy}>
                       by {formatDate(d.date)}
                     </span>
+                    <button
+                      style={{ ...ui.primaryButton, padding: "3px 10px", fontSize: 12 }}
+                      onClick={() => applyTransfer(d)}
+                      aria-label={`Apply transfer of ${formatMoney(d.amount)} on ${formatDate(d.date)}`}
+                    >
+                      Apply
+                    </button>
                   </span>
                 ))}
                 <span style={styles.topUpBy}>
@@ -491,6 +521,15 @@ export default function App() {
                       ? "keeps you above your floor"
                       : `sized for the ${formatDate(topUp.lowestDate)} low of ${formatMoney(topUp.lowestBalance)} — one transfer covers the whole horizon`}
                   </span>
+                  {topUpSchedule[0] && (
+                    <button
+                      style={{ ...ui.primaryButton, alignSelf: "flex-start", marginTop: 6 }}
+                      onClick={() => applyTransfer(topUpSchedule[0])}
+                      aria-label={`Apply transfer of ${formatMoney(topUp.amountNeeded)} on ${formatDate(topUp.neededBy)}`}
+                    >
+                      Apply
+                    </button>
+                  )}
                 </div>
               )
             )}

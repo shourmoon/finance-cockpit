@@ -67,6 +67,63 @@ describe("App shell", () => {
     ).toBeInTheDocument();
   });
 
+  it("applying the single top-up hint creates an inflow and clears the hint", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
+      target: { value: "1000" },
+    });
+    fireEvent.click(screen.getByText("Dashboard"));
+    expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Apply transfer of/i }));
+
+    // The hint is gone because the applied transfer covers the whole horizon.
+    expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
+    // The applied transfer shows up as a real inflow in Upcoming Events.
+    expect(screen.getAllByText("Transfer from savings").length).toBeGreaterThan(0);
+
+    const saved = JSON.parse(
+      window.localStorage.getItem("finance-cockpit-app-state-v1")!
+    );
+    expect(
+      saved.adhocTransactions.some(
+        (t: { name: string; amount: number }) =>
+          t.name === "Transfer from savings" && t.amount > 0
+      )
+    ).toBe(true);
+  });
+
+  it("applying one deposit of a multi-transfer plan drops it to a single remaining transfer", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-app-state-v1",
+      JSON.stringify({
+        version: 2,
+        account: { startingBalance: 200 },
+        settings: { startDate: "2026-07-01", horizonDays: 40, minSafeBalance: 100 },
+        rules: [],
+        adhocTransactions: [
+          { id: "a1", name: "Dip one", amount: -150, date: "2026-07-05" },
+          { id: "a2", name: "Refill", amount: 200, date: "2026-07-15" },
+          { id: "a3", name: "Dip two", amount: -250, date: "2026-07-25" },
+        ],
+        overrides: {},
+      })
+    );
+    render(<App />);
+    expect(screen.getByText(/2 transfers/)).toBeInTheDocument();
+
+    const applyButtons = screen.getAllByRole("button", { name: /Apply transfer of/i });
+    fireEvent.click(applyButtons[0]);
+
+    // Applying the first stretch's deposit as a real inflow covers it, so
+    // the plan collapses to the remaining single stretch (falls back to the
+    // single-hint row) rather than a "N transfers" plan.
+    expect(screen.queryByText(/transfers keep you above your floor/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
+    expect(screen.getAllByText("Transfer from savings").length).toBeGreaterThan(0);
+  });
+
   it("hides the top-up hint when the balance stays above the floor", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));

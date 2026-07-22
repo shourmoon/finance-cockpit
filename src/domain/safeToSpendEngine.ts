@@ -1,5 +1,5 @@
 // src/domain/safeToSpendEngine.ts
-import type { AppState, ISODate, Money, FutureEvent, TimelinePoint } from "./types";
+import type { AppState, AdhocTransaction, ISODate, Money, FutureEvent, TimelinePoint } from "./types";
 import { runCashflowProjection } from "./cashflowEngine";
 
 export interface TopUpHint {
@@ -112,6 +112,27 @@ export function computeTopUpSchedule(
   }
 
   return deposits;
+}
+
+/**
+ * Turns a scheduled deposit into the ad-hoc inflow transaction it
+ * represents once the user actually makes the transfer in real life —
+ * so it feeds back into the projection and the plan recomputes without
+ * that stretch (the caller only needs to attach an id).
+ *
+ * Amount is rounded to the nearest cent: `computeTopUpSchedule` derives
+ * amounts by subtraction over a chain of deposits, and without rounding
+ * that can leave a sub-cent residue that would show up as a phantom
+ * leftover stretch in the recomputed schedule.
+ */
+export function transferDepositToTransaction(
+  deposit: TopUpDeposit
+): Omit<AdhocTransaction, "id"> {
+  return {
+    name: "Transfer from savings",
+    amount: Math.round(deposit.amount * 100) / 100,
+    date: deposit.date,
+  };
 }
 
 export interface SafeToSpendResult {
