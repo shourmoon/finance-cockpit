@@ -17,7 +17,7 @@ function persisted() {
 describe("MortgageTab", () => {
   it("renders the baseline summary from default terms", () => {
     render(<MortgageTab />);
-    expect(screen.getByText("Original loan terms")).toBeInTheDocument();
+    expect(screen.getByText("Original Loan Terms")).toBeInTheDocument();
     expect(screen.getByText("Baseline summary")).toBeInTheDocument();
     // Default 300k @ 5% / 30y => ~$1,610/mo.
     expect(screen.getByText(/\$1,610/)).toBeInTheDocument();

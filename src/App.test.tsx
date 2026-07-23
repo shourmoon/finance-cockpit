@@ -15,9 +15,37 @@ describe("App shell", () => {
     expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
     // Default rules produce upcoming events.
     expect(screen.getAllByText(/Paycheck|Rent/).length).toBeGreaterThan(0);
-    // Each event row shows its signed transaction amount beneath the
-    // running-balance hero.
+    // Each event row shows its signed transaction amount next to the
+    // running balance it produces.
     expect(screen.getAllByText(/^[+-]\$/).length).toBeGreaterThan(0);
+  });
+
+  it("shows the transaction amount to the left of the running balance it produces", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-app-state-v1",
+      JSON.stringify({
+        version: 2,
+        account: { startingBalance: 500 },
+        settings: { startDate: "2026-07-01", horizonDays: 10, minSafeBalance: 0 },
+        rules: [],
+        adhocTransactions: [
+          { id: "t1", name: "Test Event", amount: -50, date: "2026-07-03" },
+        ],
+        overrides: {},
+      })
+    );
+    render(<App />);
+
+    const nameEl = screen.getByText("Test Event");
+    const row = nameEl.closest("div")?.parentElement;
+    expect(row).not.toBeNull();
+    const rowText = row!.textContent ?? "";
+
+    // Amount (the delta) comes before the balance it produces, ledger-style.
+    expect(rowText).toContain("-$50.00");
+    expect(rowText).toContain("$450.00");
+    expect(rowText.indexOf("-$50.00")).toBeLessThan(rowText.indexOf("$450.00"));
+    expect(within(row!).getByText("→")).toBeInTheDocument();
   });
 
   it("shows a top-up hint when the projection dips below the safety floor", () => {

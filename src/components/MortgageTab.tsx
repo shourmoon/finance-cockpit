@@ -1015,10 +1015,8 @@ export default function MortgageTab() {
 
   return (
     <div style={styles.container}>
-      <h2 style={styles.heading}>Mortgage Optimiser</h2>
-
       {/* Original loan terms */}
-      <SectionCard title="Original loan terms">
+      <SectionCard title="Original Loan Terms">
         {/* Inputs arranged in a responsive wrap so they stack on narrow screens */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
           <LabeledNumberInput
@@ -1090,7 +1088,7 @@ export default function MortgageTab() {
       </SectionCard>
 
       {/* Past prepayments and actual vs baseline summary */}
-      <SectionCard title="Past prepayments" subtitle="Log the extra payments you've already made">
+      <SectionCard title="Past Prepayments" subtitle="Log the extra payments you've already made">
         <div style={{ marginBottom: 8 }}>
           <button style={styles.addButton} onClick={addPrepaymentRow}>
             + Add prepayment
@@ -1261,7 +1259,7 @@ export default function MortgageTab() {
       </SectionCard>
 
       {/* Scenarios */}
-      <SectionCard title="What‑if scenarios" subtitle="Create scenarios to test future extra payments">
+      <SectionCard title="What‑if Scenarios" subtitle="Create scenarios to test future extra payments">
         <div style={{ marginBottom: 8 }}>
           <button style={styles.addButton} onClick={addScenario}>
             + Add scenario
@@ -1392,11 +1390,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
   },
-  heading: {
-    fontSize: 20,
-    fontWeight: 600,
-    color: "#f9fafb",
-  },
   grid: {
     display: "grid",
     gridTemplateColumns: "1fr",
@@ -1417,12 +1410,8 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#f4f4f5",
   },
   subHeading: {
-    fontSize: 13,
-    fontWeight: 500,
+    ...ui.miniLabel,
     marginBottom: 8,
-    color: "#e4e4e7",
-    textTransform: "uppercase",
-    letterSpacing: 0.08,
   },
   details: {
     marginTop: 14,

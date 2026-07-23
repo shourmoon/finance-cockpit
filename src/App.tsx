@@ -28,7 +28,7 @@ import SyncSection from "./components/SyncSection";
 import { formatDate, monthYearLabel, monthKey } from "./utils/dates";
 import { DateInputWithDisplay as SharedDateInput, NumberInput } from "./components/shared";
 import QuickAddTransactionModal from "./components/QuickAddTransactionModal";
-import { ui } from "./components/ui";
+import { ui, colors } from "./components/ui";
 
 // Shared date input bound to this screen's input styling.
 function DateInputWithDisplay({
@@ -548,10 +548,10 @@ export default function App() {
                     ...styles.metricVal,
                     color:
                       metrics.minBalance < 0
-                        ? "#f97373"
+                        ? colors.danger
                         : metrics.minBalance < state.settings.minSafeBalance
-                        ? "#fbbf24"
-                        : "#e4e4e7",
+                        ? colors.amber
+                        : colors.text,
                   }}
                 >
                   {formatMoney(metrics.minBalance)}
@@ -568,7 +568,7 @@ export default function App() {
                 <span
                   style={{
                     ...styles.metricVal,
-                    color: metrics.firstNegativeDate ? "#f97373" : "#e4e4e7",
+                    color: metrics.firstNegativeDate ? colors.danger : colors.text,
                   }}
                 >
                   {metrics.firstNegativeDate
@@ -581,7 +581,7 @@ export default function App() {
 
           {timeline.length > 0 && (
             <div style={styles.card}>
-              <h3 style={styles.cardTitle}>Balance over horizon</h3>
+              <h3 style={styles.cardTitle}>Balance Over Horizon</h3>
               <BalanceChart
                 timeline={timeline}
                 minSafeBalance={state.settings.minSafeBalance}
@@ -633,25 +633,38 @@ export default function App() {
                         style={styles.eventRow}
                         onClick={() => setSelectedEvent(e)}
                       >
-                        {/* Running balance is the hero — it's what you watch
-                            to time transfers. The transaction amount is the
-                            secondary delta beneath it. */}
-                        <div style={styles.eventTopRow}>
+                        {/* Amount and balance sit side by side, amount
+                            first — reads like a ledger: this change leads
+                            to this balance. Name/date stack on the left. */}
+                        <div style={styles.eventMain}>
                           <span style={styles.eventName}>
                             {e.ruleName}
                             {e.isOverridden && " *"}
                           </span>
+                          <span style={styles.eventDate}>{formatDate(e.date)}</span>
+                        </div>
+                        <div style={styles.eventFigures}>
                           <span
                             style={{
-                              ...styles.eventBalanceHero,
+                              ...styles.eventAmount,
+                              color: e.effectiveAmount >= 0 ? colors.positive : colors.danger,
+                            }}
+                          >
+                            {e.effectiveAmount >= 0 ? "+" : ""}
+                            {formatMoney(e.effectiveAmount)}
+                          </span>
+                          <span style={styles.eventArrow}>→</span>
+                          <span
+                            style={{
+                              ...styles.eventBalance,
                               color:
                                 runningBalance === undefined
-                                  ? "#e4e4e7"
+                                  ? colors.text
                                   : runningBalance < 0
-                                  ? "#f97373"
+                                  ? colors.danger
                                   : runningBalance < state.settings.minSafeBalance
-                                  ? "#fbbf24"
-                                  : "#e4e4e7",
+                                  ? colors.amber
+                                  : colors.text,
                             }}
                           >
                             {runningBalance !== undefined
@@ -659,18 +672,6 @@ export default function App() {
                               : "—"}
                           </span>
                           <span style={styles.eventChevron}>›</span>
-                        </div>
-                        <div style={styles.eventBottomRow}>
-                          <span>{formatDate(e.date)}</span>
-                          <span
-                            style={{
-                              ...styles.eventAmountSecondary,
-                              color: e.effectiveAmount >= 0 ? "#4ade80" : "#f97373",
-                            }}
-                          >
-                            {e.effectiveAmount >= 0 ? "+" : ""}
-                            {formatMoney(e.effectiveAmount)}
-                          </span>
                         </div>
                       </div>
                     </div>
@@ -764,7 +765,7 @@ function formatMoney(amount: number): string {
 }
 
 function statusColor(status: "ok" | "warning" | "alert"): string {
-  return status === "ok" ? "#4ade80" : status === "warning" ? "#fbbf24" : "#f97373";
+  return status === "ok" ? colors.positive : status === "warning" ? colors.amber : colors.danger;
 }
 
 const styles: Record<string, any> = {
@@ -902,12 +903,12 @@ const styles: Record<string, any> = {
   impactPositive: {
     backgroundColor: "rgba(22, 163, 74, 0.15)",
     borderColor: "rgba(22, 163, 74, 0.6)",
-    color: "#4ade80",
+    color: colors.positive,
   },
   impactNeutral: {
     backgroundColor: "rgba(113, 113, 122, 0.25)",
     borderColor: "rgba(82, 82, 91, 0.9)",
-    color: "#e4e4e7",
+    color: colors.text,
   },
   impactNegative: {
     backgroundColor: "rgba(220, 38, 38, 0.15)",
@@ -915,43 +916,53 @@ const styles: Record<string, any> = {
     color: "#fecaca",
   },
   eventRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
     paddingBottom: 8,
     borderBottom: "1px dashed #1f2933",
     marginBottom: 8,
     cursor: "pointer",
   },
-  eventTopRow: {
+  eventMain: {
     display: "flex",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: 12,
-    fontSize: 14,
-  },
-  eventName: {
+    flexDirection: "column",
+    gap: 2,
     flex: "1 1 auto",
     minWidth: 0,
+  },
+  eventName: {
+    fontSize: 14,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  eventBalanceHero: {
-    flex: "0 0 auto",
-    whiteSpace: "nowrap",
-    fontWeight: 700,
-    fontSize: 17,
-  },
-  eventBottomRow: {
-    display: "flex",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: 12,
-    marginTop: 2,
+  eventDate: {
     fontSize: 12,
     color: "#9ca3af",
   },
-  eventAmountSecondary: {
+  eventFigures: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    flex: "0 0 auto",
     whiteSpace: "nowrap",
+  },
+  eventAmount: {
+    fontSize: 14,
     fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  eventArrow: {
+    fontSize: 12,
+    color: "#52525b",
+    lineHeight: 1,
+  },
+  eventBalance: {
+    fontSize: 16,
+    fontWeight: 700,
+    whiteSpace: "nowrap",
   },
   eventChevron: {
     flex: "0 0 auto",
@@ -970,11 +981,7 @@ const styles: Record<string, any> = {
     color: "#9ca3af",
   },
   monthSeparator: {
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    color: "#71717a",
+    ...ui.miniLabel,
     marginTop: 6,
     marginBottom: 8,
   },
@@ -1021,7 +1028,7 @@ const styles: Record<string, any> = {
   topUpAmount: {
     fontSize: 15,
     fontWeight: 700,
-    color: "#fbbf24",
+    color: colors.amber,
   },
   topUpBy: {
     fontSize: 12,
@@ -1036,7 +1043,7 @@ const styles: Record<string, any> = {
   topUpDepositAmount: {
     fontSize: 14,
     fontWeight: 700,
-    color: "#fbbf24",
+    color: colors.amber,
   },
   topUpDepositBy: {
     fontSize: 12,
@@ -1054,14 +1061,11 @@ const styles: Record<string, any> = {
     gap: 2,
   },
   metricKey: {
-    fontSize: 11,
-    color: "#9ca3af",
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
+    ...ui.miniLabel,
   },
   metricVal: {
     fontSize: 15,
     fontWeight: 600,
-    color: "#e4e4e7",
+    color: colors.text,
   },
 };

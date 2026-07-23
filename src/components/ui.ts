@@ -22,6 +22,7 @@ export const colors = {
   blueInk: "#f9fafb",
   danger: "#f97373",
   amber: "#fbbf24",
+  positive: "#4ade80",
 };
 
 export const ui = {
@@ -127,5 +128,16 @@ export const ui = {
     fontSize: 11,
     color: colors.muted,
     marginBottom: 3,
+  } as CSSProperties,
+
+  // Small-caps section/group label shared by the dashboard metric grid,
+  // event-list month separators, and mortgage sub-headings — these were
+  // three near-identical inline copies with slightly drifted sizes/colors.
+  miniLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    color: colors.faint,
   } as CSSProperties,
 };
