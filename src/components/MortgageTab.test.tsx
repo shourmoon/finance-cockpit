@@ -89,6 +89,8 @@ describe("MortgageTab", () => {
     fireEvent.change(screen.getByLabelText("Prepayment amount"), {
       target: { value: "12000" },
     });
+    // The note field is collapsed by default; reveal it first.
+    fireEvent.click(screen.getByText("+ Add note"));
     fireEvent.change(screen.getByLabelText("Prepayment note"), {
       target: { value: "Tax refund" },
     });
@@ -248,7 +250,46 @@ describe("MortgageTab", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add prepayment"));
       expect(screen.getByLabelText("Prepayment amount")).toHaveStyle(SHARED_INPUT);
+      fireEvent.click(screen.getByText("+ Add note"));
       expect(screen.getByLabelText("Prepayment note")).toHaveStyle(SHARED_INPUT);
+    });
+
+    it("keeps the note field collapsed behind an Add note affordance", () => {
+      // The optional note used to render an empty input on every row,
+      // bulking up the log. It should stay hidden until the user opts in.
+      render(<MortgageTab />);
+      fireEvent.click(screen.getByText("+ Add prepayment"));
+      expect(screen.queryByLabelText("Prepayment note")).toBeNull();
+
+      fireEvent.click(screen.getByText("+ Add note"));
+      const note = screen.getByLabelText("Prepayment note");
+      expect(note).toBeInTheDocument();
+      // Once revealed, the affordance is gone (the input replaces it).
+      expect(screen.queryByText("+ Add note")).toBeNull();
+    });
+
+    it("shows the note input directly for a prepayment that already has a note", () => {
+      // A persisted note should render expanded on load, no tap needed.
+      window.localStorage.setItem(
+        "finance-cockpit-mortgage-v2",
+        JSON.stringify({
+          version: 2,
+          terms: {
+            principal: 300000,
+            annualRate: 0.05,
+            termMonths: 360,
+            startDate: "2025-01-01",
+          },
+          prepayments: [
+            { id: "p1", date: "2025-02-01", amount: 5000, note: "Bonus" },
+          ],
+          scenarios: [],
+          asOfDate: "2025-01-01",
+        })
+      );
+      render(<MortgageTab />);
+      expect(screen.getByLabelText("Prepayment note")).toHaveValue("Bonus");
+      expect(screen.queryByText("+ Add note")).toBeNull();
     });
 
     it("prepayment date field is labelled and reserves enough width to show the full date", () => {

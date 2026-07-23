@@ -253,6 +253,10 @@ export default function MortgageTab() {
   const [asOfDate, setAsOfDate] = useState<string>(
     initialUI.asOfDate ?? initialUI.terms.startDate
   );
+  // Row ids whose optional note editor the user has opened this session.
+  // A row with an existing note renders expanded regardless; empty notes
+  // stay collapsed behind a "+ Add note" affordance to keep the log light.
+  const [openNoteRows, setOpenNoteRows] = useState<Set<string>>(new Set());
   const [scenarios, setScenarios] = useState<MortgageScenarioConfig[]>(
     initialUI.scenarios ?? []
   );
@@ -1137,14 +1141,28 @@ export default function MortgageTab() {
                     ✕
                   </button>
                 </div>
-                <input
-                  style={{ ...ui.input, fontSize: 13, padding: "6px 8px" }}
-                  type="text"
-                  aria-label="Prepayment note"
-                  value={row.note ?? ""}
-                  placeholder="Note (optional)"
-                  onChange={(e) => updatePrepaymentRow(row.id, { note: e.target.value })}
-                />
+                {(row.note && row.note.length > 0) || openNoteRows.has(row.id) ? (
+                  <input
+                    style={{ ...ui.input, fontSize: 13, padding: "6px 8px" }}
+                    type="text"
+                    aria-label="Prepayment note"
+                    // Autofocus only when the user just opened it, not when a
+                    // saved note renders expanded on load.
+                    autoFocus={openNoteRows.has(row.id)}
+                    value={row.note ?? ""}
+                    placeholder="Note (optional)"
+                    onChange={(e) => updatePrepaymentRow(row.id, { note: e.target.value })}
+                  />
+                ) : (
+                  <button
+                    style={styles.addNoteButton}
+                    onClick={() =>
+                      setOpenNoteRows((prev) => new Set(prev).add(row.id))
+                    }
+                  >
+                    + Add note
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1467,6 +1485,15 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "flex-start",
     gap: 8,
+  },
+  addNoteButton: {
+    alignSelf: "flex-start",
+    background: "transparent",
+    border: "none",
+    padding: "2px 0",
+    fontSize: 12,
+    color: colors.muted,
+    cursor: "pointer",
   },
   scenarioCard: {
     borderRadius: 10,
