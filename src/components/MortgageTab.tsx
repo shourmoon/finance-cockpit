@@ -1106,16 +1106,19 @@ export default function MortgageTab() {
             {prepayments.map((row) => (
               <div key={row.id} style={styles.prepayCard}>
                 <div style={styles.prepayTopRow}>
-                  <div style={{ flex: 1.1, minWidth: 0 }}>
+                  <div style={{ flex: "3 1 auto", minWidth: 0 }}>
                     <DateInputWithDisplay
                       value={row.date}
                       onChange={(val) => updatePrepaymentRow(row.id, { date: val })}
-                      captionStyle={{ fontSize: 10, marginTop: 2 }}
-                      inputStyle={ui.input}
+                      captionStyle={{ fontSize: 11, marginTop: 3, color: colors.muted }}
+                      ariaLabel="Prepayment date"
+                      // A firm min-width so MM/DD/YYYY never clips the year
+                      // on narrow phones (previously showed "12/23/202").
+                      inputStyle={{ ...ui.input, minWidth: 150 }}
                     />
                   </div>
                   <input
-                    style={{ ...ui.input, flex: 1, minWidth: 0 }}
+                    style={{ ...ui.input, flex: "2 1 0", minWidth: 72, textAlign: "right", fontWeight: 600 }}
                     type="text"
                     inputMode="decimal"
                     aria-label="Prepayment amount"
@@ -1135,7 +1138,7 @@ export default function MortgageTab() {
                   </button>
                 </div>
                 <input
-                  style={{ ...ui.input, fontSize: 13, padding: 6 }}
+                  style={{ ...ui.input, fontSize: 13, padding: "6px 8px" }}
                   type="text"
                   aria-label="Prepayment note"
                   value={row.note ?? ""}
@@ -1448,20 +1451,21 @@ const styles: Record<string, React.CSSProperties> = {
   prepayList: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 12,
   },
+  // Flat, divider-separated row rather than a filled nested card — matches
+  // the Recurring Rules / Upcoming Events lists, so the log reads as a
+  // light ledger instead of a stack of heavy boxes-in-a-box.
   prepayCard: {
-    borderRadius: 10,
-    border: "1px solid #27272a",
-    backgroundColor: "#09090b",
-    padding: 8,
     display: "flex",
     flexDirection: "column",
     gap: 6,
+    paddingBottom: 12,
+    borderBottom: `1px dashed ${colors.cardBorder}`,
   },
   prepayTopRow: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 8,
   },
   scenarioCard: {

@@ -20,6 +20,13 @@ npx vitest run --coverage            # enforces per-directory coverage threshold
 
 CI (`.github/workflows/ci.yml`) runs `tsc --noEmit`, `eslint .`, and `npx vitest run --coverage` on every push/PR. Coverage thresholds (in `vitest.config.ts`) require **100%** on `src/domain`, `src/utils`, and `workers`; UI components have pragmatic floors. `main.tsx` and `Root.tsx` (service-worker glue) are excluded from coverage.
 
+### Development workflow — TDD when appropriate
+
+Prefer test-driven development: write the failing test(s) first, confirm they're red, then implement until green, then run the wider gate (`tsc --noEmit`, `eslint .`, `npx vitest run --coverage`). Apply it with judgment:
+
+- **Do write the test first** for domain/logic/behavior changes (cashflow engine, mortgage math, persistence, sync, utils), for bug fixes (encode the reproduction as a red test), and for UI changes with an assertable outcome — an element/label appearing, a computed value, or a shared-token style checked via jest-dom's `toHaveStyle` (see the cohesion suites in `MortgageTab.test.tsx`).
+- **Verify differently** for purely visual/aesthetic work with no property jsdom can assert (spacing, gradients, real layout/clipping) — drive the real app with Playwright and screenshot at a phone width (~360px). Keep the existing behavior and cohesion tests green as the regression net.
+
 Backend worker (optional, for sync):
 
 ```bash

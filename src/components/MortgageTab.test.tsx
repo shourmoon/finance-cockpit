@@ -251,6 +251,16 @@ describe("MortgageTab", () => {
       expect(screen.getByLabelText("Prepayment note")).toHaveStyle(SHARED_INPUT);
     });
 
+    it("prepayment date field is labelled and reserves enough width to show the full date", () => {
+      // Regression: on phones the date input rendered too narrow and
+      // clipped the year ("12/23/202"). It must be accessible by name and
+      // carry a min-width that fits MM/DD/YYYY.
+      render(<MortgageTab />);
+      fireEvent.click(screen.getByText("+ Add prepayment"));
+      const dateInput = screen.getByLabelText("Prepayment date");
+      expect(dateInput).toHaveStyle({ minWidth: "150px" });
+    });
+
     it("scenario name and monthly-extra inputs use the same chrome", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add scenario"));

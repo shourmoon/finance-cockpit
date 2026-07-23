@@ -64,16 +64,19 @@ export function DateInputWithDisplay({
   onChange,
   inputStyle,
   captionStyle,
+  ariaLabel,
 }: {
   value: string;
   onChange: (val: string) => void;
   inputStyle: React.CSSProperties;
   captionStyle?: React.CSSProperties;
+  ariaLabel?: string;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
       <input
         type="date"
+        aria-label={ariaLabel}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         style={inputStyle}
