@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
@@ -364,7 +365,7 @@ export default function App() {
                   <NumberInput
                     value={rule.amount}
                     onChange={(val) => updateRuleAmount(rule, val)}
-                    inputStyle={styles.inputSmall}
+                    inputStyle={moneyInputStyle(rule.amount)}
                   />
                   <button
                     style={styles.editButton}
@@ -425,7 +426,7 @@ export default function App() {
                         onChange={(val) =>
                           updateAdhocTransaction(txn.id, { amount: val })
                         }
-                        inputStyle={styles.inputSmall}
+                        inputStyle={moneyInputStyle(txn.amount)}
                       />
                       <button
                         style={styles.editButton}
@@ -766,6 +767,18 @@ function formatMoney(amount: number): string {
 
 function statusColor(status: "ok" | "warning" | "alert"): string {
   return status === "ok" ? colors.positive : status === "warning" ? colors.amber : colors.danger;
+}
+
+// Editable amount inputs in Settings borrow the dashboard's ledger colors:
+// outflows read red, inflows green — the same money semantics the Upcoming
+// Events rows use, so the config tab speaks the same visual language.
+function moneyInputStyle(amount: number): CSSProperties {
+  return {
+    ...styles.inputSmall,
+    fontWeight: 600,
+    color:
+      amount < 0 ? colors.danger : amount > 0 ? colors.positive : colors.text,
+  };
 }
 
 const styles: Record<string, any> = {
