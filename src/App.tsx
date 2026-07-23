@@ -834,12 +834,16 @@ const styles: Record<string, any> = {
     flexWrap: "wrap",
     gap: 12,
   },
+  // Matches the Mortgage tab's LabeledNumberInput container exactly
+  // (flex: 1, minWidth: 130) so both config forms wrap to the same
+  // number of columns at any width — at ~360px CSS (common phones) a
+  // wider minWidth left Settings single-column while Mortgage stayed
+  // two-column, so the tabs looked nothing alike.
   field: {
     display: "flex",
     flexDirection: "column",
-    flex: "1 1 150px",
-    minWidth: 150,
-    marginBottom: 4,
+    flex: 1,
+    minWidth: 130,
   },
   inputSmall: {
     width: 90,
