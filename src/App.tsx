@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { createInitialAppState } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
@@ -39,7 +40,7 @@ function DateInputWithDisplay({
   onChange: (val: string) => void;
 }) {
   return (
-    <SharedDateInput value={value} onChange={onChange} inputStyle={styles.input} />
+    <SharedDateInput value={value} onChange={onChange} inputStyle={ui.input} />
   );
 }
 
@@ -261,65 +262,65 @@ export default function App() {
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Settings</h3>
 
-            <label style={{ ...styles.label, flexDirection: "column", alignItems: "flex-start" }}>
-              <span>Start Date:</span>
-              {/* Use the DateInputWithDisplay wrapper so that the native date input
-                  always shows the human‑friendly formatted date underneath. */}
-              <DateInputWithDisplay
-                value={state.settings.startDate}
-                onChange={(val) => updateStartDate(val)}
-              />
-            </label>
+            {/* Stacked label-over-input fields in a wrapping two-column
+                grid — the same control pattern the Mortgage tab's
+                Original Loan Terms card uses, so the two config surfaces
+                read as one form. Each field stays a <label> so the input
+                keeps its accessible name. */}
+            <div style={styles.settingsGrid}>
+              <label style={styles.field}>
+                <span style={ui.fieldLabel}>Start date</span>
+                {/* DateInputWithDisplay shows the human-friendly date underneath. */}
+                <DateInputWithDisplay
+                  value={state.settings.startDate}
+                  onChange={(val) => updateStartDate(val)}
+                />
+              </label>
 
-            <label
-              style={{
-                ...styles.label,
-                flexDirection: "column",
-                alignItems: "flex-start",
-              }}
-            >
-              Horizon (days):
-              <input
-                type="number"
-                value={state.settings.horizonDays}
-                onChange={(e) => updateHorizonDays(Number(e.target.value))}
-                style={styles.input}
-              />
-              <div style={styles.presetRow}>
-                {[30, 60, 90, 180].map((days) => (
-                  <button
-                    key={days}
-                    type="button"
-                    onClick={() => updateHorizonDays(days)}
-                    style={
-                      state.settings.horizonDays === days
-                        ? styles.presetChipActive
-                        : styles.presetChip
-                    }
-                  >
-                    {days}d
-                  </button>
-                ))}
-              </div>
-            </label>
+              <label style={styles.field}>
+                <span style={ui.fieldLabel}>Horizon (days)</span>
+                <input
+                  type="number"
+                  value={state.settings.horizonDays}
+                  onChange={(e) => updateHorizonDays(Number(e.target.value))}
+                  style={ui.input}
+                />
+                <div style={styles.presetRow}>
+                  {[30, 60, 90, 180].map((days) => (
+                    <button
+                      key={days}
+                      type="button"
+                      onClick={() => updateHorizonDays(days)}
+                      style={
+                        state.settings.horizonDays === days
+                          ? styles.presetChipActive
+                          : styles.presetChip
+                      }
+                    >
+                      {days}d
+                    </button>
+                  ))}
+                </div>
+              </label>
 
-            <label style={styles.label}>
-              Minimum Safe Balance:
-              <NumberInput
-                value={state.settings.minSafeBalance}
-                onChange={updateMinSafeBalance}
-                inputStyle={styles.input}
-              />
-            </label>
+              <label style={styles.field}>
+                <span style={ui.fieldLabel}>Minimum safe balance</span>
+                <NumberInput
+                  value={state.settings.minSafeBalance}
+                  onChange={updateMinSafeBalance}
+                  inputStyle={ui.input}
+                />
+              </label>
 
-            <label style={styles.label}>
-              Starting Balance:
-              <NumberInput
-                value={state.account.startingBalance}
-                onChange={updateStartingBalance}
-                inputStyle={styles.input}
-              />
-            </label>
+              <label style={styles.field}>
+                <span style={ui.fieldLabel}>Starting balance</span>
+                <NumberInput
+                  value={state.account.startingBalance}
+                  onChange={updateStartingBalance}
+                  inputStyle={ui.input}
+                />
+              </label>
+            </div>
           </div>
 
           <div style={styles.card}>
@@ -364,7 +365,7 @@ export default function App() {
                   <NumberInput
                     value={rule.amount}
                     onChange={(val) => updateRuleAmount(rule, val)}
-                    inputStyle={styles.inputSmall}
+                    inputStyle={moneyInputStyle(rule.amount)}
                   />
                   <button
                     style={styles.editButton}
@@ -407,7 +408,7 @@ export default function App() {
                         onChange={(e) =>
                           updateAdhocTransaction(txn.id, { name: e.target.value })
                         }
-                        style={{ ...styles.input, width: "100%" }}
+                        style={ui.input}
                       />
                       <div style={{ marginTop: 6 }}>
                         <DateInputWithDisplay
@@ -425,7 +426,7 @@ export default function App() {
                         onChange={(val) =>
                           updateAdhocTransaction(txn.id, { amount: val })
                         }
-                        inputStyle={styles.inputSmall}
+                        inputStyle={moneyInputStyle(txn.amount)}
                       />
                       <button
                         style={styles.editButton}
@@ -768,6 +769,18 @@ function statusColor(status: "ok" | "warning" | "alert"): string {
   return status === "ok" ? colors.positive : status === "warning" ? colors.amber : colors.danger;
 }
 
+// Editable amount inputs in Settings borrow the dashboard's ledger colors:
+// outflows read red, inflows green — the same money semantics the Upcoming
+// Events rows use, so the config tab speaks the same visual language.
+function moneyInputStyle(amount: number): CSSProperties {
+  return {
+    ...styles.inputSmall,
+    fontWeight: 600,
+    color:
+      amount < 0 ? colors.danger : amount > 0 ? colors.positive : colors.text,
+  };
+}
+
 const styles: Record<string, any> = {
   container: {
     maxWidth: 600,
@@ -814,24 +827,19 @@ const styles: Record<string, any> = {
   },
   card: ui.card,
   cardTitle: ui.cardTitle,
-  label: {
+  // Wrapping two-column grid of stacked fields, mirroring the Mortgage
+  // tab's Original Loan Terms card so both config forms match.
+  settingsGrid: {
     display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    marginBottom: 12,
-    fontSize: 13,
-    color: "#a1a1aa",
+    flexWrap: "wrap",
+    gap: 12,
   },
-  input: {
-    padding: 8,
-    fontSize: 14,
-    borderRadius: 8,
-    border: "1px solid #3f3f46",
-    background: "#18181b",
-    color: "#e4e4e7",
-    width: 160,
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    flex: "1 1 150px",
+    minWidth: 150,
+    marginBottom: 4,
   },
   inputSmall: {
     width: 90,

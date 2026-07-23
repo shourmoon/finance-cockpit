@@ -1380,34 +1380,14 @@ export default function MortgageTab() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  // The tab is rendered inside App's already-padded, max-width container,
+  // so it adds no padding of its own (that produced a double inset that
+  // made the Mortgage cards sit narrower than Dashboard/Settings). Card
+  // spacing comes from ui.card's own marginBottom, matching the other
+  // tabs exactly — no extra gap here. Colors/font are inherited.
   container: {
-    padding: 16,
     display: "flex",
     flexDirection: "column",
-    gap: 16,
-    color: "#e4e4e7",
-    backgroundColor: "#020617",
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: 16,
-  },
-  card: {
-    borderRadius: 12,
-    border: "1px solid #27272a",
-    padding: 16,
-    background:
-      "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: 600,
-    marginBottom: 12,
-    color: "#f4f4f5",
   },
   subHeading: {
     ...ui.miniLabel,
