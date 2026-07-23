@@ -45,7 +45,7 @@ import {
 // specification, e.g. "2025-01-26" → "26 Jan '25".
 import { formatDate } from "../utils/dates";
 import { DateInputWithDisplay } from "./shared";
-import { ui } from "./ui";
+import { ui, colors } from "./ui";
 
 // Format a currency value (number) into a US dollar string with no
 // fractional digits.  If the input is null or NaN the em dash is
@@ -1528,94 +1528,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#a1a1aa",
     padding: "4px 0 6px",
   },
-  scenarioPatternRow: {
-    display: "grid",
-    gridTemplateColumns:
-      "minmax(0, 70px) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 40px)",
-    alignItems: "center",
-    gap: 6,
-    padding: "4px 0",
-  },
-  patternKindChip: {
-    fontSize: 11,
-    borderRadius: 999,
-    padding: "2px 6px",
-    border: "1px solid #3f3f46",
-    backgroundColor: "#18181b",
-    color: "#d4d4d8",
-    justifySelf: "flex-start",
-  },
-  scenarioPatternLabelInput: {
-    borderRadius: 6,
-    border: "1px solid #27272a",
-    padding: "4px 6px",
-    backgroundColor: "#18181b",
-    color: "#e4e4e7",
-    fontSize: 12,
-    width: "100%",
-  },
-  scenarioPatternAmountInput: {
-    borderRadius: 6,
-    border: "1px solid #27272a",
-    padding: "4px 6px",
-    backgroundColor: "#020617",
-    color: "#e4e4e7",
-    fontSize: 12,
-    width: "100%",
-    textAlign: "right",
-  },
-  patternDatesGroup: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 4,
-  },
-  scenarioPatternDateInput: {
-    borderRadius: 6,
-    border: "1px solid #27272a",
-    padding: "4px 6px",
-    backgroundColor: "#020617",
-    color: "#e4e4e7",
-    fontSize: 11,
-  },
-  scenarioPatternSelect: {
-    borderRadius: 6,
-    border: "1px solid #27272a",
-    padding: "4px 6px",
-    backgroundColor: "#020617",
-    color: "#e4e4e7",
-    fontSize: 11,
-  },
-  scenarioPatternSmallInput: {
-    width: 56,
-    borderRadius: 6,
-    border: "1px solid #27272a",
-    padding: "4px 6px",
-    backgroundColor: "#020617",
-    color: "#e4e4e7",
-    fontSize: 11,
-  },
-  scenarioPatternYearInput: {
-    width: 72,
-    borderRadius: 6,
-    border: "1px solid #27272a",
-    padding: "4px 6px",
-    backgroundColor: "#020617",
-    color: "#e4e4e7",
-    fontSize: 11,
-  },
-  scenarioPatternDeleteButton: {
-    borderRadius: 999,
-    border: "1px solid #3f3f46",
-    backgroundColor: "#18181b",
-    color: "#a1a1aa",
-    width: 26,
-    height: 26,
-    fontSize: 13,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-  },
   scenarioPatternAddRow: {
     display: "flex",
     flexWrap: "wrap",
@@ -1672,16 +1584,23 @@ const styles: Record<string, React.CSSProperties> = {
   },
   fieldLabel: {
     fontSize: 11,
-    color: "#a1a1aa",
+    color: colors.muted,
     minWidth: 80,
   },
+  // Dense control for the pattern cards. It shares the app-wide input
+  // chrome (colors.inputBg fill, colors.inputBorder outline) so scenario
+  // fields read like every other input; only the padding/font are
+  // tightened for the compact cards. Previously this used the page
+  // background (#020617) and card border, which made these inputs look
+  // like a different control set from the rest of the app.
   fieldControl: {
     flex: 1,
-    borderRadius: 6,
-    border: "1px solid #27272a",
-    padding: "4px 6px",
-    backgroundColor: "#020617",
-    color: "#e4e4e7",
-    fontSize: 11,
+    minWidth: 0,
+    borderRadius: 8,
+    border: `1px solid ${colors.inputBorder}`,
+    padding: "6px 8px",
+    backgroundColor: colors.inputBg,
+    color: colors.text,
+    fontSize: 13,
   },
 };

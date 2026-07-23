@@ -2,6 +2,17 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import MortgageTab from "./MortgageTab";
+import { colors } from "./ui";
+
+// Every editable control in the app shares one input "chrome": the
+// colors.inputBg fill and colors.inputBorder outline. The scenario and
+// prepayment sections are the densest part of the Mortgage tab, so this
+// is where drift hides — assert they match the shared tokens rather than
+// re-typing their own darker background/border.
+const SHARED_INPUT = {
+  backgroundColor: colors.inputBg,
+  borderColor: colors.inputBorder,
+};
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -193,6 +204,64 @@ describe("MortgageTab", () => {
     const deletes = screen.getAllByText("✕");
     fireEvent.click(deletes[deletes.length - 1]);
     expect(persisted().scenarios[0].patterns).toHaveLength(1);
+  });
+
+  describe("visual cohesion of scenario & prepayment controls", () => {
+    it("scenario pattern-card inputs use the shared app input chrome", () => {
+      render(<MortgageTab />);
+      fireEvent.click(screen.getByText("+ Add scenario"));
+
+      // The default scenario ships a monthly pattern card. Its Label
+      // input and Cadence <select> render through the pattern-card
+      // control style, which historically used the page background
+      // (#020617) and card border (#27272a) — nothing like the rest of
+      // the app's inputs.
+      expect(screen.getByDisplayValue("Monthly extra")).toHaveStyle(SHARED_INPUT);
+      expect(screen.getByDisplayValue("Due date")).toHaveStyle(SHARED_INPUT);
+    });
+
+    it("every scenario pattern kind's controls share that chrome", () => {
+      render(<MortgageTab />);
+      fireEvent.click(screen.getByText("+ Add scenario"));
+      fireEvent.click(screen.getByText("One-time"));
+      fireEvent.click(screen.getByText("Annual"));
+      fireEvent.click(screen.getByText("Biweekly"));
+
+      // Collect every labelled text/number control across all pattern
+      // kinds plus the cadence select. Date fields already use the
+      // shared ui.input, so they act as the reference the rest must match.
+      const controls = [
+        ...screen.getAllByPlaceholderText("Description"), // labels
+        ...screen.getAllByPlaceholderText("0"), // amounts (+ monthly-extra)
+        ...screen.getAllByPlaceholderText("M"), // annual month
+        ...screen.getAllByPlaceholderText("D"), // annual day
+        ...screen.getAllByPlaceholderText("From"), // annual first year
+        ...screen.getAllByPlaceholderText("To"), // annual last year
+        screen.getByDisplayValue("Due date"), // monthly cadence select
+      ];
+      // Sanity: we actually gathered a representative spread of controls.
+      expect(controls.length).toBeGreaterThan(8);
+      for (const el of controls) expect(el).toHaveStyle(SHARED_INPUT);
+    });
+
+    it("prepayment amount and note inputs use the same chrome", () => {
+      render(<MortgageTab />);
+      fireEvent.click(screen.getByText("+ Add prepayment"));
+      expect(screen.getByLabelText("Prepayment amount")).toHaveStyle(SHARED_INPUT);
+      expect(screen.getByLabelText("Prepayment note")).toHaveStyle(SHARED_INPUT);
+    });
+
+    it("scenario name and monthly-extra inputs use the same chrome", () => {
+      render(<MortgageTab />);
+      fireEvent.click(screen.getByText("+ Add scenario"));
+      expect(screen.getByDisplayValue("Scenario 1")).toHaveStyle(SHARED_INPUT);
+      // The scenario-level "Monthly extra" amount input starts empty
+      // (placeholder "0"); the pattern-card amount below it shares the
+      // placeholder, so both must carry the shared chrome.
+      for (const el of screen.getAllByPlaceholderText("0")) {
+        expect(el).toHaveStyle(SHARED_INPUT);
+      }
+    });
   });
 
   it("restores persisted mortgage state on remount", () => {
