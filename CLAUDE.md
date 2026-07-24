@@ -45,7 +45,7 @@ All colour lives in `src/components/ui.ts`: the semantic `colors` map (grounds, 
 
 ### Domain / UI split — the central rule
 
-Everything under `src/domain/` is pure, framework-free TypeScript with no React imports. This is what makes the test suite (domain tests plus `workers/sync-worker/index.test.ts`) fast and thorough. Keep business logic in `src/domain/` and out of components; components in `src/components/` and `App.tsx` are shells over domain functions. Shared UI helpers (e.g. `DateInputWithDisplay`) live in `src/components/shared.tsx`.
+Everything under `src/domain/` is pure, framework-free TypeScript with no React imports. This is what makes the test suite (domain tests plus `workers/sync-worker/index.test.ts`) fast and thorough. Keep business logic in `src/domain/` and out of components; components in `src/components/` and `App.tsx` are shells over domain functions. Shared UI helpers (e.g. `DateInputWithDisplay`) live in `src/components/shared.tsx`. The three dialogs (`OverrideModal`, `QuickAddTransactionModal`, `RuleEditorModal`) render their content inside the shared `src/components/Modal.tsx` shell, which owns dialog accessibility once for all of them: `role="dialog"`/`aria-modal`, Escape and backdrop-click to close, focus moved into the dialog on open (and restored to the trigger on close), and Tab wrapped inside the dialog.
 
 ### Three subsystems
 

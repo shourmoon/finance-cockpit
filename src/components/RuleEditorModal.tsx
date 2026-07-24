@@ -3,6 +3,7 @@ import type { RecurringRule } from "../domain/types";
 // Import date formatter to display anchor dates consistently
 import { formatDate } from "../utils/dates";
 import { ui, colors } from "./ui";
+import Modal from "./Modal";
 
 interface RuleEditorModalProps {
   rule: RecurringRule | null;
@@ -108,9 +109,10 @@ export default function RuleEditorModal({
   }
 
   return (
-    <div style={styles.backdrop}>
-      <div style={styles.modal}>
-        <h3 style={{ ...ui.cardTitle, marginBottom: 12 }}>Edit Recurring Rule</h3>
+    <Modal onClose={onClose} labelledBy="ruleeditor-modal-title">
+      <h3 id="ruleeditor-modal-title" style={{ ...ui.cardTitle, marginBottom: 12 }}>
+        Edit Recurring Rule
+      </h3>
 
         <label style={styles.label}>
           Name
@@ -244,8 +246,7 @@ export default function RuleEditorModal({
             Cancel
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -255,8 +256,6 @@ function clampInt(value: number, min: number, max: number): number {
 }
 
 const styles: Record<string, CSSProperties> = {
-  backdrop: ui.modalBackdrop,
-  modal: ui.modalSurface,
   label: {
     display: "flex",
     flexDirection: "column",

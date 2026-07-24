@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { DateInputWithDisplay, NumberInput } from "./shared";
 import { ui, colors } from "./ui";
+import Modal from "./Modal";
 
 export interface QuickAddValues {
   name: string;
@@ -52,59 +53,57 @@ export default function QuickAddTransactionModal({
   }
 
   return (
-    <div style={styles.backdrop}>
-      <div style={styles.modal}>
-        <h3 style={{ ...ui.cardTitle, marginBottom: 12 }}>Add one-time transaction</h3>
+    <Modal onClose={onClose} labelledBy="quickadd-modal-title">
+      <h3 id="quickadd-modal-title" style={{ ...ui.cardTitle, marginBottom: 12 }}>
+        Add one-time transaction
+      </h3>
 
-        <label style={styles.label}>
-          Name
-          <input
-            style={styles.input}
-            type="text"
-            aria-label="Transaction name"
-            value={name}
-            placeholder="e.g. Car repair"
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
+      <label style={styles.label}>
+        Name
+        <input
+          style={styles.input}
+          type="text"
+          aria-label="Transaction name"
+          value={name}
+          placeholder="e.g. Car repair"
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
 
-        <label style={styles.label}>
-          Amount (positive = inflow, negative = expense)
-          <NumberInput
-            value={amount}
-            onChange={setAmount}
-            ariaLabel="Transaction amount"
-            inputStyle={styles.input}
-          />
-        </label>
+      <label style={styles.label}>
+        Amount (positive = inflow, negative = expense)
+        <NumberInput
+          value={amount}
+          onChange={setAmount}
+          ariaLabel="Transaction amount"
+          inputStyle={styles.input}
+        />
+      </label>
 
-        <label style={styles.label}>
-          Date
-          <DateInputWithDisplay
-            value={date}
-            onChange={(val) => {
-              if (val) setDate(val);
-            }}
-            inputStyle={styles.input}
-          />
-        </label>
+      <label style={styles.label}>
+        Date
+        <DateInputWithDisplay
+          value={date}
+          onChange={(val) => {
+            if (val) setDate(val);
+          }}
+          inputStyle={styles.input}
+        />
+      </label>
 
-        <div style={styles.buttonRow}>
-          <button onClick={handleAdd} style={styles.saveBtn}>
-            Add
-          </button>
-          <button onClick={onClose} style={styles.cancelBtn}>
-            Cancel
-          </button>
-        </div>
+      <div style={styles.buttonRow}>
+        <button onClick={handleAdd} style={styles.saveBtn}>
+          Add
+        </button>
+        <button onClick={onClose} style={styles.cancelBtn}>
+          Cancel
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  backdrop: ui.modalBackdrop,
-  modal: ui.modalSurface,
   label: {
     display: "flex",
     flexDirection: "column",
