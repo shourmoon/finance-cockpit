@@ -669,39 +669,38 @@ export default function App() {
                             {e.isOverridden && " *"}
                           </span>
                         </div>
-                        {/* Amount first, then the balance it produces. */}
-                        <div style={styles.eventFigures}>
-                          <span
-                            style={{
-                              ...styles.eventAmount,
-                              color:
-                                e.effectiveAmount >= 0
-                                  ? colors.positive
-                                  : colors.danger,
-                            }}
-                          >
-                            {e.effectiveAmount >= 0 ? "+" : ""}
-                            {formatMoney(e.effectiveAmount)}
-                          </span>
-                          <span style={styles.eventArrow}>→</span>
-                          <span
-                            style={{
-                              ...styles.eventBalance,
-                              color:
-                                runningBalance === undefined
-                                  ? colors.text
-                                  : runningBalance < 0
-                                  ? colors.danger
-                                  : runningBalance < state.settings.minSafeBalance
-                                  ? colors.amber
-                                  : colors.text,
-                            }}
-                          >
-                            {runningBalance !== undefined
-                              ? formatMoney(runningBalance)
-                              : "—"}
-                          </span>
-                        </div>
+                        {/* Amount and balance sit in fixed columns so the
+                            arrows and running balances line up down the list. */}
+                        <span
+                          style={{
+                            ...styles.eventAmount,
+                            color:
+                              e.effectiveAmount >= 0
+                                ? colors.positive
+                                : colors.danger,
+                          }}
+                        >
+                          {e.effectiveAmount >= 0 ? "+" : ""}
+                          {formatMoney(e.effectiveAmount)}
+                        </span>
+                        <span style={styles.eventArrow}>→</span>
+                        <span
+                          style={{
+                            ...styles.eventBalance,
+                            color:
+                              runningBalance === undefined
+                                ? colors.text
+                                : runningBalance < 0
+                                ? colors.danger
+                                : runningBalance < state.settings.minSafeBalance
+                                ? colors.amber
+                                : colors.text,
+                          }}
+                        >
+                          {runningBalance !== undefined
+                            ? formatMoney(runningBalance)
+                            : "—"}
+                        </span>
                       </div>
                     </div>
                   );
@@ -820,7 +819,7 @@ const styles: Record<string, any> = {
   container: {
     maxWidth: 600,
     margin: "0 auto",
-    padding: 16,
+    padding: 13,
     // Use the same dark background and typography as other tabs for
     // consistency.  The container also controls the overall text color.
     backgroundColor: "#020617",
@@ -831,7 +830,7 @@ const styles: Record<string, any> = {
   },
   header: {
     textAlign: "center",
-    marginBottom: 16,
+    marginBottom: 12,
     fontWeight: 600,
     fontSize: 24,
     color: "#f4f4f5",
@@ -840,7 +839,7 @@ const styles: Record<string, any> = {
     display: "flex",
     justifyContent: "center",
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   tabButton: {
     flex: 1,
@@ -900,8 +899,8 @@ const styles: Record<string, any> = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    paddingBottom: 10,
-    marginBottom: 10,
+    paddingBottom: 8,
+    marginBottom: 8,
     borderBottom: "1px solid #1f2933",
     gap: 8,
   },
@@ -985,11 +984,11 @@ const styles: Record<string, any> = {
   // without a wasted header row or any indent.
   eventRow: {
     display: "grid",
-    gridTemplateColumns: "22px 1fr auto",
+    gridTemplateColumns: "20px minmax(0, 1fr) 78px 12px 82px",
     alignItems: "center",
-    columnGap: 8,
-    paddingTop: 6,
-    paddingBottom: 6,
+    columnGap: 6,
+    paddingTop: 4,
+    paddingBottom: 4,
     cursor: "pointer",
   },
   eventRowNewDay: {
@@ -1017,6 +1016,7 @@ const styles: Record<string, any> = {
   // to the figures rather than collapsing to "Withd…".
   eventName: {
     fontSize: 14,
+    lineHeight: 1.25,
     overflow: "hidden",
     textOverflow: "ellipsis",
     display: "-webkit-box",
@@ -1024,28 +1024,25 @@ const styles: Record<string, any> = {
     WebkitBoxOrient: "vertical",
     overflowWrap: "anywhere",
   },
-  eventFigures: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 4,
-    flex: "0 0 auto",
-    whiteSpace: "nowrap",
-    fontVariantNumeric: "tabular-nums",
-  },
   eventAmount: {
     fontSize: 11,
     fontWeight: 600,
     whiteSpace: "nowrap",
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
   },
   eventArrow: {
     fontSize: 10,
     color: "#52525b",
     lineHeight: 1,
+    textAlign: "center",
   },
   eventBalance: {
     fontSize: 12.5,
     fontWeight: 700,
     whiteSpace: "nowrap",
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
   },
   eventsHint: {
     fontSize: 11,

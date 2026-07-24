@@ -1441,7 +1441,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   label: {
     fontSize: 12,
@@ -1469,7 +1469,7 @@ const styles: Record<string, React.CSSProperties> = {
   prepayList: {
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 10,
   },
   // Flat, divider-separated row rather than a filled nested card — matches
   // the Recurring Rules / Upcoming Events lists, so the log reads as a
@@ -1478,7 +1478,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 6,
-    paddingBottom: 12,
+    paddingBottom: 10,
     borderBottom: `1px dashed ${colors.cardBorder}`,
   },
   prepayTopRow: {
