@@ -998,7 +998,7 @@ const styles: Record<string, any> = {
   // Inline date column — shown on the first row of each day, blank on the
   // rest. Small and muted; the month banner carries the year.
   eventDate: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 600,
     color: colors.muted,
     whiteSpace: "nowrap",
@@ -1014,8 +1014,11 @@ const styles: Record<string, any> = {
   // Wrap to at most two lines (then ellipsis) instead of a hard one-line
   // truncation, so names like "Withdraw from savings" stay readable next
   // to the figures rather than collapsing to "Withd…".
+  // Name, amount, and balance share one 13px size — hierarchy comes from
+  // weight and colour (bold balance, medium amount, regular name), never
+  // from mismatched sizes.
   eventName: {
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 1.25,
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -1025,20 +1028,20 @@ const styles: Record<string, any> = {
     overflowWrap: "anywhere",
   },
   eventAmount: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: 600,
     whiteSpace: "nowrap",
     textAlign: "right",
     fontVariantNumeric: "tabular-nums",
   },
   eventArrow: {
-    fontSize: 10,
+    fontSize: 11,
     color: "#52525b",
     lineHeight: 1,
     textAlign: "center",
   },
   eventBalance: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: 700,
     whiteSpace: "nowrap",
     textAlign: "right",

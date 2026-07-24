@@ -99,6 +99,29 @@ describe("App shell", () => {
     expect(alphaRow.textContent).toContain("$1,200.00");
   });
 
+  it("renders the transaction name, amount, and balance at one font size", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-app-state-v1",
+      JSON.stringify({
+        version: 2,
+        account: { startingBalance: 1000 },
+        settings: { startDate: "2026-07-01", horizonDays: 30, minSafeBalance: 0 },
+        rules: [],
+        adhocTransactions: [
+          { id: "a1", name: "Alpha", amount: 200, date: "2026-07-10" },
+        ],
+        overrides: {},
+      })
+    );
+    render(<App />);
+
+    // Name, amount, and running balance should share one type size —
+    // hierarchy comes from weight/colour, not mismatched sizes.
+    expect(screen.getByText("Alpha")).toHaveStyle({ fontSize: "13px" });
+    expect(screen.getByText("+$200.00")).toHaveStyle({ fontSize: "13px" });
+    expect(screen.getByText("$1,200.00")).toHaveStyle({ fontSize: "13px" });
+  });
+
   it("shows a top-up hint when the projection dips below the safety floor", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
