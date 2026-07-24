@@ -661,7 +661,7 @@ export default function App() {
                         {/* Date only on the first row of each day; blank on the
                             rest so a day reads as one group. */}
                         <span style={styles.eventDate}>
-                          {newDay ? shortDate(e.date) : ""}
+                          {newDay ? dayOfMonth(e.date) : ""}
                         </span>
                         <div style={styles.eventMain}>
                           <span style={styles.eventName}>
@@ -783,11 +783,11 @@ export default function App() {
   );
 }
 
-// Compact date for the inline ledger column — drops the year (the month
-// banner already carries it): "10 Jul '26" -> "10 Jul".
-function shortDate(iso: string): string {
-  // formatDate joins with non-breaking spaces; drop the trailing year.
-  return formatDate(iso).replace(/[\s ]'\d{2}$/u, "");
+// Just the day-of-month for the inline ledger column — the month banner
+// above already carries the month and year, so "2026-07-10" -> "10".
+function dayOfMonth(iso: string): string {
+  const d = parseInt(iso.split("-")[2] ?? "", 10);
+  return Number.isFinite(d) ? String(d) : formatDate(iso);
 }
 
 function formatMoney(amount: number): string {
@@ -985,9 +985,9 @@ const styles: Record<string, any> = {
   // without a wasted header row or any indent.
   eventRow: {
     display: "grid",
-    gridTemplateColumns: "40px 1fr auto",
+    gridTemplateColumns: "22px 1fr auto",
     alignItems: "center",
-    columnGap: 6,
+    columnGap: 8,
     paddingTop: 6,
     paddingBottom: 6,
     cursor: "pointer",
@@ -999,11 +999,12 @@ const styles: Record<string, any> = {
   // Inline date column — shown on the first row of each day, blank on the
   // rest. Small and muted; the month banner carries the year.
   eventDate: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     color: colors.muted,
     whiteSpace: "nowrap",
     alignSelf: "center",
+    textAlign: "right",
     fontVariantNumeric: "tabular-nums",
   },
   eventMain: {
@@ -1032,7 +1033,7 @@ const styles: Record<string, any> = {
     fontVariantNumeric: "tabular-nums",
   },
   eventAmount: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 600,
     whiteSpace: "nowrap",
   },
@@ -1042,7 +1043,7 @@ const styles: Record<string, any> = {
     lineHeight: 1,
   },
   eventBalance: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: 700,
     whiteSpace: "nowrap",
   },

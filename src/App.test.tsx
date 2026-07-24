@@ -92,13 +92,11 @@ describe("App shell", () => {
     );
     render(<App />);
 
-    // The date sits inline in each transaction row (compact "10 Jul",
-    // year comes from the month banner) — not on its own wasted row.
+    // The date sits inline in each transaction row, not on a wasted row.
     const alphaRow = screen.getByText("Alpha").closest("div")!.parentElement!;
-    // formatDate uses non-breaking spaces; normalise before matching.
-    const rowText = (alphaRow.textContent ?? "").replace(/\u00A0/g, " ");
-    expect(rowText).toContain("10 Jul");
-    expect(rowText).toContain("$1,200.00");
+    // Inline date is just the day number; month/year come from the banner.
+    expect(alphaRow.firstElementChild?.textContent).toBe("10");
+    expect(alphaRow.textContent).toContain("$1,200.00");
   });
 
   it("shows a top-up hint when the projection dips below the safety floor", () => {
