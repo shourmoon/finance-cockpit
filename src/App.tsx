@@ -93,13 +93,35 @@ export default function App() {
     [timeline, state.settings.minSafeBalance]
   );
 
-  const runningBalanceByDate = useMemo(() => {
-    const byDate = new Map<string, number>();
-    for (const point of timeline) {
-      byDate.set(point.date, point.balance);
+  // Running balance *after each individual event*, so a ledger row shows
+  // the balance that transaction produces — not the day's closing balance
+  // repeated on every same-day row. Events are in the engine's processing
+  // order, so this prefix sum matches the timeline: the last event of a day
+  // lands on that day's closing balance.
+  const runningBalanceByEvent = useMemo(() => {
+    const byEvent = new Map<string, number>();
+    let balance = state.account.startingBalance;
+    for (const e of events) {
+      balance += e.effectiveAmount;
+      byEvent.set(e.id, balance);
     }
-    return byDate;
-  }, [timeline]);
+    return byEvent;
+  }, [events, state.account.startingBalance]);
+
+  // Consecutive same-date events, grouped for the ledger so a day's
+  // transactions read as one block under a single dated header.
+  const eventDayGroups = useMemo(() => {
+    const shown = showAllEvents
+      ? events
+      : events.slice(0, EVENTS_PREVIEW_COUNT);
+    const groups: { date: string; events: FutureEvent[] }[] = [];
+    for (const e of shown) {
+      const last = groups[groups.length - 1];
+      if (last && last.date === e.date) last.events.push(e);
+      else groups.push({ date: e.date, events: [e] });
+    }
+    return groups;
+  }, [events, showAllEvents]);
 
   useEffect(() => {
     saveAppState(state);
@@ -611,68 +633,94 @@ export default function App() {
             ) : (
               <>
                 <div style={styles.eventsHint}>Tap a row to override its amount</div>
-                {/* Two-line rows instead of a fixed-column table so the list
-                    fits any screen width — on phones the old 90/110/120px
-                    columns overflowed the card and forced zooming. Month
-                    separators break the list up; only the first
-                    EVENTS_PREVIEW_COUNT show until "Show all" is tapped. */}
-                {(showAllEvents
-                  ? events
-                  : events.slice(0, EVENTS_PREVIEW_COUNT)
-                ).map((e, i, shown) => {
-                  const runningBalance = runningBalanceByDate.get(e.date);
+
+                {/* Ledger opening line: where the balance starts, before any
+                    upcoming event moves it. */}
+                <div style={styles.openingRow}>
+                  <span style={styles.openingLabel}>Starting balance</span>
+                  <span style={styles.openingValue}>
+                    {formatMoney(state.account.startingBalance)}
+                  </span>
+                </div>
+
+                {/* Grouped by day: transactions that land on the same date sit
+                    together under one dated header inside a left-railed block,
+                    so it's clear they're one day. A month separator breaks the
+                    list into months; only the first EVENTS_PREVIEW_COUNT events
+                    show until "Show all" is tapped. */}
+                {eventDayGroups.map((day, di) => {
                   const newMonth =
-                    i === 0 || monthKey(e.date) !== monthKey(shown[i - 1].date);
+                    di === 0 ||
+                    monthKey(day.date) !== monthKey(eventDayGroups[di - 1].date);
                   return (
-                    <div key={e.id}>
+                    <div key={day.date}>
                       {newMonth && (
                         <div style={styles.monthSeparator}>
-                          {monthYearLabel(e.date)}
+                          {monthYearLabel(day.date)}
                         </div>
                       )}
-                      <div
-                        style={styles.eventRow}
-                        onClick={() => setSelectedEvent(e)}
-                      >
-                        {/* Amount and balance sit side by side, amount
-                            first — reads like a ledger: this change leads
-                            to this balance. Name/date stack on the left. */}
-                        <div style={styles.eventMain}>
-                          <span style={styles.eventName}>
-                            {e.ruleName}
-                            {e.isOverridden && " *"}
-                          </span>
-                          <span style={styles.eventDate}>{formatDate(e.date)}</span>
+                      <div style={styles.dayGroup}>
+                        <div style={styles.dayHeader}>
+                          <span style={styles.dayDate}>{formatDate(day.date)}</span>
+                          {day.events.length > 1 && (
+                            <span style={styles.dayCount}>
+                              {day.events.length} transactions
+                            </span>
+                          )}
                         </div>
-                        <div style={styles.eventFigures}>
-                          <span
-                            style={{
-                              ...styles.eventAmount,
-                              color: e.effectiveAmount >= 0 ? colors.positive : colors.danger,
-                            }}
-                          >
-                            {e.effectiveAmount >= 0 ? "+" : ""}
-                            {formatMoney(e.effectiveAmount)}
-                          </span>
-                          <span style={styles.eventArrow}>→</span>
-                          <span
-                            style={{
-                              ...styles.eventBalance,
-                              color:
-                                runningBalance === undefined
-                                  ? colors.text
-                                  : runningBalance < 0
-                                  ? colors.danger
-                                  : runningBalance < state.settings.minSafeBalance
-                                  ? colors.amber
-                                  : colors.text,
-                            }}
-                          >
-                            {runningBalance !== undefined
-                              ? formatMoney(runningBalance)
-                              : "—"}
-                          </span>
-                          <span style={styles.eventChevron}>›</span>
+                        <div style={styles.dayRows}>
+                          {day.events.map((e) => {
+                            const runningBalance = runningBalanceByEvent.get(e.id);
+                            return (
+                              <div
+                                key={e.id}
+                                style={styles.eventRow}
+                                onClick={() => setSelectedEvent(e)}
+                              >
+                                {/* Amount first, then the balance it produces —
+                                    reads like a ledger line. */}
+                                <div style={styles.eventMain}>
+                                  <span style={styles.eventName}>
+                                    {e.ruleName}
+                                    {e.isOverridden && " *"}
+                                  </span>
+                                </div>
+                                <div style={styles.eventFigures}>
+                                  <span
+                                    style={{
+                                      ...styles.eventAmount,
+                                      color:
+                                        e.effectiveAmount >= 0
+                                          ? colors.positive
+                                          : colors.danger,
+                                    }}
+                                  >
+                                    {e.effectiveAmount >= 0 ? "+" : ""}
+                                    {formatMoney(e.effectiveAmount)}
+                                  </span>
+                                  <span style={styles.eventArrow}>→</span>
+                                  <span
+                                    style={{
+                                      ...styles.eventBalance,
+                                      color:
+                                        runningBalance === undefined
+                                          ? colors.text
+                                          : runningBalance < 0
+                                          ? colors.danger
+                                          : runningBalance < state.settings.minSafeBalance
+                                          ? colors.amber
+                                          : colors.text,
+                                    }}
+                                  >
+                                    {runningBalance !== undefined
+                                      ? formatMoney(runningBalance)
+                                      : "—"}
+                                  </span>
+                                  <span style={styles.eventChevron}>›</span>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -927,52 +975,101 @@ const styles: Record<string, any> = {
     borderColor: "rgba(248, 113, 113, 0.8)",
     color: "#fecaca",
   },
+  // Ledger opening line — the balance before any upcoming event.
+  openingRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 10,
+    paddingBottom: 10,
+    marginBottom: 10,
+    borderBottom: `1px solid ${colors.cardBorder}`,
+  },
+  openingLabel: {
+    ...ui.miniLabel,
+  },
+  openingValue: {
+    fontSize: 16,
+    fontWeight: 700,
+    color: colors.text,
+  },
+  // A day's transactions grouped as one block under a dated header.
+  dayGroup: {
+    marginBottom: 14,
+  },
+  dayHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    marginBottom: 6,
+  },
+  dayDate: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: colors.muted,
+  },
+  // Count badge that appears only when a day holds more than one txn —
+  // the explicit "these are the same day" cue.
+  dayCount: {
+    fontSize: 10,
+    color: colors.faint,
+    border: `1px solid ${colors.cardBorder}`,
+    borderRadius: 999,
+    padding: "1px 7px",
+  },
+  // Left rail brackets the day's rows so same-day transactions read as
+  // one group.
+  dayRows: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    borderLeft: `2px solid ${colors.cardBorder}`,
+    paddingLeft: 8,
+  },
   eventRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    paddingBottom: 8,
-    borderBottom: "1px dashed #1f2933",
-    marginBottom: 8,
     cursor: "pointer",
   },
   eventMain: {
     display: "flex",
     flexDirection: "column",
-    gap: 2,
     flex: "1 1 auto",
     minWidth: 0,
   },
+  // Wrap to at most two lines (then ellipsis) instead of a hard one-line
+  // truncation, so names like "Withdraw from savings" stay readable next
+  // to the figures rather than collapsing to "Withd…".
   eventName: {
     fontSize: 14,
     overflow: "hidden",
     textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  eventDate: {
-    fontSize: 12,
-    color: "#9ca3af",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflowWrap: "anywhere",
   },
   eventFigures: {
     display: "flex",
     alignItems: "baseline",
-    gap: 6,
+    gap: 5,
     flex: "0 0 auto",
     whiteSpace: "nowrap",
   },
   eventAmount: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 600,
     whiteSpace: "nowrap",
   },
   eventArrow: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#52525b",
     lineHeight: 1,
   },
   eventBalance: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 700,
     whiteSpace: "nowrap",
   },

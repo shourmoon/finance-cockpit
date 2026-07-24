@@ -48,6 +48,55 @@ describe("App shell", () => {
     expect(within(row!).getByText("→")).toBeInTheDocument();
   });
 
+  it("opens the ledger with a starting-balance line and runs a per-transaction balance", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-app-state-v1",
+      JSON.stringify({
+        version: 2,
+        account: { startingBalance: 1000 },
+        settings: { startDate: "2026-07-01", horizonDays: 30, minSafeBalance: 0 },
+        rules: [],
+        adhocTransactions: [
+          { id: "a1", name: "Alpha", amount: 200, date: "2026-07-10" },
+          { id: "a2", name: "Beta", amount: -50, date: "2026-07-10" },
+        ],
+        overrides: {},
+      })
+    );
+    render(<App />);
+
+    // Opening ledger line shows where the balance started.
+    const opening = screen.getByText("Starting balance").parentElement;
+    expect(opening?.textContent).toContain("$1,000.00");
+
+    // Same-day rows run a progressing balance (1000 -> 1200 -> 1150),
+    // not the day's closing balance repeated on every row.
+    expect(screen.getByText("$1,200.00")).toBeInTheDocument();
+    expect(screen.getByText("$1,150.00")).toBeInTheDocument();
+  });
+
+  it("groups same-day transactions under one dated header with a count", () => {
+    window.localStorage.setItem(
+      "finance-cockpit-app-state-v1",
+      JSON.stringify({
+        version: 2,
+        account: { startingBalance: 1000 },
+        settings: { startDate: "2026-07-01", horizonDays: 30, minSafeBalance: 0 },
+        rules: [],
+        adhocTransactions: [
+          { id: "a1", name: "Alpha", amount: 200, date: "2026-07-10" },
+          { id: "a2", name: "Beta", amount: -50, date: "2026-07-10" },
+        ],
+        overrides: {},
+      })
+    );
+    render(<App />);
+
+    // The shared date is shown once as a header, not repeated per row.
+    expect(screen.getAllByText("10 Jul '26")).toHaveLength(1);
+    expect(screen.getByText(/2 transactions/)).toBeInTheDocument();
+  });
+
   it("shows a top-up hint when the projection dips below the safety floor", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
@@ -185,9 +234,10 @@ describe("App shell", () => {
     const raw = window.localStorage.getItem("finance-cockpit-app-state-v1")!;
     expect(JSON.parse(raw).account.startingBalance).toBe(5000);
 
-    // Dashboard reflects it too.
+    // Dashboard reflects it too — shown both as the "Balance today" metric
+    // and as the ledger's opening "Starting balance" line.
     fireEvent.click(screen.getByText("Dashboard"));
-    expect(screen.getByText("$5,000.00")).toBeInTheDocument();
+    expect(screen.getAllByText("$5,000.00").length).toBeGreaterThan(0);
   });
 
   it("updates horizon and minimum safe balance", () => {
