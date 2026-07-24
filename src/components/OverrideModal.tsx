@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FutureEvent } from "../domain/types";
 // Use the shared date formatter so the modal displays dates consistently
 import { formatDate } from "../utils/dates";
+import { ui, colors } from "./ui";
 
 interface Props {
   event: FutureEvent | null;
@@ -27,10 +28,10 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
   return (
     <div style={styles.backdrop}>
       <div style={styles.modal}>
-        <h3 style={{ marginTop: 0 }}>
+        <h3 style={{ ...ui.cardTitle, marginBottom: 10 }}>
           Override: {event.ruleName}
           <br />
-          <span style={{ fontSize: 13, fontWeight: 400 }}>
+          <span style={{ fontSize: 13, fontWeight: 400, color: colors.muted }}>
             {formatDate(event.date)}
           </span>
         </h3>
@@ -82,67 +83,29 @@ function formatMoney(amount: number): string {
 }
 
 const styles: Record<string, any> = {
-  backdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 999,
-  },
-  modal: {
-    background: "#111827",
-    padding: 20,
-    borderRadius: 12,
-    width: "92%",
-    maxWidth: 380,
-    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-    maxHeight: "90vh",
-    overflowY: "auto",
-    border: "1px solid #1f2937",
-    color: "#e5e7eb",
-  },
+  backdrop: ui.modalBackdrop,
+  modal: ui.modalSurface,
   row: {
     display: "flex",
     justifyContent: "space-between",
-    marginBottom: 14,
-    fontSize: 15,
+    marginBottom: 12,
+    fontSize: 14,
   },
   label: {
     display: "flex",
     flexDirection: "column",
+    gap: 6,
     marginBottom: 12,
-    fontSize: 14,
+    fontSize: 13,
+    color: colors.muted,
   },
-  input: {
-    marginTop: 6,
-    padding: 8,
-    fontSize: 16,
-    background: "#020617",
-    color: "#e5e7eb",
-    border: "1px solid #4b5563",
-    borderRadius: 8,
-  },
+  input: { ...ui.input, marginTop: 2 },
   buttonRow: {
     display: "flex",
     justifyContent: "space-between",
+    gap: 8,
     marginTop: 16,
   },
-  saveBtn: {
-    padding: "8px 14px",
-    background: "#2196f3",
-    color: "#fff",
-    border: "none",
-    borderRadius: 6,
-    fontSize: 15,
-  },
-  cancelBtn: {
-    padding: "8px 14px",
-    background: "#4b5563",
-    border: "none",
-    borderRadius: 6,
-    fontSize: 15,
-    color: "#e5e7eb",
-  },
+  saveBtn: { ...ui.primaryButton, flex: 1, padding: "9px 14px", fontSize: 14 },
+  cancelBtn: { ...ui.secondaryButton, flex: 1, padding: "9px 14px" },
 };

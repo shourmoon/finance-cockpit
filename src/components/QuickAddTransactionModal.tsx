@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { DateInputWithDisplay, NumberInput } from "./shared";
+import { ui, colors } from "./ui";
 
 export interface QuickAddValues {
   name: string;
@@ -53,7 +54,7 @@ export default function QuickAddTransactionModal({
   return (
     <div style={styles.backdrop}>
       <div style={styles.modal}>
-        <h3 style={{ marginTop: 0 }}>Add one-time transaction</h3>
+        <h3 style={{ ...ui.cardTitle, marginBottom: 12 }}>Add one-time transaction</h3>
 
         <label style={styles.label}>
           Name
@@ -102,65 +103,23 @@ export default function QuickAddTransactionModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  backdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 999,
-  },
-  modal: {
-    background: "#111827",
-    padding: 20,
-    borderRadius: 12,
-    width: "92%",
-    maxWidth: 380,
-    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-    maxHeight: "90vh",
-    overflowY: "auto",
-    border: "1px solid #1f2937",
-    color: "#e5e7eb",
-  },
+  backdrop: ui.modalBackdrop,
+  modal: ui.modalSurface,
   label: {
     display: "flex",
     flexDirection: "column",
-    marginBottom: 12,
-    fontSize: 14,
     gap: 6,
+    marginBottom: 12,
+    fontSize: 13,
+    color: colors.muted,
   },
-  input: {
-    padding: 8,
-    fontSize: 16,
-    background: "#020617",
-    color: "#e5e7eb",
-    border: "1px solid #4b5563",
-    borderRadius: 8,
-    width: "100%",
-  },
+  input: ui.input,
   buttonRow: {
     display: "flex",
     justifyContent: "space-between",
-    marginTop: 16,
     gap: 8,
+    marginTop: 16,
   },
-  saveBtn: {
-    flex: 1,
-    padding: "8px 14px",
-    background: "#2563eb",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 15,
-  },
-  cancelBtn: {
-    flex: 1,
-    padding: "8px 14px",
-    background: "#4b5563",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 15,
-    color: "#e5e7eb",
-  },
+  saveBtn: { ...ui.primaryButton, flex: 1, padding: "9px 14px", fontSize: 14 },
+  cancelBtn: { ...ui.secondaryButton, flex: 1, padding: "9px 14px" },
 };

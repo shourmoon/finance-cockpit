@@ -1416,7 +1416,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   details: {
     marginTop: 14,
-    borderTop: "1px solid #18181b",
+    borderTop: `1px solid ${colors.cardBorder}`,
     paddingTop: 12,
   },
   detailsSummary: {
@@ -1424,7 +1424,7 @@ const styles: Record<string, React.CSSProperties> = {
     listStyle: "none",
     fontSize: 13,
     fontWeight: 600,
-    color: "#f4f4f5",
+    color: colors.title,
     display: "flex",
     flexWrap: "wrap",
     alignItems: "baseline",
@@ -1433,7 +1433,7 @@ const styles: Record<string, React.CSSProperties> = {
   detailsHint: {
     fontSize: 11,
     fontWeight: 400,
-    color: "#a1a1aa",
+    color: colors.muted,
   },
   inputRow: {
     display: "flex",
@@ -1445,7 +1445,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   label: {
     fontSize: 12,
-    color: "#a1a1aa",
+    color: colors.muted,
   },
   input: ui.input,
   summaryRow: {
@@ -1453,16 +1453,16 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     fontSize: 13,
     padding: "4px 0",
-    color: "#d4d4d8",
+    color: colors.text,
     gap: 12,
   },
   addButton: ui.addButton,
   emptyState: {
     fontSize: 13,
-    color: "#a1a1aa",
+    color: colors.muted,
     padding: 8,
     borderRadius: 8,
-    border: "1px dashed #27272a",
+    border: `1px dashed ${colors.cardBorder}`,
     backgroundColor: "#09090b",
   },
   deleteButton: ui.deleteButton,
@@ -1497,7 +1497,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   scenarioCard: {
     borderRadius: 10,
-    border: "1px solid #27272a",
+    border: `1px solid ${colors.cardBorder}`,
     padding: 10,
     backgroundColor: "#0b0b0f",
     display: "flex",
@@ -1512,17 +1512,17 @@ const styles: Record<string, React.CSSProperties> = {
   scenarioNameInput: {
     flex: 1,
     borderRadius: 8,
-    border: "1px solid #3f3f46",
+    border: `1px solid ${colors.inputBorder}`,
     padding: "4px 8px",
-    backgroundColor: "#18181b",
-    color: "#e4e4e7",
+    backgroundColor: colors.inputBg,
+    color: colors.text,
     fontSize: 13,
   },
   scenarioToggleLabel: {
     display: "flex",
     alignItems: "center",
     fontSize: 12,
-    color: "#a1a1aa",
+    color: colors.muted,
   },
   scenarioBodyRow: {
     display: "flex",
@@ -1532,7 +1532,7 @@ const styles: Record<string, React.CSSProperties> = {
   scenarioPatternsSection: {
     marginTop: 8,
     paddingTop: 8,
-    borderTop: "1px solid #27272a",
+    borderTop: `1px solid ${colors.cardBorder}`,
     display: "flex",
     flexDirection: "column",
     gap: 6,
@@ -1556,7 +1556,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   scenarioPatternsEmpty: {
     fontSize: 12,
-    color: "#a1a1aa",
+    color: colors.muted,
     padding: "4px 0 6px",
   },
   scenarioPatternAddRow: {
@@ -1568,7 +1568,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   scenarioPatternAddLabel: {
     fontSize: 11,
-    color: "#a1a1aa",
+    color: colors.muted,
   },
   scenarioPatternAddButton: ui.chip,
   // New styles for the redesigned scenario pattern cards.
@@ -1579,7 +1579,7 @@ const styles: Record<string, React.CSSProperties> = {
   // them from the input values.
   patternCard: {
     borderRadius: 8,
-    border: "1px solid #27272a",
+    border: `1px solid ${colors.cardBorder}`,
     backgroundColor: "#09090b",
     padding: 8,
     display: "flex",
@@ -1590,15 +1590,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     borderRadius: 999,
     padding: "2px 6px",
-    border: "1px solid #3f3f46",
-    backgroundColor: "#18181b",
-    color: "#d4d4d8",
+    border: `1px solid ${colors.inputBorder}`,
+    backgroundColor: colors.inputBg,
+    color: colors.text,
   },
   patternDeleteButton: {
     borderRadius: 999,
-    border: "1px solid #3f3f46",
-    backgroundColor: "#18181b",
-    color: "#a1a1aa",
+    border: `1px solid ${colors.inputBorder}`,
+    backgroundColor: colors.inputBg,
+    color: colors.muted,
     width: 26,
     height: 26,
     fontSize: 13,

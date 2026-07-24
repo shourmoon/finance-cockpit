@@ -143,4 +143,56 @@ export const ui = {
     letterSpacing: "0.06em",
     color: colors.faint,
   } as CSSProperties,
+
+  // Modal shell — the surface matches the app's card (same gradient,
+  // border, shadow) so dialogs read as elevated cards, not a different
+  // blue-grey theme.
+  modalBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(2,6,23,0.72)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 999,
+    padding: 16,
+  } as CSSProperties,
+
+  modalSurface: {
+    background:
+      "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
+    border: `1px solid ${colors.cardBorder}`,
+    borderRadius: 12,
+    padding: 16,
+    width: "100%",
+    maxWidth: 400,
+    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
+    maxHeight: "90vh",
+    overflowY: "auto",
+    color: colors.text,
+  } as CSSProperties,
+
+  // Neutral pill for secondary actions (Cancel).
+  secondaryButton: {
+    padding: "8px 14px",
+    fontSize: 14,
+    borderRadius: 999,
+    border: `1px solid ${colors.inputBorder}`,
+    background: colors.inputBg,
+    color: colors.text,
+    fontWeight: 600,
+    cursor: "pointer",
+  } as CSSProperties,
+
+  // Filled red pill for destructive actions (Delete).
+  dangerButton: {
+    padding: "8px 14px",
+    fontSize: 14,
+    borderRadius: 999,
+    border: "none",
+    background: "#b91c1c",
+    color: "#fef2f2",
+    fontWeight: 600,
+    cursor: "pointer",
+  } as CSSProperties,
 };
