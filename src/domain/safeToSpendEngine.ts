@@ -129,7 +129,7 @@ export function transferDepositToTransaction(
   deposit: TopUpDeposit
 ): Omit<AdhocTransaction, "id"> {
   return {
-    name: "Transfer from savings",
+    name: "Top Up",
     amount: Math.round(deposit.amount * 100) / 100,
     date: deposit.date,
   };

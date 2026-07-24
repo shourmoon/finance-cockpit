@@ -183,7 +183,7 @@ describe("App shell", () => {
     // The hint is gone because the applied transfer covers the whole horizon.
     expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
     // The applied transfer shows up as a real inflow in Upcoming Events.
-    expect(screen.getAllByText("Transfer from savings").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Top Up").length).toBeGreaterThan(0);
 
     const saved = JSON.parse(
       window.localStorage.getItem("finance-cockpit-app-state-v1")!
@@ -191,7 +191,7 @@ describe("App shell", () => {
     expect(
       saved.adhocTransactions.some(
         (t: { name: string; amount: number }) =>
-          t.name === "Transfer from savings" && t.amount > 0
+          t.name === "Top Up" && t.amount > 0
       )
     ).toBe(true);
   });
@@ -223,7 +223,7 @@ describe("App shell", () => {
     // single-hint row) rather than a "N transfers" plan.
     expect(screen.queryByText(/transfers keep you above your floor/)).not.toBeInTheDocument();
     expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
-    expect(screen.getAllByText("Transfer from savings").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Top Up").length).toBeGreaterThan(0);
   });
 
   it("hides the top-up hint when the balance stays above the floor", () => {

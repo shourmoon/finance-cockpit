@@ -129,7 +129,7 @@ describe("transferDepositToTransaction", () => {
       balanceBefore: -50,
     });
     expect(txn).toEqual({
-      name: "Transfer from savings",
+      name: "Top Up",
       amount: 250,
       date: "2025-03-10",
     });
