@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import type { FutureEvent } from "../domain/types";
 // Use the shared date formatter so the modal displays dates consistently
 import { formatDate } from "../utils/dates";
@@ -82,7 +82,7 @@ function formatMoney(amount: number): string {
   });
 }
 
-const styles: Record<string, any> = {
+const styles: Record<string, CSSProperties> = {
   backdrop: ui.modalBackdrop,
   modal: ui.modalSurface,
   row: {

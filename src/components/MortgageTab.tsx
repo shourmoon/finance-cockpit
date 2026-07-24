@@ -1217,7 +1217,7 @@ export default function MortgageTab() {
               <div
                 style={{
                   borderRadius: 8,
-                  border: "1px solid #27272a",
+                  border: `1px solid ${colors.cardBorder}`,
                   overflow: "hidden",
                   fontSize: 12,
                 }}
@@ -1230,8 +1230,8 @@ export default function MortgageTab() {
                     gap: 4,
                     background:
                       "linear-gradient(90deg, rgba(39,39,42,1), rgba(24,24,27,1))",
-                    borderBottom: "1px solid #3f3f46",
-                    color: "#a1a1aa",
+                    borderBottom: `1px solid ${colors.inputBorder}`,
+                    color: colors.muted,
                   }}
                 >
                   <div>Date</div>
@@ -1248,15 +1248,15 @@ export default function MortgageTab() {
                       gridTemplateColumns: "1.1fr 1fr 1.6fr 1.3fr 1.3fr",
                       padding: "6px 8px",
                       gap: 4,
-                      borderBottom: "1px solid #18181b",
-                      backgroundColor: idx % 2 === 0 ? "#020617" : "#050816",
+                      borderBottom: `1px solid ${colors.inputBg}`,
+                      backgroundColor: idx % 2 === 0 ? colors.bg : colors.surfaceInset,
                     }}
                   >
                     <div>{formatDateDisplay(row.date)}</div>
                     <div>{formatCurrency(row.amount)}</div>
                     <div>
                       <div>{formatCurrency(row.interestSaved)}</div>
-                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                      <div style={{ fontSize: 10, color: colors.positiveSoft }}>
                         {row.interestSavedIncremental > 0
                           ? `+${formatCurrency(row.interestSavedIncremental)}`
                           : formatCurrency(row.interestSavedIncremental)}
@@ -1264,7 +1264,7 @@ export default function MortgageTab() {
                     </div>
                     <div>
                       <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
-                      <div style={{ fontSize: 10, color: "#6ee7b7" }}>
+                      <div style={{ fontSize: 10, color: colors.positiveSoft }}>
                         {row.monthsSavedIncremental > 0
                           ? `+${formatMonthsAsYearsMonths(row.monthsSavedIncremental)}`
                           : formatMonthsAsYearsMonths(row.monthsSavedIncremental)}
@@ -1463,7 +1463,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 8,
     borderRadius: 8,
     border: `1px dashed ${colors.cardBorder}`,
-    backgroundColor: "#09090b",
+    backgroundColor: colors.surfaceInset,
   },
   deleteButton: ui.deleteButton,
   prepayList: {
@@ -1499,7 +1499,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 10,
     border: `1px solid ${colors.cardBorder}`,
     padding: 10,
-    backgroundColor: "#0b0b0f",
+    backgroundColor: colors.surfaceInset,
     display: "flex",
     flexDirection: "column",
     gap: 6,
@@ -1580,7 +1580,7 @@ const styles: Record<string, React.CSSProperties> = {
   patternCard: {
     borderRadius: 8,
     border: `1px solid ${colors.cardBorder}`,
-    backgroundColor: "#09090b",
+    backgroundColor: colors.surfaceInset,
     padding: 8,
     display: "flex",
     flexDirection: "column",

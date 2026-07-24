@@ -15,6 +15,8 @@ export default defineConfig({
         name: "Finance Cockpit",
         short_name: "Finance",
         description: "Cashflow and mortgage optimizer.",
+        // Mirrors colors.bg in src/components/ui.ts (kept in sync by hand;
+        // the manifest can't import runtime tokens).
         theme_color: "#020617",
         background_color: "#020617",
         display: "standalone",

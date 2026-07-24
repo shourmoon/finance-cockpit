@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { formatDate } from "../utils/dates";
+import { colors } from "./ui";
 
 /**
  * Numeric input that tolerates in-progress typing. A controlled
@@ -82,7 +83,7 @@ export function DateInputWithDisplay({
         style={inputStyle}
       />
       <span
-        style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, ...captionStyle }}
+        style={{ fontSize: 12, color: colors.muted, marginTop: 4, ...captionStyle }}
       >
         {formatDate(value) || "—"}
       </span>

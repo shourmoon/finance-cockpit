@@ -4,6 +4,8 @@
 // and props-driven so it can be unit-tested without the PWA runtime; the
 // wiring to virtual:pwa-register lives in main.tsx.
 
+import { colors } from "./ui";
+
 export default function UpdateBanner({
   visible,
   onRefresh,
@@ -47,8 +49,8 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
     padding: "10px 14px",
     borderRadius: 12,
-    background: "#1d4ed8",
-    color: "#f8fafc",
+    background: colors.blueStrong,
+    color: colors.blueInk,
     boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
     maxWidth: 576,
     margin: "0 auto",
@@ -68,8 +70,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     borderRadius: 8,
     border: "none",
-    background: "#f8fafc",
-    color: "#1d4ed8",
+    background: colors.blueInk,
+    color: colors.blueStrong,
     cursor: "pointer",
   },
   dismissButton: {
@@ -78,7 +80,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 8,
     border: "1px solid rgba(248,250,252,0.5)",
     background: "transparent",
-    color: "#f8fafc",
+    color: colors.blueInk,
     cursor: "pointer",
   },
 };

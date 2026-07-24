@@ -28,6 +28,25 @@ export default defineConfig([
       // formatted dates never wrap; allow them in templates/regexes.
       'no-irregular-whitespace': ['error', { skipTemplates: true, skipRegExps: true }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // Design-system guard: colour lives only in the tokens in
+      // src/components/ui.ts. A raw hex literal anywhere else is drift —
+      // add or reuse a token instead. (Overridden to allow it in ui.ts.)
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "Literal[value=/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/]",
+          message:
+            'Raw hex colour — use a token from src/components/ui.ts (colors/chart) instead.',
+        },
+      ],
     },
+  },
+  {
+    // ui.ts is where the tokens are defined, so hex literals live here.
+    // vite.config.ts holds the PWA manifest theme/background colour
+    // (mirrors colors.bg) — build config, not component styling.
+    files: ['src/components/ui.ts', 'vite.config.ts'],
+    rules: { 'no-restricted-syntax': 'off' },
   },
 ])

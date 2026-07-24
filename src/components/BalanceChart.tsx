@@ -10,6 +10,7 @@ import {
   nearestPointIndex,
 } from "../domain/chartGeometry";
 import { formatDate } from "../utils/dates";
+import { colors, chart } from "./ui";
 import type { TimelinePoint } from "../domain/types";
 
 function money0(value: number): string {
@@ -91,14 +92,14 @@ export default function BalanceChart({
         )}
 
         {/* Zero line */}
-        <line x1={padding} y1={zeroY} x2={W - padding} y2={zeroY} stroke="#3f3f46" strokeWidth="1" />
+        <line x1={padding} y1={zeroY} x2={W - padding} y2={zeroY} stroke={colors.inputBorder} strokeWidth="1" />
         {/* Safety-floor line (dashed amber) */}
         <line
           x1={padding}
           y1={floorY}
           x2={W - padding}
           y2={floorY}
-          stroke="#f59e0b"
+          stroke={chart.floor}
           strokeWidth="1"
           strokeDasharray="4 3"
           opacity="0.8"
@@ -108,7 +109,7 @@ export default function BalanceChart({
         <path
           d={trendPath}
           fill="none"
-          stroke="#818cf8"
+          stroke={chart.trend}
           strokeWidth="2.5"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -119,7 +120,7 @@ export default function BalanceChart({
         <path
           d={linePath}
           fill="none"
-          stroke="#60a5fa"
+          stroke={chart.daily}
           strokeWidth="1.25"
           strokeLinejoin="round"
           opacity="0.85"
@@ -128,11 +129,11 @@ export default function BalanceChart({
         {/* Deepest point (hidden while actively scrubbing to reduce clutter) */}
         {activePoint === null && (
           <>
-            <circle cx={min.x} cy={min.y} r="3" fill="#f97373" />
+            <circle cx={min.x} cy={min.y} r="3" fill={colors.danger} />
             <text
               x={min.x}
               y={Math.max(min.y - 6, 9)}
-              fill="#f97373"
+              fill={colors.danger}
               fontSize="9"
               textAnchor={min.x < 40 ? "start" : min.x > W - 40 ? "end" : "middle"}
             >
@@ -149,21 +150,21 @@ export default function BalanceChart({
               y1={padding}
               x2={activePoint.x}
               y2={bottom}
-              stroke="#93c5fd"
+              stroke={colors.link}
               strokeWidth="1"
               opacity="0.7"
             />
-            <circle cx={activePoint.x} cy={activePoint.y} r="3.5" fill="#93c5fd" />
+            <circle cx={activePoint.x} cy={activePoint.y} r="3.5" fill={colors.link} />
           </>
         )}
 
         {/* Horizon endpoints */}
         {activePoint === null && (
           <>
-            <text x={first.x} y={H - 1} fill="#9ca3af" fontSize="9" textAnchor="start">
+            <text x={first.x} y={H - 1} fill={colors.muted} fontSize="9" textAnchor="start">
               {formatDate(first.date)}
             </text>
-            <text x={last.x} y={H - 1} fill="#9ca3af" fontSize="9" textAnchor="end">
+            <text x={last.x} y={H - 1} fill={colors.muted} fontSize="9" textAnchor="end">
               {formatDate(last.date)}
             </text>
           </>
@@ -185,10 +186,10 @@ export default function BalanceChart({
               ...styles.readoutBalance,
               color:
                 activePoint.balance < 0
-                  ? "#f97373"
+                  ? colors.danger
                   : activePoint.balance < minSafeBalance
-                  ? "#fbbf24"
-                  : "#e4e4e7",
+                  ? colors.amber
+                  : colors.text,
             }}
           >
             {money0(activePoint.balance)}
@@ -210,7 +211,7 @@ const styles: Record<string, React.CSSProperties> = {
     top: 2,
     pointerEvents: "none",
     background: "rgba(9,9,11,0.95)",
-    border: "1px solid #3f3f46",
+    border: `1px solid ${colors.inputBorder}`,
     borderRadius: 8,
     padding: "4px 8px",
     minWidth: 96,
@@ -219,7 +220,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   readoutDate: {
     fontSize: 10,
-    color: "#a1a1aa",
+    color: colors.muted,
   },
   readoutBalance: {
     fontSize: 15,
@@ -228,6 +229,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   readoutFloor: {
     fontSize: 10,
-    color: "#9ca3af",
+    color: colors.muted,
   },
 };

@@ -398,7 +398,7 @@ export default function App() {
             </div>
 
             {state.adhocTransactions.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#9ca3af" }}>
+              <div style={{ fontSize: 13, color: colors.muted }}>
                 No one-time transactions yet. Add a known one-off inflow or
                 expense (bonus, car repair, tuition…) and it will appear in
                 the projection alongside your recurring rules.
@@ -613,7 +613,7 @@ export default function App() {
               </button>
             </div>
             {events.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#9ca3af" }}>
+              <div style={{ fontSize: 13, color: colors.muted }}>
                 No upcoming events in this horizon.
               </div>
             ) : (
@@ -815,17 +815,17 @@ function moneyInputStyle(amount: number): CSSProperties {
   };
 }
 
-const styles: Record<string, any> = {
+const styles: Record<string, CSSProperties> = {
   container: {
     maxWidth: 600,
     margin: "0 auto",
     padding: 13,
     // Use the same dark background and typography as other tabs for
     // consistency.  The container also controls the overall text color.
-    backgroundColor: "#020617",
+    backgroundColor: colors.bg,
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
-    color: "#e4e4e7",
+    color: colors.text,
     minHeight: "100vh",
   },
   header: {
@@ -833,7 +833,7 @@ const styles: Record<string, any> = {
     marginBottom: 12,
     fontWeight: 600,
     fontSize: 24,
-    color: "#f4f4f5",
+    color: colors.title,
   },
   tabRow: {
     display: "flex",
@@ -845,18 +845,18 @@ const styles: Record<string, any> = {
     flex: 1,
     padding: "8px 12px",
     borderRadius: 999,
-    border: "1px solid #374151",
+    border: `1px solid ${colors.tabBorder}`,
     background: "transparent",
-    color: "#9ca3af",
+    color: colors.muted,
     fontSize: 14,
   },
   tabButtonActive: {
     flex: 1,
     padding: "8px 12px",
     borderRadius: 999,
-    border: "1px solid #2563eb",
-    background: "#1d4ed8",
-    color: "#f9fafb",
+    border: `1px solid ${colors.blueEdge}`,
+    background: colors.blueStrong,
+    color: colors.blueInk,
     fontSize: 14,
   },
   card: ui.card,
@@ -883,9 +883,9 @@ const styles: Record<string, any> = {
     width: 90,
     padding: 6,
     fontSize: 13,
-    background: "#18181b",
-    color: "#e4e4e7",
-    border: "1px solid #4b5563",
+    background: colors.inputBg,
+    color: colors.text,
+    border: `1px solid ${colors.inputBorder}`,
     borderRadius: 8,
   },
   cardHeaderRow: {
@@ -901,7 +901,7 @@ const styles: Record<string, any> = {
     alignItems: "flex-start",
     paddingBottom: 8,
     marginBottom: 8,
-    borderBottom: "1px solid #1f2933",
+    borderBottom: `1px solid ${colors.hairline}`,
     gap: 8,
   },
   ruleInfo: {
@@ -913,7 +913,7 @@ const styles: Record<string, any> = {
   },
   ruleMeta: {
     fontSize: 12,
-    color: "#9ca3af",
+    color: colors.muted,
     marginTop: 4,
   },
   ruleControls: {
@@ -926,13 +926,13 @@ const styles: Record<string, any> = {
   metric: {
     marginBottom: 8,
     fontSize: 13,
-    color: "#d4d4d8",
+    color: colors.textSoft,
   },
   impactRow: {
     marginTop: 4,
     marginBottom: 8,
     fontSize: 12,
-    color: "#9ca3af",
+    color: colors.muted,
     display: "flex",
     flexDirection: "row",
     alignItems: "center",
@@ -959,7 +959,7 @@ const styles: Record<string, any> = {
   impactNegative: {
     backgroundColor: "rgba(220, 38, 38, 0.15)",
     borderColor: "rgba(248, 113, 113, 0.8)",
-    color: "#fecaca",
+    color: colors.dangerText,
   },
   // Ledger opening line — the balance before any upcoming event.
   openingRow: {
@@ -992,7 +992,7 @@ const styles: Record<string, any> = {
     cursor: "pointer",
   },
   eventRowNewDay: {
-    borderTop: "1px solid #33343b",
+    borderTop: `1px solid ${colors.dayDivider}`,
     marginTop: 2,
   },
   // Inline date column — shown on the first row of each day, blank on the
@@ -1036,7 +1036,7 @@ const styles: Record<string, any> = {
   },
   eventArrow: {
     fontSize: 11,
-    color: "#52525b",
+    color: colors.glyph,
     lineHeight: 1,
     textAlign: "center",
   },
@@ -1049,13 +1049,13 @@ const styles: Record<string, any> = {
   },
   eventsHint: {
     fontSize: 11,
-    color: "#6b7280",
+    color: colors.faint,
     marginBottom: 8,
   },
   chartCaption: {
     marginTop: 8,
     fontSize: 11,
-    color: "#9ca3af",
+    color: colors.muted,
   },
   // Bolder, full-width month band so months are obvious at a glance —
   // filled and heavier than the old faint small-caps label.
@@ -1077,9 +1077,9 @@ const styles: Record<string, any> = {
     padding: "8px 12px",
     fontSize: 13,
     borderRadius: 8,
-    border: "1px solid #27272a",
-    background: "#18181b",
-    color: "#93c5fd",
+    border: `1px solid ${colors.cardBorder}`,
+    background: colors.inputBg,
+    color: colors.link,
     cursor: "pointer",
   },
   presetRow: {
@@ -1092,7 +1092,7 @@ const styles: Record<string, any> = {
   presetChipActive: ui.chipActive,
   heroLabel: {
     fontSize: 13,
-    color: "#a1a1aa",
+    color: colors.muted,
     marginBottom: 2,
   },
   heroValue: {
@@ -1118,7 +1118,7 @@ const styles: Record<string, any> = {
   },
   topUpBy: {
     fontSize: 12,
-    color: "#d4d4d8",
+    color: colors.textSoft,
   },
   topUpDeposit: {
     display: "flex",
@@ -1133,7 +1133,7 @@ const styles: Record<string, any> = {
   },
   topUpDepositBy: {
     fontSize: 12,
-    color: "#d4d4d8",
+    color: colors.textSoft,
   },
   metricGrid: {
     marginTop: 10,

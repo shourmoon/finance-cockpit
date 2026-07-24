@@ -7,22 +7,61 @@
 
 import type { CSSProperties } from "react";
 
+// The single source of truth for colour. Every hex in the app lives here;
+// components reference these names, never raw literals (an eslint rule
+// enforces it). Near-duplicate values that had drifted in (#a1a1aa vs
+// #9ca3af, #e5e7eb vs #e4e4e7, #4b5563 vs #3f3f46, the several near-black
+// nested surfaces) are intentionally collapsed to one token each.
 export const colors = {
+  // Grounds & surfaces
   bg: "#020617",
+  surfaceInset: "#09090b", // nested cards, empty states
   cardBorder: "#27272a",
-  text: "#e4e4e7",
+  hairline: "#1f2933", // list-row dividers (rules / events)
+  dayDivider: "#33343b", // day-group divider in the ledger
+
+  // Text
   title: "#f4f4f5",
-  muted: "#9ca3af",
-  faint: "#6b7280",
+  text: "#e4e4e7",
+  textSoft: "#d4d4d8", // summary values
+  muted: "#9ca3af", // secondary text / labels
+  faint: "#6b7280", // tertiary labels
+  glyph: "#52525b", // arrows / chevrons
+
+  // Inputs
   inputBg: "#18181b",
   inputBorder: "#3f3f46",
-  green: "#22c55e",
-  greenInk: "#022c22",
+
+  // Brand / actions
   blue: "#3b82f6",
   blueInk: "#f9fafb",
-  danger: "#f97373",
-  amber: "#fbbf24",
+  blueStrong: "#1d4ed8", // active tab fill / banner
+  blueEdge: "#2563eb", // active tab border
+  link: "#93c5fd", // text links (show-more, sync, chart cursor)
+  tabBorder: "#374151", // inactive tab border
+
+  // Money / status
+  green: "#22c55e",
+  greenInk: "#022c22",
   positive: "#4ade80",
+  positiveSoft: "#6ee7b7", // incremental savings
+  danger: "#f97373",
+  dangerText: "#fecaca", // text on danger surfaces
+  dangerSolid: "#b91c1c", // filled destructive button
+  dangerInk: "#fef2f2",
+  dangerBorder: "#7f1d1d",
+  dangerSurface: "#1f0b0b",
+  rose: "#fda4af", // outline delete-button text
+  error: "#f87171", // sync error text
+  amber: "#fbbf24",
+  amberEdge: "#92400e", // warning surface border
+};
+
+// Balance chart lines that aren't part of the core UI palette.
+export const chart = {
+  floor: "#f59e0b", // min-safe-balance dashed line
+  trend: "#818cf8", // smoothed trend line
+  daily: "#60a5fa", // daily balance line
 };
 
 export const ui = {
@@ -190,8 +229,8 @@ export const ui = {
     fontSize: 14,
     borderRadius: 999,
     border: "none",
-    background: "#b91c1c",
-    color: "#fef2f2",
+    background: colors.dangerSolid,
+    color: colors.dangerInk,
     fontWeight: 600,
     cursor: "pointer",
   } as CSSProperties,

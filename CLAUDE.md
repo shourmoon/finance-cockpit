@@ -39,6 +39,10 @@ The sync endpoint URL is read from the `VITE_SYNC_BASE_URL` env var at build tim
 
 Finance Cockpit is a local-first React 18 + TypeScript PWA (Vite + vite-plugin-pwa). All state lives in `localStorage`; a Cloudflare Worker backend is used only for opt-in cross-device sync. There is no router, no state library, no CSS framework (styling is inline `style` objects), and runtime dependencies are only `react`/`react-dom`.
 
+### Design tokens — the single source of colour
+
+All colour lives in `src/components/ui.ts`: the semantic `colors` map (grounds, text, inputs, brand, money/status) and the `chart` map (balance-chart lines), plus shared style objects (`ui.card`, `ui.input`, `ui.primaryButton`, `ui.modalSurface`, …). Components reference these tokens — **never raw hex**. An eslint rule (`no-restricted-syntax` in `eslint.config.js`) fails the build on any hex colour literal outside `ui.ts` (and the `vite.config.ts` PWA manifest, which mirrors `colors.bg` by hand). To add a colour, add a named token; to restyle a surface, change the token so every tab moves together.
+
 ### Domain / UI split — the central rule
 
 Everything under `src/domain/` is pure, framework-free TypeScript with no React imports. This is what makes the test suite (domain tests plus `workers/sync-worker/index.test.ts`) fast and thorough. Keep business logic in `src/domain/` and out of components; components in `src/components/` and `App.tsx` are shells over domain functions. Shared UI helpers (e.g. `DateInputWithDisplay`) live in `src/components/shared.tsx`.

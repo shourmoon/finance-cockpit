@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import type { RecurringRule } from "../domain/types";
 // Import date formatter to display anchor dates consistently
 import { formatDate } from "../utils/dates";
@@ -223,7 +223,7 @@ export default function RuleEditorModal({
                   onChange={(e) => setAnchorDate(e.target.value)}
                 />
                 {/* Show the selected anchor date in the unified display format */}
-                <span style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+                <span style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
                   {formatDate(anchorDate) || "—"}
                 </span>
               </div>
@@ -254,7 +254,7 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
-const styles: Record<string, any> = {
+const styles: Record<string, CSSProperties> = {
   backdrop: ui.modalBackdrop,
   modal: ui.modalSurface,
   label: {

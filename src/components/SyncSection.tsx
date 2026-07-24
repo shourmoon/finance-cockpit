@@ -12,7 +12,7 @@ import { useMemo, useState } from "react";
 import type { RemoteStateResponse } from "../domain/persistence/remote";
 import { createCloudflareAdapter } from "../domain/persistence/remoteCloudflare";
 import { RemoteSyncError, stubRemoteAdapter } from "../domain/persistence/remote";
-import { ui } from "./ui";
+import { ui, colors } from "./ui";
 import {
   applySnapshot,
   backupLocalBeforePull,
@@ -359,22 +359,22 @@ export default function SyncSection() {
     <div style={styles.card}>
       <h3 style={styles.cardTitle}>Sync &amp; Multi‑Device</h3>
 
-      <div style={{ marginBottom: 12, fontSize: 13, color: "#a1a1aa" }}>
+      <div style={{ marginBottom: 12, fontSize: 13, color: colors.muted }}>
         Enter the same <b>Sync Key</b> and <b>PIN</b> on every device. Use “Sync now” for automatic behaviour,
         or use Pull/Push for explicit control.
       </div>
 
       <div style={{ ...styles.kvRow, marginBottom: 10 }}>
-        <div style={{ color: "#a1a1aa" }}>Remote:</div>
-        <div style={{ color: "#e4e4e7" }}>{hasRemote ? SYNC_BASE_URL : "Not configured"}</div>
+        <div style={{ color: colors.muted }}>Remote:</div>
+        <div style={{ color: colors.text }}>{hasRemote ? SYNC_BASE_URL : "Not configured"}</div>
       </div>
       <div style={{ ...styles.kvRow, marginBottom: 10 }}>
-        <div style={{ color: "#a1a1aa" }}>Remote updated_at:</div>
-        <div style={{ color: "#e4e4e7" }}>{formatTs(remoteUpdatedAt)}</div>
+        <div style={{ color: colors.muted }}>Remote updated_at:</div>
+        <div style={{ color: colors.text }}>{formatTs(remoteUpdatedAt)}</div>
       </div>
       <div style={{ ...styles.kvRow, marginBottom: 14 }}>
-        <div style={{ color: "#a1a1aa" }}>Last synced (this device):</div>
-        <div style={{ color: "#e4e4e7" }}>{formatTs(lastSynced)}</div>
+        <div style={{ color: colors.muted }}>Last synced (this device):</div>
+        <div style={{ color: colors.text }}>{formatTs(lastSynced)}</div>
       </div>
 
       <label style={{ ...styles.label, flexDirection: "column", alignItems: "flex-start" }}>
@@ -397,7 +397,7 @@ export default function SyncSection() {
           onChange={(e) => setPin(e.target.value)}
           placeholder="PIN (never stored)"
         />
-        <span style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
+        <span style={{ marginTop: 6, fontSize: 12, color: colors.faint }}>
           PIN is SHA‑256 hashed in your browser; only the hash is sent.
         </span>
       </label>
@@ -427,19 +427,19 @@ export default function SyncSection() {
 
       {conflict && (
         <div style={styles.conflictBox}>
-          <div style={{ fontWeight: 600, color: "#fbbf24", marginBottom: 6 }}>
+          <div style={{ fontWeight: 600, color: colors.amber, marginBottom: 6 }}>
             Conflict detected
           </div>
-          <div style={{ fontSize: 12, color: "#a1a1aa", marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
             Remote changed while pushing. Choose which version to keep.
           </div>
           <div style={{ ...styles.kvRow, marginBottom: 6 }}>
-            <div style={{ color: "#a1a1aa" }}>Remote updated_at:</div>
-            <div style={{ color: "#e4e4e7" }}>{formatTs(conflict.remote.updated_at)}</div>
+            <div style={{ color: colors.muted }}>Remote updated_at:</div>
+            <div style={{ color: colors.text }}>{formatTs(conflict.remote.updated_at)}</div>
           </div>
           <div style={{ ...styles.kvRow, marginBottom: 12 }}>
-            <div style={{ color: "#a1a1aa" }}>Local captured at:</div>
-            <div style={{ color: "#e4e4e7" }}>{formatTs(conflict.local.updated_at)}</div>
+            <div style={{ color: colors.muted }}>Local captured at:</div>
+            <div style={{ color: colors.text }}>{formatTs(conflict.local.updated_at)}</div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <button style={styles.secondaryButton(loading)} onClick={handleKeepRemote} disabled={loading}>
@@ -452,8 +452,8 @@ export default function SyncSection() {
         </div>
       )}
 
-      {message && <div style={{ marginTop: 10, fontSize: 12, color: "#4ade80" }}>{message}</div>}
-      {error && <div style={{ marginTop: 10, fontSize: 12, color: "#f87171" }}>{error}</div>}
+      {message && <div style={{ marginTop: 10, fontSize: 12, color: colors.positive }}>{message}</div>}
+      {error && <div style={{ marginTop: 10, fontSize: 12, color: colors.error }}>{error}</div>}
     </div>
   );
 }
@@ -479,6 +479,8 @@ function mapSyncError(e: any): string {
   return String(e?.message ?? "Sync failed");
 }
 
+// Mixed record: static CSSProperties plus disabled-aware button
+// factories, so it stays loosely typed.
 const styles: Record<string, any> = {
   card: ui.card,
   cardTitle: ui.cardTitle,
@@ -487,7 +489,7 @@ const styles: Record<string, any> = {
     gap: 8,
     marginBottom: 12,
     fontSize: 13,
-    color: "#a1a1aa",
+    color: colors.muted,
   },
   input: ui.input,
   kvRow: {
@@ -501,8 +503,8 @@ const styles: Record<string, any> = {
     fontSize: 13,
     borderRadius: 10,
     border: "none",
-    background: "#3b82f6",
-    color: "#f9fafb",
+    background: colors.blue,
+    color: colors.blueInk,
     opacity: disabled ? 0.6 : 1,
     cursor: disabled ? "not-allowed" : "pointer",
   }),
@@ -510,9 +512,9 @@ const styles: Record<string, any> = {
     padding: "8px 12px",
     fontSize: 13,
     borderRadius: 10,
-    border: "1px solid #3f3f46",
-    background: "#111827",
-    color: "#e5e7eb",
+    border: `1px solid ${colors.inputBorder}`,
+    background: colors.inputBg,
+    color: colors.text,
     opacity: disabled ? 0.6 : 1,
     cursor: disabled ? "not-allowed" : "pointer",
   }),
@@ -520,9 +522,9 @@ const styles: Record<string, any> = {
     padding: "8px 12px",
     fontSize: 13,
     borderRadius: 10,
-    border: "1px solid #3f3f46",
-    background: "#0b1220",
-    color: "#a1a1aa",
+    border: `1px solid ${colors.inputBorder}`,
+    background: colors.inputBg,
+    color: colors.muted,
     opacity: disabled ? 0.6 : 1,
     cursor: disabled ? "not-allowed" : "pointer",
   }),
@@ -530,9 +532,9 @@ const styles: Record<string, any> = {
     padding: "8px 12px",
     fontSize: 13,
     borderRadius: 10,
-    border: "1px solid #7f1d1d",
-    background: "#1f0b0b",
-    color: "#fecaca",
+    border: `1px solid ${colors.dangerBorder}`,
+    background: colors.dangerSurface,
+    color: colors.dangerText,
     opacity: disabled ? 0.6 : 1,
     cursor: disabled ? "not-allowed" : "pointer",
   }),
@@ -540,7 +542,7 @@ const styles: Record<string, any> = {
     marginTop: 12,
     borderRadius: 12,
     padding: 12,
-    border: "1px solid #92400e",
+    border: `1px solid ${colors.amberEdge}`,
     background: "rgba(146, 64, 14, 0.15)",
   },
 };
