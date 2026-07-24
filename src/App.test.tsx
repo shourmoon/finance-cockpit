@@ -75,7 +75,7 @@ describe("App shell", () => {
     expect(screen.getByText("$1,150.00")).toBeInTheDocument();
   });
 
-  it("groups same-day transactions under one dated header with a count", () => {
+  it("shows each transaction's date inline on its own row, grouped by day", () => {
     window.localStorage.setItem(
       "finance-cockpit-app-state-v1",
       JSON.stringify({
@@ -92,9 +92,13 @@ describe("App shell", () => {
     );
     render(<App />);
 
-    // The shared date is shown once as a header, not repeated per row.
-    expect(screen.getAllByText("10 Jul '26")).toHaveLength(1);
-    expect(screen.getByText(/2 transactions/)).toBeInTheDocument();
+    // The date sits inline in each transaction row (compact "10 Jul",
+    // year comes from the month banner) — not on its own wasted row.
+    const alphaRow = screen.getByText("Alpha").closest("div")!.parentElement!;
+    // formatDate uses non-breaking spaces; normalise before matching.
+    const rowText = (alphaRow.textContent ?? "").replace(/\u00A0/g, " ");
+    expect(rowText).toContain("10 Jul");
+    expect(rowText).toContain("$1,200.00");
   });
 
   it("shows a top-up hint when the projection dips below the safety floor", () => {

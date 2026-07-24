@@ -108,20 +108,6 @@ export default function App() {
     return byEvent;
   }, [events, state.account.startingBalance]);
 
-  // Consecutive same-date events, grouped for the ledger so a day's
-  // transactions read as one block under a single dated header.
-  const eventDayGroups = useMemo(() => {
-    const shown = showAllEvents
-      ? events
-      : events.slice(0, EVENTS_PREVIEW_COUNT);
-    const groups: { date: string; events: FutureEvent[] }[] = [];
-    for (const e of shown) {
-      const last = groups[groups.length - 1];
-      if (last && last.date === e.date) last.events.push(e);
-      else groups.push({ date: e.date, events: [e] });
-    }
-    return groups;
-  }, [events, showAllEvents]);
 
   useEffect(() => {
     saveAppState(state);
@@ -643,90 +629,78 @@ export default function App() {
                   </span>
                 </div>
 
-                {/* Grouped by day: transactions that land on the same date sit
-                    together under one dated header inside a left-railed block,
-                    so it's clear they're one day. A month separator breaks the
-                    list into months; only the first EVENTS_PREVIEW_COUNT events
-                    show until "Show all" is tapped. */}
-                {eventDayGroups.map((day, di) => {
+                {/* Flat, compact rows with the date inline in a left column
+                    (shown per row, no wasted header row). A divider marks each
+                    new day so same-date transactions read as one group, and a
+                    month banner breaks the list into months. Only the first
+                    EVENTS_PREVIEW_COUNT events show until "Show all" is tapped. */}
+                {(showAllEvents
+                  ? events
+                  : events.slice(0, EVENTS_PREVIEW_COUNT)
+                ).map((e, i, shown) => {
+                  const prev = shown[i - 1];
                   const newMonth =
-                    di === 0 ||
-                    monthKey(day.date) !== monthKey(eventDayGroups[di - 1].date);
+                    i === 0 || monthKey(e.date) !== monthKey(prev.date);
+                  const newDay = i === 0 || e.date !== prev.date;
+                  const runningBalance = runningBalanceByEvent.get(e.id);
                   return (
-                    <div key={day.date}>
+                    <div key={e.id}>
                       {newMonth && (
                         <div style={styles.monthSeparator}>
-                          {monthYearLabel(day.date)}
+                          {monthYearLabel(e.date)}
                         </div>
                       )}
                       <div
                         style={
-                          newMonth
-                            ? { ...styles.dayGroup, ...styles.dayGroupFirst }
-                            : styles.dayGroup
+                          newDay && !newMonth
+                            ? { ...styles.eventRow, ...styles.eventRowNewDay }
+                            : styles.eventRow
                         }
+                        onClick={() => setSelectedEvent(e)}
                       >
-                        <div style={styles.dayHeader}>
-                          <span style={styles.dayDate}>{formatDate(day.date)}</span>
-                          {day.events.length > 1 && (
-                            <span style={styles.dayCount}>
-                              {day.events.length} transactions
-                            </span>
-                          )}
+                        {/* Date only on the first row of each day; blank on the
+                            rest so a day reads as one group. */}
+                        <span style={styles.eventDate}>
+                          {newDay ? shortDate(e.date) : ""}
+                        </span>
+                        <div style={styles.eventMain}>
+                          <span style={styles.eventName}>
+                            {e.ruleName}
+                            {e.isOverridden && " *"}
+                          </span>
                         </div>
-                        <div style={styles.dayRows}>
-                          {day.events.map((e) => {
-                            const runningBalance = runningBalanceByEvent.get(e.id);
-                            return (
-                              <div
-                                key={e.id}
-                                style={styles.eventRow}
-                                onClick={() => setSelectedEvent(e)}
-                              >
-                                {/* Amount first, then the balance it produces —
-                                    reads like a ledger line. */}
-                                <div style={styles.eventMain}>
-                                  <span style={styles.eventName}>
-                                    {e.ruleName}
-                                    {e.isOverridden && " *"}
-                                  </span>
-                                </div>
-                                <div style={styles.eventFigures}>
-                                  <span
-                                    style={{
-                                      ...styles.eventAmount,
-                                      color:
-                                        e.effectiveAmount >= 0
-                                          ? colors.positive
-                                          : colors.danger,
-                                    }}
-                                  >
-                                    {e.effectiveAmount >= 0 ? "+" : ""}
-                                    {formatMoney(e.effectiveAmount)}
-                                  </span>
-                                  <span style={styles.eventArrow}>→</span>
-                                  <span
-                                    style={{
-                                      ...styles.eventBalance,
-                                      color:
-                                        runningBalance === undefined
-                                          ? colors.text
-                                          : runningBalance < 0
-                                          ? colors.danger
-                                          : runningBalance < state.settings.minSafeBalance
-                                          ? colors.amber
-                                          : colors.text,
-                                    }}
-                                  >
-                                    {runningBalance !== undefined
-                                      ? formatMoney(runningBalance)
-                                      : "—"}
-                                  </span>
-                                  <span style={styles.eventChevron}>›</span>
-                                </div>
-                              </div>
-                            );
-                          })}
+                        {/* Amount first, then the balance it produces. */}
+                        <div style={styles.eventFigures}>
+                          <span
+                            style={{
+                              ...styles.eventAmount,
+                              color:
+                                e.effectiveAmount >= 0
+                                  ? colors.positive
+                                  : colors.danger,
+                            }}
+                          >
+                            {e.effectiveAmount >= 0 ? "+" : ""}
+                            {formatMoney(e.effectiveAmount)}
+                          </span>
+                          <span style={styles.eventArrow}>→</span>
+                          <span
+                            style={{
+                              ...styles.eventBalance,
+                              color:
+                                runningBalance === undefined
+                                  ? colors.text
+                                  : runningBalance < 0
+                                  ? colors.danger
+                                  : runningBalance < state.settings.minSafeBalance
+                                  ? colors.amber
+                                  : colors.text,
+                            }}
+                          >
+                            {runningBalance !== undefined
+                              ? formatMoney(runningBalance)
+                              : "—"}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -809,6 +783,13 @@ export default function App() {
   );
 }
 
+// Compact date for the inline ledger column — drops the year (the month
+// banner already carries it): "10 Jul '26" -> "10 Jul".
+function shortDate(iso: string): string {
+  // formatDate joins with non-breaking spaces; drop the trailing year.
+  return formatDate(iso).replace(/[\s ]'\d{2}$/u, "");
+}
+
 function formatMoney(amount: number): string {
   if (!Number.isFinite(amount)) return "$0.00";
   return amount.toLocaleString("en-US", {
@@ -886,7 +867,7 @@ const styles: Record<string, any> = {
   settingsGrid: {
     display: "flex",
     flexWrap: "wrap",
-    gap: 12,
+    gap: 10,
   },
   // Matches the Mortgage tab's LabeledNumberInput container exactly
   // (flex: 1, minWidth: 130) so both config forms wrap to the same
@@ -999,56 +980,35 @@ const styles: Record<string, any> = {
     fontWeight: 700,
     color: colors.text,
   },
-  // A day's transactions grouped under a dated header. Days are separated
-  // by a flat divider (compact, no indent, no card box) so same-day rows
-  // read as one block between two day lines.
-  dayGroup: {
-    borderTop: `1px solid ${colors.cardBorder}`,
-    paddingTop: 8,
-    marginTop: 8,
-  },
-  // The first day under a month banner needs no divider above it.
-  dayGroupFirst: {
-    borderTop: "none",
-    paddingTop: 0,
-    marginTop: 0,
-  },
-  dayHeader: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    marginBottom: 5,
-  },
-  dayDate: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#d4d4d8",
-  },
-  // Count badge that appears only when a day holds more than one txn —
-  // the explicit "these are the same day" cue.
-  dayCount: {
-    fontSize: 10,
-    color: colors.faint,
-    border: `1px solid ${colors.cardBorder}`,
-    borderRadius: 999,
-    padding: "1px 7px",
-  },
-  dayRows: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
+  // Compact ledger row: inline date column | name | figures. A divider
+  // above the first row of each new day groups same-date transactions
+  // without a wasted header row or any indent.
   eventRow: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: "40px 1fr auto",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
+    columnGap: 6,
+    paddingTop: 6,
+    paddingBottom: 6,
     cursor: "pointer",
+  },
+  eventRowNewDay: {
+    borderTop: "1px solid #33343b",
+    marginTop: 2,
+  },
+  // Inline date column — shown on the first row of each day, blank on the
+  // rest. Small and muted; the month banner carries the year.
+  eventDate: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: colors.muted,
+    whiteSpace: "nowrap",
+    alignSelf: "center",
+    fontVariantNumeric: "tabular-nums",
   },
   eventMain: {
     display: "flex",
     flexDirection: "column",
-    flex: "1 1 auto",
     minWidth: 0,
   },
   // Wrap to at most two lines (then ellipsis) instead of a hard one-line
@@ -1066,30 +1026,25 @@ const styles: Record<string, any> = {
   eventFigures: {
     display: "flex",
     alignItems: "baseline",
-    gap: 5,
+    gap: 4,
     flex: "0 0 auto",
     whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
   },
   eventAmount: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 600,
     whiteSpace: "nowrap",
   },
   eventArrow: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#52525b",
     lineHeight: 1,
   },
   eventBalance: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 700,
     whiteSpace: "nowrap",
-  },
-  eventChevron: {
-    flex: "0 0 auto",
-    color: "#52525b",
-    fontSize: 18,
-    lineHeight: 1,
   },
   eventsHint: {
     fontSize: 11,
@@ -1180,10 +1135,10 @@ const styles: Record<string, any> = {
     color: "#d4d4d8",
   },
   metricGrid: {
-    marginTop: 14,
+    marginTop: 10,
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: 10,
+    gap: 8,
   },
   metricCell: {
     display: "flex",
