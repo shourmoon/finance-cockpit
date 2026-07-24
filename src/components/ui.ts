@@ -26,10 +26,13 @@ export const colors = {
 };
 
 export const ui = {
+  // Denser than a typical card: tighter padding and a smaller gap between
+  // cards so more data lands on screen. Applied through this shared token,
+  // every tab tightens together.
   card: {
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
+    padding: 13,
+    marginBottom: 12,
     background:
       "linear-gradient(145deg, rgba(24,24,27,0.98), rgba(9,9,11,0.98))",
     border: `1px solid ${colors.cardBorder}`,
@@ -38,7 +41,7 @@ export const ui = {
 
   cardTitle: {
     marginTop: 0,
-    marginBottom: 12,
+    marginBottom: 10,
     fontSize: 16,
     fontWeight: 600,
     color: colors.title,

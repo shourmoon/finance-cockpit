@@ -659,7 +659,13 @@ export default function App() {
                           {monthYearLabel(day.date)}
                         </div>
                       )}
-                      <div style={styles.dayGroup}>
+                      <div
+                        style={
+                          newMonth
+                            ? { ...styles.dayGroup, ...styles.dayGroupFirst }
+                            : styles.dayGroup
+                        }
+                      >
                         <div style={styles.dayHeader}>
                           <span style={styles.dayDate}>{formatDate(day.date)}</span>
                           {day.events.length > 1 && (
@@ -993,20 +999,30 @@ const styles: Record<string, any> = {
     fontWeight: 700,
     color: colors.text,
   },
-  // A day's transactions grouped as one block under a dated header.
+  // A day's transactions grouped under a dated header. Days are separated
+  // by a flat divider (compact, no indent, no card box) so same-day rows
+  // read as one block between two day lines.
   dayGroup: {
-    marginBottom: 14,
+    borderTop: `1px solid ${colors.cardBorder}`,
+    paddingTop: 8,
+    marginTop: 8,
+  },
+  // The first day under a month banner needs no divider above it.
+  dayGroupFirst: {
+    borderTop: "none",
+    paddingTop: 0,
+    marginTop: 0,
   },
   dayHeader: {
     display: "flex",
     alignItems: "baseline",
     gap: 8,
-    marginBottom: 6,
+    marginBottom: 5,
   },
   dayDate: {
     fontSize: 12,
-    fontWeight: 600,
-    color: colors.muted,
+    fontWeight: 700,
+    color: "#d4d4d8",
   },
   // Count badge that appears only when a day holds more than one txn —
   // the explicit "these are the same day" cue.
@@ -1017,14 +1033,10 @@ const styles: Record<string, any> = {
     borderRadius: 999,
     padding: "1px 7px",
   },
-  // Left rail brackets the day's rows so same-day transactions read as
-  // one group.
   dayRows: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
-    borderLeft: `2px solid ${colors.cardBorder}`,
-    paddingLeft: 8,
+    gap: 6,
   },
   eventRow: {
     display: "flex",
@@ -1082,17 +1094,26 @@ const styles: Record<string, any> = {
   eventsHint: {
     fontSize: 11,
     color: "#6b7280",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   chartCaption: {
     marginTop: 8,
     fontSize: 11,
     color: "#9ca3af",
   },
+  // Bolder, full-width month band so months are obvious at a glance —
+  // filled and heavier than the old faint small-caps label.
   monthSeparator: {
-    ...ui.miniLabel,
-    marginTop: 6,
-    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: "0.1em",
+    color: colors.title,
+    background: "rgba(255,255,255,0.05)",
+    borderRadius: 8,
+    padding: "6px 10px",
+    marginTop: 14,
+    marginBottom: 10,
   },
   showMoreButton: {
     width: "100%",
