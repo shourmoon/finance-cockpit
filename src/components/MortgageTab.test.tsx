@@ -131,8 +131,9 @@ describe("MortgageTab", () => {
     expect(screen.getByText(/No future prepayment patterns yet/)).toBeInTheDocument();
     expect(persisted().scenarios[0].patterns).toHaveLength(0);
 
-    // Typing into the quick "Monthly extra" field creates the first pattern
-    // and the scenario starts showing results.
+    // Adding a Monthly pattern and giving it an amount is what creates the
+    // first real pattern and starts showing results.
+    fireEvent.click(screen.getByText("Monthly"));
     fireEvent.change(screen.getAllByPlaceholderText("0")[0], {
       target: { value: "200" },
     });
@@ -348,13 +349,11 @@ describe("MortgageTab", () => {
       expect(dateInput).toHaveStyle({ minWidth: "150px" });
     });
 
-    it("scenario name and monthly-extra inputs use the same chrome", () => {
+    it("scenario name and pattern amount inputs use the same chrome", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add scenario"));
       expect(screen.getByDisplayValue("Scenario 1")).toHaveStyle(SHARED_INPUT);
-      // The scenario-level "Monthly extra" amount input starts empty
-      // (placeholder "0"); the pattern-card amount below it shares the
-      // placeholder, so both must carry the shared chrome.
+      fireEvent.click(screen.getByText("Monthly"));
       for (const el of screen.getAllByPlaceholderText("0")) {
         expect(el).toHaveStyle(SHARED_INPUT);
       }

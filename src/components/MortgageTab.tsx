@@ -563,50 +563,6 @@ export default function MortgageTab() {
     );
   }
 
-  function updateScenarioMonthlyAmount(id: string, newAmount: number) {
-    setScenarios((prev) =>
-      prev.map((s) => {
-        if (s.id !== id) return s;
-        const patterns = [...(s.patterns ?? [])];
-        const existingMonthlyIndex = patterns.findIndex(
-          (p) => p.kind === "monthly"
-        );
-
-        const baseDate = asOfDate || terms.startDate;
-
-        if (existingMonthlyIndex === -1) {
-          const created: MonthlyScenarioPattern = {
-            id: uuid(),
-            label: "Monthly extra",
-            kind: "monthly",
-            amount: newAmount,
-            startDate: baseDate,
-            dayOfMonthStrategy: "same-as-due-date",
-          };
-          return { ...s, patterns: [...patterns, created] };
-        }
-
-        const first = patterns[existingMonthlyIndex] as MonthlyScenarioPattern;
-
-        const updated: MonthlyScenarioPattern = {
-          ...first,
-          amount: newAmount,
-          startDate: first.startDate || baseDate,
-        };
-        patterns[existingMonthlyIndex] = updated;
-        return { ...s, patterns };
-      })
-    );
-  }
-
-  function getScenarioMonthlyAmount(s: MortgageScenarioConfig): number {
-    const patterns = s.patterns ?? [];
-    const firstMonthly = patterns.find(
-      (p) => p.kind === "monthly"
-    ) as MonthlyScenarioPattern | undefined;
-    if (!firstMonthly) return 0;
-    return firstMonthly.amount ?? 0;
-  }
 
   function renderScenarioPatternRow(
     scenarioId: string,
@@ -1284,7 +1240,6 @@ export default function MortgageTab() {
           <>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {scenarios.map((s) => {
-                const monthlyAmount = getScenarioMonthlyAmount(s);
                 return (
                   <div key={s.id} style={styles.scenarioCard}>
                     <div style={styles.scenarioHeaderRow}>
@@ -1309,19 +1264,6 @@ export default function MortgageTab() {
                         ✕
                       </button>
                     </div>
-                    <div style={styles.scenarioBodyRow}>
-                      <label style={styles.label}>Monthly extra</label>
-                      <input
-                        style={styles.input}
-                        type="text"
-                        value={monthlyAmount > 0 ? monthlyAmount.toString() : ""}
-                        placeholder="0"
-                        onChange={(e) => {
-                          const n = parseNumber(e.target.value) ?? 0;
-                          updateScenarioMonthlyAmount(s.id, n);
-                        }}
-                      />
-                    </div>
                     <div style={styles.scenarioPatternsSection}>
                       <div style={styles.scenarioPatternsHeaderRow}>
                         <span style={styles.patternHeaderKind}>Type</span>
@@ -1332,7 +1274,7 @@ export default function MortgageTab() {
                       </div>
                       {(s.patterns ?? []).length === 0 ? (
                         <div style={styles.scenarioPatternsEmpty}>
-                          No future prepayment patterns yet. Use the Monthly extra above or add a pattern below.
+                          No future prepayment patterns yet. Add one below.
                         </div>
                       ) : (
                         (s.patterns ?? []).map((p) => renderScenarioPatternRow(s.id, p))
@@ -1433,11 +1375,6 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     marginBottom: 8,
   },
-  label: {
-    fontSize: 12,
-    color: colors.muted,
-  },
-  input: ui.input,
   summaryRow: {
     display: "flex",
     justifyContent: "space-between",
@@ -1513,11 +1450,6 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     fontSize: 12,
     color: colors.muted,
-  },
-  scenarioBodyRow: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
   },
   scenarioPatternsSection: {
     marginTop: 8,
