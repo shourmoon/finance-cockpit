@@ -1,6 +1,7 @@
 // src/domain/mortgage/mortgageScenarios.test.ts
 import { describe, it, expect } from "vitest";
 import { runMortgageScenarios } from "./scenarios";
+import { computeMortgageWithPrepayments } from "./history";
 
 describe("mortgage scenarios engine", () => {
   const baseTerms = {
@@ -390,6 +391,26 @@ describe("mortgage scenarios - branch coverage", () => {
     );
   });
 
+  it("ignores a pattern with a non-finite amount instead of propagating NaN through the schedule", () => {
+    // Defense in depth: sanitizeMortgageUIState should already drop this
+    // upstream, but runMortgageScenarios must not corrupt the schedule if
+    // it's ever called directly with a malformed pattern.
+    const result = runMortgageScenarios(
+      ctx,
+      scenarioWith([
+        { id: "p", label: "bad", kind: "oneTime", amount: undefined, date: "2028-01-15" },
+      ])
+    );
+    expect(result.scenarios[0].totalInterest).toBeCloseTo(
+      result.actual.totalInterest,
+      5
+    );
+    expect(Number.isFinite(result.scenarios[0].totalInterest)).toBe(true);
+    expect(result.scenarios[0].schedule.every((e) => Number.isFinite(e.remaining))).toBe(
+      true
+    );
+  });
+
   it("ignores one-time payments before as-of or after payoff", () => {
     const result = runMortgageScenarios(
       ctx,
@@ -579,6 +600,15 @@ describe("mortgage scenarios - branch coverage", () => {
     );
     expect(result.actualMonthsSoFar).toBe(0);
     expect(result.actualInterestSoFar).toBe(0);
+    // Regression: the future simulation used to start one month after the
+    // first payment's own date instead of on it, shifting every date (and
+    // the payoff date) a month later than the real, unsliced schedule.
+    const groundTruth = computeMortgageWithPrepayments(terms, []);
+    expect(result.actual.schedule[0].date).toBe(groundTruth.schedule[0].date);
+    expect(result.actual.schedule.map((e) => e.date)).toEqual(
+      groundTruth.schedule.map((e) => e.date)
+    );
+    expect(result.actual.payoffDate).toBe(groundTruth.payoffDate);
     expect(result.effectiveAsOfDate).toBe(terms.startDate);
   });
 
@@ -665,5 +695,45 @@ describe("mortgage scenarios - extra dates need not align to the due day", () =>
       ])
     );
     expect(r.scenarios[0].totalInterest).toBeLessThan(r.actual.totalInterest);
+  });
+
+  it("applies a same-as-due-date monthly extra exactly once per month for a day-31 start date", () => {
+    // Regression: addMonths used to overflow day 31 into the next month,
+    // so this pattern used to apply the extra twice in March and skip
+    // February entirely.
+    const termsDay31 = {
+      principal: 300_000,
+      annualRate: 0.05,
+      termMonths: 360,
+      startDate: "2025-01-31",
+    };
+    const r = runMortgageScenarios(
+      { terms: termsDay31, pastPrepayments: [], asOfDate: "2025-01-31" },
+      mk([
+        {
+          id: "p",
+          label: "monthly",
+          kind: "monthly",
+          amount: 200,
+          startDate: "2025-01-31",
+          dayOfMonthStrategy: "same-as-due-date",
+        },
+      ])
+    );
+    const firstYear = r.scenarios[0].schedule.filter((e) => e.date < "2026-01-31");
+    const monthsSeen = firstYear.map((e) => e.date.slice(0, 7));
+    expect(new Set(monthsSeen).size).toBe(monthsSeen.length); // no month repeated
+    expect(monthsSeen).toContain("2025-02"); // February is not skipped
+
+    // The pattern's own start date (the first payment) is excluded by
+    // design (extras apply strictly after the start), so it's baseline-only.
+    expect(firstYear[0].principal).toBeLessThan(400);
+    // Every subsequent month in the first year carries exactly one $200
+    // extra on top of the baseline principal (which stays well under
+    // $700/mo this early in a 30-year, 5% loan) — never two, never zero.
+    for (const e of firstYear.slice(1)) {
+      expect(e.principal).toBeGreaterThan(400);
+      expect(e.principal).toBeLessThan(1_000);
+    }
   });
 });

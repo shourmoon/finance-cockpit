@@ -51,6 +51,115 @@ describe("sanitizeMortgageUIState (validator branches)", () => {
     expect(s!.prepayments).toHaveLength(1);
     expect(s!.scenarios).toHaveLength(1);
   });
+
+  it("treats a scenario with a missing/non-array patterns field as having none", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      scenarios: [
+        { id: "a", name: "A", active: true }, // patterns omitted entirely
+        { id: "b", name: "B", active: true, patterns: "nope" },
+      ],
+    });
+    expect(s!.scenarios).toHaveLength(2);
+    expect(s!.scenarios[0].patterns).toEqual([]);
+    expect(s!.scenarios[1].patterns).toEqual([]);
+  });
+
+  it("drops a pattern with a missing/non-finite amount instead of letting it through", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      scenarios: [
+        {
+          id: "a",
+          name: "A",
+          active: true,
+          patterns: [
+            { id: "p1", kind: "oneTime", date: "2025-06-01" }, // amount missing
+            { id: "p2", kind: "oneTime", date: "2025-06-01", amount: NaN },
+            { id: "p3", kind: "oneTime", date: "2025-06-01", amount: 500 }, // valid
+          ],
+        },
+      ],
+    });
+    expect(s!.scenarios[0].patterns).toHaveLength(1);
+    expect(s!.scenarios[0].patterns[0].id).toBe("p3");
+  });
+
+  it("drops a null/non-object pattern entry, and one missing id or kind", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      scenarios: [
+        {
+          id: "a",
+          name: "A",
+          active: true,
+          patterns: [
+            null,
+            "not an object",
+            { kind: "oneTime", amount: 100, date: "2025-06-01" }, // id missing
+            { id: "p1", amount: 100, date: "2025-06-01" }, // kind missing
+          ],
+        },
+      ],
+    });
+    expect(s!.scenarios[0].patterns).toHaveLength(0);
+  });
+
+  it("drops a pattern with an unrecognised kind", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      scenarios: [
+        {
+          id: "a",
+          name: "A",
+          active: true,
+          patterns: [{ id: "p1", kind: "quarterly", amount: 500 }],
+        },
+      ],
+    });
+    expect(s!.scenarios[0].patterns).toHaveLength(0);
+  });
+
+  it("drops a biweekly pattern missing its anchorDate rather than letting it crash the scenario engine later", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      scenarios: [
+        {
+          id: "a",
+          name: "A",
+          active: true,
+          patterns: [{ id: "p1", kind: "biweekly", amount: 200 }], // anchorDate missing
+        },
+      ],
+    });
+    expect(s!.scenarios[0].patterns).toHaveLength(0);
+  });
+
+  it("keeps a well-formed pattern of every kind", () => {
+    const s = sanitizeMortgageUIState({
+      terms: validTerms,
+      scenarios: [
+        {
+          id: "a",
+          name: "A",
+          active: true,
+          patterns: [
+            { id: "p1", kind: "oneTime", amount: 100, date: "2025-06-01" },
+            {
+              id: "p2",
+              kind: "monthly",
+              amount: 100,
+              startDate: "2025-06-01",
+              dayOfMonthStrategy: "same-as-due-date",
+            },
+            { id: "p3", kind: "yearly", amount: 100, month: 4, day: 1, firstYear: 2026 },
+            { id: "p4", kind: "biweekly", amount: 100, anchorDate: "2025-06-01" },
+          ],
+        },
+      ],
+    });
+    expect(s!.scenarios[0].patterns).toHaveLength(4);
+  });
 });
 
 describe("mortgage persistence v2", () => {

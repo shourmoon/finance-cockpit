@@ -72,6 +72,23 @@ describe("MortgageTab", () => {
     expect(persisted().prepayments).toHaveLength(0);
   });
 
+  it("keeps the prepayment amount field blank while clearing it to retype, instead of flashing 0", () => {
+    render(<MortgageTab />);
+    fireEvent.click(screen.getByText("+ Add prepayment"));
+    const amountInput = screen.getByLabelText("Prepayment amount") as HTMLInputElement;
+
+    fireEvent.change(amountInput, { target: { value: "500" } });
+    expect(amountInput.value).toBe("500");
+
+    // Selecting all and deleting to retype must not flash "0" mid-edit.
+    fireEvent.change(amountInput, { target: { value: "" } });
+    expect(amountInput.value).toBe("");
+
+    fireEvent.change(amountInput, { target: { value: "1500" } });
+    expect(amountInput.value).toBe("1500");
+    expect(persisted().prepayments[0].amount).toBe(1500);
+  });
+
   it("ignores a prepayment row with a zero amount when persisting", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add prepayment"));
@@ -110,8 +127,17 @@ describe("MortgageTab", () => {
     expect(screen.getByDisplayValue("Scenario 1")).toBeInTheDocument();
     expect(persisted().scenarios).toHaveLength(1);
 
-    // The default scenario has a monthly extra pattern.
-    expect(screen.getByDisplayValue("Monthly extra")).toBeInTheDocument();
+    // A new scenario starts with no patterns.
+    expect(screen.getByText(/No future prepayment patterns yet/)).toBeInTheDocument();
+    expect(persisted().scenarios[0].patterns).toHaveLength(0);
+
+    // Typing into the quick "Monthly extra" field creates the first pattern
+    // and the scenario starts showing results.
+    fireEvent.change(screen.getAllByPlaceholderText("0")[0], {
+      target: { value: "200" },
+    });
+    expect(persisted().scenarios[0].patterns).toHaveLength(1);
+    expect(screen.getByText(/Scenario comparison/)).toBeInTheDocument();
 
     // Delete the scenario via its header ✕ (first one on the page).
     fireEvent.click(screen.getAllByText("✕")[0]);
@@ -137,23 +163,41 @@ describe("MortgageTab", () => {
     fireEvent.click(screen.getByText("+ Add scenario"));
 
     // Add-pattern buttons (only one scenario is present).
+    fireEvent.click(screen.getByText("Monthly"));
     fireEvent.click(screen.getByText("One-time"));
     fireEvent.click(screen.getByText("Annual"));
     fireEvent.click(screen.getByText("Biweekly"));
 
     const patterns = persisted().scenarios[0].patterns;
+    expect(patterns).toHaveLength(4);
     const kinds = patterns.map((p: any) => p.kind);
-    expect(kinds).toContain("monthly"); // the default pattern
+    expect(kinds).toContain("monthly");
     expect(kinds).toContain("oneTime");
     expect(kinds).toContain("yearly");
     expect(kinds).toContain("biweekly");
   });
 
+  it("clicking a different cadence button adds an additional pattern rather than replacing the current one", () => {
+    // Regression: a scenario used to seed a default monthly pattern, so
+    // clicking a different cadence silently stacked a second pattern
+    // instead of switching — this is the expected, intentional "add
+    // another pattern" behavior now that scenarios start empty.
+    render(<MortgageTab />);
+    fireEvent.click(screen.getByText("+ Add scenario"));
+    expect(persisted().scenarios[0].patterns).toHaveLength(0);
+
+    fireEvent.click(screen.getByText("Biweekly"));
+    expect(persisted().scenarios[0].patterns.map((p: any) => p.kind)).toEqual([
+      "biweekly",
+    ]);
+  });
+
   it("edits the monthly pattern cadence, revealing conditional fields", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add scenario"));
+    fireEvent.click(screen.getByText("Monthly"));
 
-    // The default monthly pattern's cadence select starts on "Due date".
+    // A freshly-added monthly pattern's cadence select starts on "Due date".
     const cadence = screen.getByDisplayValue("Due date");
     fireEvent.change(cadence, { target: { value: "specific-day" } });
     const dayInput = screen.getByPlaceholderText("Day");
@@ -172,11 +216,11 @@ describe("MortgageTab", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add scenario"));
 
-    // One-time
+    // One-time: its amount field is the only "0"-placeholder input at this
+    // point (the quick "Monthly extra" field is still empty/unset too, but
+    // this is the one that belongs to the pattern card).
     fireEvent.click(screen.getByText("One-time"));
-    const oneTimeAmount = screen.getAllByPlaceholderText("0").find(
-      (el) => (el as HTMLInputElement).value === ""
-    )!;
+    const oneTimeAmount = screen.getAllByPlaceholderText("0").at(-1)!;
     fireEvent.change(oneTimeAmount, { target: { value: "15000" } });
 
     // Annual
@@ -189,7 +233,7 @@ describe("MortgageTab", () => {
 
     const kinds = persisted().scenarios[0].patterns.map((p: any) => p.kind);
     expect(kinds).toEqual(
-      expect.arrayContaining(["monthly", "oneTime", "yearly", "biweekly"])
+      expect.arrayContaining(["oneTime", "yearly", "biweekly"])
     );
     const annual = persisted().scenarios[0].patterns.find((p: any) => p.kind === "yearly");
     expect(annual.month).toBe(12);
@@ -200,6 +244,7 @@ describe("MortgageTab", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add scenario"));
     fireEvent.click(screen.getByText("One-time"));
+    fireEvent.click(screen.getByText("Annual"));
     expect(persisted().scenarios[0].patterns).toHaveLength(2);
 
     // Pattern rows each have their own ✕; the scenario header ✕ is first.
@@ -212,12 +257,12 @@ describe("MortgageTab", () => {
     it("scenario pattern-card inputs use the shared app input chrome", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add scenario"));
+      fireEvent.click(screen.getByText("Monthly"));
 
-      // The default scenario ships a monthly pattern card. Its Label
-      // input and Cadence <select> render through the pattern-card
-      // control style, which historically used the page background
-      // (#020617) and card border (#27272a) — nothing like the rest of
-      // the app's inputs.
+      // A monthly pattern card's Label input and Cadence <select> render
+      // through the pattern-card control style, which historically used
+      // the page background (#020617) and card border (#27272a) — nothing
+      // like the rest of the app's inputs.
       expect(screen.getByDisplayValue("Monthly extra")).toHaveStyle(SHARED_INPUT);
       expect(screen.getByDisplayValue("Due date")).toHaveStyle(SHARED_INPUT);
     });
@@ -225,6 +270,7 @@ describe("MortgageTab", () => {
     it("every scenario pattern kind's controls share that chrome", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add scenario"));
+      fireEvent.click(screen.getByText("Monthly"));
       fireEvent.click(screen.getByText("One-time"));
       fireEvent.click(screen.getByText("Annual"));
       fireEvent.click(screen.getByText("Biweekly"));

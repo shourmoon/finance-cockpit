@@ -44,7 +44,7 @@ import {
 // (YYYY‑MM‑DD) into the display format required by the product
 // specification, e.g. "2025-01-26" → "26 Jan '25".
 import { formatDate } from "../utils/dates";
-import { DateInputWithDisplay } from "./shared";
+import { DateInputWithDisplay, NumberInput } from "./shared";
 import { ui, colors } from "./ui";
 
 // Format a currency value (number) into a US dollar string with no
@@ -429,23 +429,18 @@ export default function MortgageTab() {
   // -------- Scenario editing helpers (patterns: one-time, monthly, yearly, biweekly) --------
 
   function addScenario() {
-    const baseDate = asOfDate || terms.startDate;
-
-    const newMonthlyPattern: MonthlyScenarioPattern = {
-      id: uuid(),
-      label: "Monthly extra",
-      kind: "monthly",
-      amount: 200,
-      startDate: baseDate,
-      dayOfMonthStrategy: "same-as-due-date",
-    };
-
+    // Starts with no patterns: the quick "Monthly extra" field creates the
+    // first one on demand, and the "Add pattern" buttons below add whatever
+    // cadence the user actually wants. Seeding a default monthly pattern
+    // here used to mean clicking a different cadence (e.g. "Biweekly")
+    // silently stacked a second pattern alongside it instead of replacing
+    // it, since the user had no reason to expect one was already there.
     const newScenario: MortgageScenarioConfig = {
       id: uuid(),
       name: `Scenario ${scenarios.length + 1}`,
       description: "",
       active: true,
-      patterns: [newMonthlyPattern],
+      patterns: [],
     };
 
     setScenarios((prev) => [...prev, newScenario]);
@@ -1121,17 +1116,12 @@ export default function MortgageTab() {
                       inputStyle={{ ...ui.input, minWidth: 150 }}
                     />
                   </div>
-                  <input
-                    style={{ ...ui.input, flex: "2 1 0", minWidth: 72, textAlign: "right", fontWeight: 600 }}
-                    type="text"
-                    inputMode="decimal"
-                    aria-label="Prepayment amount"
+                  <NumberInput
+                    inputStyle={{ ...ui.input, flex: "2 1 0", minWidth: 72, textAlign: "right", fontWeight: 600 }}
+                    ariaLabel="Prepayment amount"
                     placeholder="Amount"
-                    value={row.amount.toString()}
-                    onChange={(e) => {
-                      const n = parseNumber(e.target.value) ?? 0;
-                      updatePrepaymentRow(row.id, { amount: n });
-                    }}
+                    value={row.amount}
+                    onChange={(n) => updatePrepaymentRow(row.id, { amount: n })}
                   />
                   <button
                     style={ui.deleteButton}

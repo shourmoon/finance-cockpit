@@ -6,7 +6,7 @@ import {
   compareBaselineWithPrepayments,
   computeEffectiveAnnualRateFromSchedule,
 } from "./index";
-import { computeMonthlyPayment } from "./baseline";
+import { computeMonthlyPayment, addMonths } from "./baseline";
 
 describe("mortgage domain baseline, prepayments, and effective rate", () => {
   const terms = {
@@ -76,6 +76,38 @@ describe("mortgage domain baseline, prepayments, and effective rate", () => {
   });
 });
 
+describe("addMonths (day-of-month clamping)", () => {
+  it("clamps to the last day of the target month instead of overflowing into the next", () => {
+    // Jan 31 + 1 month must land on Feb 28 (2025 is not a leap year),
+    // not roll forward into March.
+    expect(addMonths("2025-01-31", 1)).toBe("2025-02-28");
+    expect(addMonths("2025-01-31", 2)).toBe("2025-03-31");
+  });
+
+  it("clamps to Feb 29 on a leap year", () => {
+    expect(addMonths("2024-01-31", 1)).toBe("2024-02-29");
+  });
+
+  it("produces exactly one date per month for a day-31 start, with no repeats or gaps", () => {
+    const dates = Array.from({ length: 12 }, (_, i) => addMonths("2025-01-31", i));
+    const months = dates.map((d) => d.slice(0, 7));
+    expect(new Set(months).size).toBe(12);
+    expect(months).toEqual([
+      "2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06",
+      "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12",
+    ]);
+  });
+
+  it("leaves an offset of 0 unchanged", () => {
+    expect(addMonths("2025-01-31", 0)).toBe("2025-01-31");
+  });
+
+  it("is unaffected for start dates that never overflow", () => {
+    expect(addMonths("2025-01-15", 1)).toBe("2025-02-15");
+    expect(addMonths("2025-01-15", 13)).toBe("2026-02-15");
+  });
+});
+
 describe("computeMonthlyPayment / baseline edge cases", () => {
   it("throws on a non-positive principal", () => {
     expect(() =>
@@ -106,6 +138,30 @@ describe("computeMonthlyPayment / baseline edge cases", () => {
     ]);
     expect(withPrepay.totalInterest).toBeCloseTo(0, 6);
     expect(withPrepay.schedule.length).toBeLessThan(12);
+  });
+
+  it("clamps the recorded payment to what was actually needed when a prepayment overshoots the remaining balance", () => {
+    const smallTerms = {
+      principal: 10_000,
+      annualRate: 0.06,
+      termMonths: 12,
+      startDate: "2025-01-01",
+    };
+    // Sized far beyond what's owed by the second payment.
+    const withPrepay = computeMortgageWithPrepayments(smallTerms, [
+      { date: "2025-02-01", amount: 50_000 },
+    ]);
+    const last = withPrepay.schedule[withPrepay.schedule.length - 1];
+
+    expect(last.remaining).toBe(0);
+    // The accounting identity must hold: payment is what was actually paid.
+    expect(last.payment).toBeCloseTo(last.interest + last.principal, 6);
+    // principal reflects the actual amount applied (the whole remaining
+    // balance), not the un-clamped extra.
+    expect(last.principal).toBeLessThan(10_000);
+    expect(last.principal).toBeGreaterThan(9_000);
+    // Not the full requested $50k extra plus the contractual payment.
+    expect(last.payment).toBeLessThan(10_000);
   });
 });
 

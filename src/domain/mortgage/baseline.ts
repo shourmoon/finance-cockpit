@@ -38,17 +38,26 @@ export function computeMonthlyPayment(terms: MortgageOriginalTerms): Money {
 export function addMonths(base: ISODate, offset: number): ISODate {
   const [yearStr, monthStr, dayStr] = base.split("-");
   const year = Number(yearStr);
-  const month = Number(monthStr) - 1;
+  const month = Number(monthStr) - 1; // 0-indexed
   const day = Number(dayStr);
 
-  const d = new Date(Date.UTC(year, month, day));
-  d.setUTCMonth(d.getUTCMonth() + offset);
+  // Compute the target year/month with integer arithmetic rather than
+  // Date.setUTCMonth, which silently rolls an out-of-range day into a
+  // later month (Jan 31 + 1 month would become Mar 3, not Feb 28).
+  const totalMonths = year * 12 + month + offset;
+  const targetYear = Math.floor(totalMonths / 12);
+  const targetMonth = totalMonths - targetYear * 12; // 0-indexed
 
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).toString().padStart(2, "0");
+  // Clamp the day to the last valid day of the target month instead.
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(targetYear, targetMonth + 1, 0)
+  ).getUTCDate();
+  const clampedDay = Math.min(day, lastDayOfTargetMonth);
 
-  return `${y}-${m}-${dd}`;
+  const m = String(targetMonth + 1).padStart(2, "0");
+  const dd = String(clampedDay).padStart(2, "0");
+
+  return `${targetYear}-${m}-${dd}`;
 }
 
 /**

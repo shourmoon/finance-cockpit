@@ -38,12 +38,12 @@ export function computeMortgageWithPrepayments(
   for (let i = 0; i < terms.termMonths && remaining > epsilon; i++) {
     const date = addMonths(terms.startDate, i);
     const interest = r > 0 ? remaining * r : 0;
-    let principal = payment - interest;
+    const scheduledPrincipal = payment - interest;
 
     // Unreachable: the annuity payment from computeMonthlyPayment always
     // exceeds the first month's interest, and interest only shrinks.
     /* v8 ignore next 3 */
-    if (principal < 0) {
+    if (scheduledPrincipal < 0) {
       throw new Error("Monthly payment too low to amortize the loan.");
     }
 
@@ -58,20 +58,20 @@ export function computeMortgageWithPrepayments(
       prepayIndex++;
     }
 
-    let totalPrincipal = principal + extra;
-
-    if (totalPrincipal > remaining) {
-      totalPrincipal = remaining;
-      principal = Math.max(0, totalPrincipal - extra);
-    }
+    // Clamp to what's actually owed so a prepayment can never pay down more
+    // than the remaining balance. `principal`/`payment` below are derived
+    // from this clamped total so the entry's own numbers always agree with
+    // each other (payment === interest + principal), whether or not this
+    // period's total overshot what was owed.
+    const totalPrincipal = Math.min(scheduledPrincipal + extra, remaining);
 
     remaining = Math.max(0, remaining - totalPrincipal);
 
     schedule.push({
       date,
-      payment: payment + extra,
+      payment: interest + totalPrincipal,
       interest,
-      principal,
+      principal: totalPrincipal,
       remaining,
     });
 

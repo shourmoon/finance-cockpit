@@ -89,13 +89,59 @@ function isValidPrepayments(value: any): value is PastPrepaymentLog {
   });
 }
 
-function isValidScenarioConfigArray(value: any): value is MortgageScenarioConfig[] {
-  if (!Array.isArray(value)) return false;
-  // We keep this intentionally light; UI will do deeper validation if needed.
-  return value.every((s) => {
-    if (!s || typeof s !== "object") return false;
-    return typeof (s as any).id === "string" && typeof (s as any).name === "string";
-  });
+const SCENARIO_PATTERN_KINDS = new Set(["oneTime", "monthly", "yearly", "biweekly"]);
+
+/**
+ * A pattern missing a field its own kind depends on (or carrying a
+ * non-finite amount) would otherwise silently inject NaN into the
+ * simulated schedule, or throw outright (a biweekly pattern with no
+ * anchorDate). Rather than let corrupted data (a bad sync payload, a
+ * hand-edited localStorage value) reach the domain layer, drop only the
+ * offending pattern here and keep the rest of the scenario intact.
+ */
+function isValidScenarioPattern(value: any): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (typeof value.id !== "string" || typeof value.kind !== "string") return false;
+  if (!SCENARIO_PATTERN_KINDS.has(value.kind)) return false;
+  if (!Number.isFinite(value.amount)) return false;
+
+  switch (value.kind) {
+    case "oneTime":
+      return typeof value.date === "string" && value.date.length > 0;
+    case "monthly":
+      return typeof value.startDate === "string" && value.startDate.length > 0;
+    case "yearly":
+      return (
+        Number.isFinite(value.month) &&
+        Number.isFinite(value.day) &&
+        Number.isFinite(value.firstYear)
+      );
+    case "biweekly":
+      return typeof value.anchorDate === "string" && value.anchorDate.length > 0;
+    // Unreachable: SCENARIO_PATTERN_KINDS.has(value.kind) above already
+    // narrows to exactly these four cases.
+    /* v8 ignore next 2 */
+    default:
+      return false;
+  }
+}
+
+function sanitizeScenarios(value: any): MortgageScenarioConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (s): s is any =>
+        !!s &&
+        typeof s === "object" &&
+        typeof s.id === "string" &&
+        typeof s.name === "string"
+    )
+    .map((s) => ({
+      ...s,
+      patterns: Array.isArray(s.patterns)
+        ? s.patterns.filter(isValidScenarioPattern)
+        : [],
+    }));
 }
 
 /**
@@ -114,9 +160,7 @@ export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null 
     typeof asOfDate === "string" && asOfDate.trim().length > 0
       ? (asOfDate as ISODate)
       : terms.startDate;
-  const safeScenarios = isValidScenarioConfigArray(scenarios)
-    ? scenarios!
-    : [];
+  const safeScenarios = sanitizeScenarios(scenarios);
 
   return {
     terms,
@@ -202,9 +246,7 @@ export function saveMortgageUIState(state: MortgageUIState): void {
         typeof state.asOfDate === "string" && state.asOfDate.trim().length > 0
           ? (state.asOfDate as ISODate)
           : (state.terms.startDate as ISODate),
-      scenarios: Array.isArray(state.scenarios)
-        ? state.scenarios
-        : [],
+      scenarios: sanitizeScenarios(state.scenarios),
     };
 
     window.localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(payload));

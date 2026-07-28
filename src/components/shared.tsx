@@ -19,11 +19,13 @@ export function NumberInput({
   onChange,
   inputStyle,
   ariaLabel,
+  placeholder,
 }: {
   value: number;
   onChange: (val: number) => void;
   inputStyle?: React.CSSProperties;
   ariaLabel?: string;
+  placeholder?: string;
 }) {
   const [text, setText] = useState(String(value));
 
@@ -40,6 +42,7 @@ export function NumberInput({
       type="text"
       inputMode="decimal"
       aria-label={ariaLabel}
+      placeholder={placeholder}
       value={text}
       onChange={(e) => {
         const t = e.target.value;

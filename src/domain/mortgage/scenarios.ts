@@ -275,9 +275,12 @@ function buildExtraByDateMap(
   const dueDay = Number(terms.startDate.split("-")[2]);
 
   function addExtra(date: ISODate, amount: Money) {
-    // Defensive: callers already skip non-positive pattern amounts.
+    // Defensive: callers already skip non-positive/non-finite pattern
+    // amounts (below), so a NaN or undefined amount can never reach the
+    // map — `<= 0` alone would miss both, since any comparison against
+    // NaN/undefined is false.
     /* v8 ignore next 1 */
-    if (amount <= 0) return;
+    if (!(amount > 0)) return;
     if (compareIsoDates(date, asOfDate) <= 0) return;
     if (compareIsoDates(date, payoffDate) > 0) return;
     const current = extraByDate.get(date) ?? 0;
@@ -285,7 +288,7 @@ function buildExtraByDateMap(
   }
 
   for (const pattern of patterns) {
-    if (pattern.amount <= 0) continue;
+    if (!(pattern.amount > 0)) continue;
 
     switch (pattern.kind) {
       case "oneTime": {
@@ -426,13 +429,18 @@ interface FutureSimulationResult {
  *  - original contractual monthly payment
  *  - optional extra principal map keyed by date
  *
- * We treat the first future payment date as addMonths(effectiveAsOf, 1).
+ * We treat the first future payment date as addMonths(effectiveAsOf, 1) —
+ * except when effectiveAsOf is itself an unpaid first payment date (nothing
+ * has happened yet), in which case the first future payment must land ON
+ * effectiveAsOf, not a month after it. `firstStep` controls this: callers
+ * pass 0 for that "nothing paid yet" case and 1 otherwise (the default).
  */
 function simulateFutureFromAsOf(
   terms: MortgageOriginalTerms,
   remainingAtAsOf: Money,
   effectiveAsOf: ISODate,
-  extraByDate: Map<ISODate, Money>
+  extraByDate: Map<ISODate, Money>,
+  firstStep = 1
 ): FutureSimulationResult {
   const monthlyPayment = computeMonthlyPayment(terms);
   const futureSchedule: AmortizationEntry[] = [];
@@ -440,7 +448,7 @@ function simulateFutureFromAsOf(
   let remaining = remainingAtAsOf;
   const r = terms.annualRate / 12;
   let totalInterestFuture = 0;
-  let step = 1;
+  let step = firstStep;
 
   // Safety cap: don't simulate more than original term + 600 months.
   const maxSteps = terms.termMonths + 600;
@@ -551,12 +559,20 @@ export function runMortgageScenarios(
     monthsSoFar = pastSchedule.length;
   }
 
+  // effectiveAsOf is the date of an already-made payment in every case
+  // except this one, where it's the *unpaid* first payment date itself
+  // (sliceScheduleUpTo's fallback when as-of precedes the whole schedule)
+  // — so the future simulation must land its first payment ON that date,
+  // not a month after it.
+  const firstStep = lastIndex === -1 ? 0 : 1;
+
   // 4) Actual with no future extras: future simulation with no extra map.
   const actualFuture = simulateFutureFromAsOf(
     terms,
     remainingAtAsOf,
     effectiveAsOf,
-    new Map()
+    new Map(),
+    firstStep
   );
   const actualFullSchedule: AmortizationEntry[] = [
     ...pastSchedule,
@@ -587,7 +603,8 @@ export function runMortgageScenarios(
       terms,
       remainingAtAsOf,
       effectiveAsOf,
-      extraByDate
+      extraByDate,
+      firstStep
     );
 
     const scenarioSchedule: AmortizationEntry[] = [
