@@ -270,6 +270,119 @@ describe("App shell", () => {
     expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
   });
 
+  describe("recording a top-up that the app did not predict", () => {
+    it("classifies a one-time transaction as a top-up from Settings", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.click(screen.getAllByText("+ Add")[1]); // One-Time Transactions
+
+      fireEvent.change(screen.getByLabelText("Transaction amount"), {
+        target: { value: "800" },
+      });
+      fireEvent.change(screen.getByLabelText("Classify transaction"), {
+        target: { value: "shortfall" },
+      });
+
+      const saved = JSON.parse(
+        window.localStorage.getItem("finance-cockpit-app-state-v1")!
+      );
+      expect(saved.adhocTransactions[0]).toMatchObject({
+        kind: "topUp",
+        reason: "shortfall",
+      });
+    });
+
+    it("can un-classify a transaction back to an ordinary one", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.click(screen.getAllByText("+ Add")[1]);
+
+      const select = screen.getByLabelText("Classify transaction");
+      fireEvent.change(select, { target: { value: "oneOff" } });
+      fireEvent.change(select, { target: { value: "none" } });
+
+      const saved = JSON.parse(
+        window.localStorage.getItem("finance-cockpit-app-state-v1")!
+      );
+      expect(saved.adhocTransactions[0].kind).toBeUndefined();
+      expect(saved.adhocTransactions[0].reason).toBeUndefined();
+    });
+
+    it("warns when a top-up is not a positive inflow, which coverage would ignore", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.click(screen.getAllByText("+ Add")[1]);
+
+      fireEvent.change(screen.getByLabelText("Transaction amount"), {
+        target: { value: "-500" },
+      });
+      fireEvent.change(screen.getByLabelText("Classify transaction"), {
+        target: { value: "oneOff" },
+      });
+      expect(screen.getByText(/must be a positive inflow/i)).toBeInTheDocument();
+    });
+
+    it("classifies a quick-added transaction as a top-up from the Dashboard", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("+ One-time"));
+      fireEvent.change(screen.getByLabelText("Transaction name"), {
+        target: { value: "Manual transfer" },
+      });
+      fireEvent.change(screen.getByLabelText("Transaction amount"), {
+        target: { value: "1200" },
+      });
+      fireEvent.change(screen.getByLabelText("Classify transaction"), {
+        target: { value: "shortfall" },
+      });
+      fireEvent.click(screen.getByText("Add"));
+
+      const saved = JSON.parse(
+        window.localStorage.getItem("finance-cockpit-app-state-v1")!
+      );
+      const added = saved.adhocTransactions.find(
+        (t: { name: string }) => t.name === "Manual transfer"
+      );
+      expect(added).toMatchObject({ kind: "topUp", reason: "shortfall" });
+    });
+  });
+
+  describe("second salary setting", () => {
+    it("persists and reveals the kept-share metric once set", () => {
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const monthsAgo = (n: number) =>
+        iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 15)));
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 3,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: monthsAgo(12), coverageLens: "all",
+          },
+          rules: [], adhocTransactions: [], overrides: {},
+        })
+      );
+      render(<App />);
+      // Hidden while unset.
+      expect(screen.queryByText("2nd salary kept")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.change(
+        screen.getByRole("textbox", { name: /Second salary/i }),
+        { target: { value: "6000" } }
+      );
+      const saved = JSON.parse(
+        window.localStorage.getItem("finance-cockpit-app-state-v1")!
+      );
+      expect(saved.settings.secondSalaryMonthly).toBe(6000);
+
+      fireEvent.click(screen.getByText("Dashboard"));
+      expect(screen.getByText("2nd salary kept")).toBeInTheDocument();
+    });
+  });
+
   describe("One-Salary Coverage card", () => {
     it("shows the forward read and a tracking note when history is empty", () => {
       render(<App />);

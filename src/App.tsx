@@ -29,7 +29,12 @@ import SyncSection from "./components/SyncSection";
 // Import a common date formatter to ensure all dates in the UI follow the
 // same human‑friendly format (DD MMM 'YY). See src/utils/dates.ts for details.
 import { formatDate, monthYearLabel, monthKey } from "./utils/dates";
-import { DateInputWithDisplay as SharedDateInput, NumberInput } from "./components/shared";
+import {
+  DateInputWithDisplay as SharedDateInput,
+  NumberInput,
+  TopUpClassSelect,
+} from "./components/shared";
+import { topUpClassOf, type TopUpClass } from "./utils/topUpClass";
 import QuickAddTransactionModal from "./components/QuickAddTransactionModal";
 import TopUpReasonModal from "./components/TopUpReasonModal";
 import CoverageCard from "./components/CoverageCard";
@@ -161,6 +166,13 @@ export default function App() {
     }));
   }
 
+  function updateSecondSalary(val: number) {
+    setState((s) => ({
+      ...s,
+      settings: { ...s.settings, secondSalaryMonthly: val },
+    }));
+  }
+
   function updateMinSafeBalance(val: number) {
     setState((s) => ({
       ...s,
@@ -238,6 +250,27 @@ export default function App() {
       adhocTransactions: s.adhocTransactions.map((t) =>
         t.id === id ? { ...t, ...patch } : t
       ),
+    }));
+  }
+
+  // Classifying a transaction as a top-up (or back to ordinary) is what
+  // lets coverage count transfers the app never predicted — money moved
+  // before the shortfall showed up, which is the common real-world case.
+  function classifyAdhocTransaction(id: string, value: TopUpClass) {
+    setState((s) => ({
+      ...s,
+      adhocTransactions: s.adhocTransactions.map((t) => {
+        if (t.id !== id) return t;
+        if (value === "none") {
+          // Drop the markers entirely rather than storing a falsy kind, so
+          // the persisted shape stays exactly as it was before tagging.
+          const next = { ...t };
+          delete next.kind;
+          delete next.reason;
+          return next;
+        }
+        return { ...t, kind: "topUp" as const, reason: value };
+      }),
     }));
   }
 
@@ -359,6 +392,15 @@ export default function App() {
                   inputStyle={ui.input}
                 />
               </label>
+
+              <label style={styles.field}>
+                <span style={ui.fieldLabel}>Second salary (monthly, optional)</span>
+                <NumberInput
+                  value={state.settings.secondSalaryMonthly ?? 0}
+                  onChange={updateSecondSalary}
+                  inputStyle={ui.input}
+                />
+              </label>
             </div>
           </div>
 
@@ -456,6 +498,19 @@ export default function App() {
                             if (val) updateAdhocTransaction(txn.id, { date: val });
                           }}
                         />
+                      </div>
+                      <div style={{ marginTop: 6 }}>
+                        <TopUpClassSelect
+                          value={topUpClassOf(txn)}
+                          onChange={(v) => classifyAdhocTransaction(txn.id, v)}
+                          inputStyle={{ ...ui.input, fontSize: 12, padding: "5px 6px" }}
+                        />
+                        {txn.kind === "topUp" && txn.amount <= 0 && (
+                          <div style={styles.topUpWarning}>
+                            A top-up must be a positive inflow — coverage ignores
+                            this amount.
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div style={styles.ruleControls}>
@@ -1102,6 +1157,12 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: "nowrap",
     textAlign: "right",
     fontVariantNumeric: "tabular-nums",
+  },
+  topUpWarning: {
+    fontSize: 11,
+    lineHeight: 1.4,
+    color: colors.amber,
+    marginTop: 4,
   },
   eventsHint: {
     fontSize: 11,
