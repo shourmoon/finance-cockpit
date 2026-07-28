@@ -15,6 +15,7 @@ import {
 } from "./baseline";
 import { computeMortgageWithPrepayments } from "./history";
 import { computeEffectiveAnnualRateFromSchedule } from "./irr";
+import { isValidISODate } from "../dateUtils";
 
 /**
  * Scenario engine for forward-looking mortgage optimisation.
@@ -186,6 +187,11 @@ function parseIsoToDate(iso: ISODate): Date {
   const year = Number(yearStr);
   const month = Number(monthStr);
   const day = Number(dayStr);
+  // Unreachable: every caller now passes a date that has already been
+  // checked with isValidISODate — pattern dates via hasUsableDates, the
+  // as-of date in runMortgageScenarios, and payoffDate straight off the
+  // baseline schedule. Kept as a contract guard for future callers.
+  /* v8 ignore next 3 */
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
     throw new Error(`Invalid ISO date: ${iso}`);
   }
@@ -262,6 +268,32 @@ function sliceScheduleUpTo(
  * Build a map of extra principal amounts keyed by ISO date.
  * Only includes dates strictly *after* the as-of date.
  */
+/** True when every date the pattern's expansion will touch is a real day. */
+function hasUsableDates(pattern: ScenarioPattern): boolean {
+  const optional = (d: ISODate | undefined) => d === undefined || isValidISODate(d);
+  switch (pattern.kind) {
+    case "oneTime":
+      return isValidISODate(pattern.date);
+    case "monthly":
+      return isValidISODate(pattern.startDate) && optional(pattern.untilDate);
+    case "yearly":
+      return (
+        Number.isFinite(pattern.month) &&
+        Number.isFinite(pattern.day) &&
+        Number.isFinite(pattern.firstYear)
+      );
+    case "biweekly":
+      return (
+        isValidISODate(pattern.anchorDate) &&
+        optional(pattern.startDate) &&
+        optional(pattern.untilDate)
+      );
+    /* v8 ignore next 2 */
+    default:
+      return false;
+  }
+}
+
 function buildExtraByDateMap(
   baseline: MortgageBaselineResult,
   context: MortgageScenarioContext,
@@ -289,6 +321,11 @@ function buildExtraByDateMap(
 
   for (const pattern of patterns) {
     if (!(pattern.amount > 0)) continue;
+    // A pattern is only as good as its dates. Half-typed ones show up
+    // routinely while editing (clearing a date input hands us ""), and
+    // this runs inside a render-time useMemo, so throwing would take the
+    // whole tab down — skip the pattern until it is usable instead.
+    if (!hasUsableDates(pattern)) continue;
 
     switch (pattern.kind) {
       case "oneTime": {
@@ -523,10 +560,18 @@ function simulateFutureFromAsOf(
 // ---------- Public API ----------
 
 export function runMortgageScenarios(
-  context: MortgageScenarioContext,
+  contextInput: MortgageScenarioContext,
   scenarioConfigs: MortgageScenarioConfig[]
 ): MortgageScenarioRunResult {
-  const { terms, pastPrepayments, asOfDate } = context;
+  const { terms, pastPrepayments } = contextInput;
+  // An as-of date that isn't a real day sorts lexically above every real
+  // ISO date, which would silently report the entire loan as already paid;
+  // an empty one reaches parseIsoToDate and throws. Fall back to the start
+  // of the loan so this function stays total for its render-time caller.
+  const asOfDate = isValidISODate(contextInput.asOfDate)
+    ? contextInput.asOfDate
+    : terms.startDate;
+  const context: MortgageScenarioContext = { ...contextInput, asOfDate };
 
   // 1) Baseline: no prepayments at all.
   const baseline: MortgageBaselineResult = computeBaselineMortgage(terms);

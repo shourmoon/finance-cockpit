@@ -582,15 +582,68 @@ describe("mortgage scenarios - branch coverage", () => {
     );
   });
 
-  it("throws on an invalid biweekly anchor date", () => {
-    expect(() =>
-      runMortgageScenarios(
+  it("skips a biweekly pattern with an unusable anchor date instead of throwing", () => {
+    // This runs inside a render-time useMemo, so throwing here tears down
+    // the whole Mortgage tab. A half-typed pattern should simply contribute
+    // nothing until it is complete — the same way a zero amount does.
+    for (const anchorDate of ["garbage", "", "2025-02-30"]) {
+      const result = runMortgageScenarios(
         ctx,
         scenarioWith([
-          { id: "p", label: "bad", kind: "biweekly", amount: 150, anchorDate: "garbage" },
+          { id: "p", label: "bad", kind: "biweekly", amount: 150, anchorDate },
         ])
-      )
-    ).toThrow("Invalid ISO date");
+      );
+      expect(result.scenarios[0].totalInterest).toBeCloseTo(
+        result.actual.totalInterest,
+        5
+      );
+    }
+  });
+
+  it("treats an unusable as-of date as the loan's start date rather than throwing", () => {
+    // runMortgageScenarios drives a render-time useMemo, so it has to be
+    // total: no input should be able to throw out of it.
+    const atStart = runMortgageScenarios(
+      { terms, pastPrepayments: [], asOfDate: terms.startDate },
+      []
+    );
+    for (const asOfDate of ["garbage", "", "2025-02-30"]) {
+      const result = runMortgageScenarios(
+        { terms, pastPrepayments: [], asOfDate },
+        scenarioWith([
+          {
+            id: "p",
+            label: "bw",
+            kind: "biweekly",
+            amount: 150,
+            anchorDate: "2027-03-01",
+          },
+        ])
+      );
+      expect(result.effectiveAsOfDate).toBe(atStart.effectiveAsOfDate);
+      expect(Number.isFinite(result.scenarios[0].totalInterest)).toBe(true);
+    }
+  });
+
+  it("skips other pattern kinds whose dates are unusable", () => {
+    const cases: any[] = [
+      { id: "p", label: "x", kind: "oneTime", amount: 5000, date: "garbage" },
+      {
+        id: "p",
+        label: "x",
+        kind: "monthly",
+        amount: 300,
+        startDate: "garbage",
+        dayOfMonthStrategy: "same-as-due-date",
+      },
+    ];
+    for (const pattern of cases) {
+      const result = runMortgageScenarios(ctx, scenarioWith([pattern]));
+      expect(result.scenarios[0].totalInterest).toBeCloseTo(
+        result.actual.totalInterest,
+        5
+      );
+    }
   });
 
   it("handles an as-of date before the first payment", () => {

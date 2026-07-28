@@ -54,6 +54,76 @@ describe("MortgageTab", () => {
     expect(p.terms.termMonths).toBe(180);
   });
 
+  describe("invalid terms entered mid-edit", () => {
+    function seedRealLoan() {
+      window.localStorage.setItem(
+        "finance-cockpit-mortgage-v2",
+        JSON.stringify({
+          terms: {
+            principal: 680000,
+            annualRate: 0.0475,
+            termMonths: 360,
+            startDate: "2023-06-01",
+          },
+          prepayments: [{ date: "2024-01-15", amount: 10000, note: "bonus" }],
+          asOfDate: "2025-06-01",
+          scenarios: [],
+        })
+      );
+    }
+
+    it("survives a 0 in the principal field without crashing or losing the loan", () => {
+      seedRealLoan();
+      render(<MortgageTab />);
+      fireEvent.change(screen.getByDisplayValue("680000"), { target: { value: "0" } });
+
+      // The tab is still alive and still showing a real schedule.
+      expect(screen.getByText("Baseline summary")).toBeInTheDocument();
+      // The typed text is preserved so the user can keep typing...
+      expect(screen.getByDisplayValue("0")).toBeInTheDocument();
+      // ...but the persisted loan is untouched.
+      expect(persisted().terms.principal).toBe(680000);
+    });
+
+    it("survives a negative rate without replacing the loan with defaults", () => {
+      seedRealLoan();
+      render(<MortgageTab />);
+      fireEvent.change(screen.getByDisplayValue("4.75"), { target: { value: "-5" } });
+
+      expect(screen.getByText("Baseline summary")).toBeInTheDocument();
+      expect(persisted().terms.principal).toBe(680000);
+      expect(persisted().terms.annualRate).toBe(0.0475);
+      expect(persisted().terms.startDate).toBe("2023-06-01");
+    });
+
+    it("survives clearing a biweekly pattern's anchor date", () => {
+      // Regression: with an amount already entered, emptying the anchor
+      // date threw "Invalid ISO date: " out of parseIsoToDate, inside a
+      // render-time useMemo, taking the whole tab down.
+      const { container } = render(<MortgageTab />);
+      fireEvent.click(screen.getByText("+ Add scenario"));
+      fireEvent.click(screen.getByText("Biweekly"));
+      fireEvent.change(screen.getByPlaceholderText("0"), { target: { value: "300" } });
+
+      const dates = Array.from(
+        container.querySelectorAll('input[type="date"]')
+      ) as HTMLInputElement[];
+      // 0 = loan start, 1 = scenario as-of, 2 = the pattern's anchor date.
+      fireEvent.change(dates[2], { target: { value: "" } });
+
+      expect(screen.getByText("Baseline summary")).toBeInTheDocument();
+    });
+
+    it("recovers once a valid value is typed", () => {
+      seedRealLoan();
+      render(<MortgageTab />);
+      const principal = screen.getByDisplayValue("680000");
+      fireEvent.change(principal, { target: { value: "0" } });
+      fireEvent.change(principal, { target: { value: "500000" } });
+      expect(persisted().terms.principal).toBe(500000);
+    });
+  });
+
   it("adds a prepayment, shows savings, then deletes it", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add prepayment"));

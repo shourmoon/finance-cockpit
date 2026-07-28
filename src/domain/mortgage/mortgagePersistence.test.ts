@@ -85,6 +85,90 @@ describe("sanitizeMortgageUIState (validator branches)", () => {
     expect(s!.scenarios[0].patterns[0].id).toBe("p3");
   });
 
+  describe("dates must denote real calendar days, not just be strings", () => {
+    it("rejects terms whose startDate is not a real date", () => {
+      expect(
+        sanitizeMortgageUIState({ terms: { ...validTerms, startDate: "hello" } })
+      ).toBeNull();
+      expect(
+        sanitizeMortgageUIState({ terms: { ...validTerms, startDate: "2025-02-30" } })
+      ).toBeNull();
+    });
+
+    it("falls back to startDate when asOfDate is not a real date", () => {
+      // Left verbatim, this sorts above every real ISO date and the scenario
+      // engine reports the whole loan as already paid off.
+      const s = sanitizeMortgageUIState({ terms: validTerms, asOfDate: "not-a-date" });
+      expect(s!.asOfDate).toBe(validTerms.startDate);
+    });
+
+    it("drops a prepayment whose date is not a real date", () => {
+      const s = sanitizeMortgageUIState({
+        terms: validTerms,
+        prepayments: [{ date: "garbage", amount: 5_000 }],
+      });
+      expect(s!.prepayments).toEqual([]);
+    });
+
+    it("drops patterns carrying an unparseable date in any slot", () => {
+      const s = sanitizeMortgageUIState({
+        terms: validTerms,
+        scenarios: [
+          {
+            id: "a",
+            name: "A",
+            active: true,
+            patterns: [
+              // Would throw out of parseIsoToDate and take down the tab.
+              { id: "p1", kind: "biweekly", amount: 200, anchorDate: "garbage" },
+              { id: "p2", kind: "oneTime", amount: 200, date: "2025-02-30" },
+              {
+                id: "p3",
+                kind: "monthly",
+                amount: 200,
+                startDate: "2025-06-01",
+                untilDate: "nonsense",
+              },
+              {
+                id: "p4",
+                kind: "biweekly",
+                amount: 200,
+                anchorDate: "2025-06-01",
+                untilDate: "nonsense",
+              },
+            ],
+          },
+        ],
+      });
+      expect(s!.scenarios[0].patterns).toEqual([]);
+    });
+
+    it("keeps patterns whose optional date bounds are absent or valid", () => {
+      const s = sanitizeMortgageUIState({
+        terms: validTerms,
+        scenarios: [
+          {
+            id: "a",
+            name: "A",
+            active: true,
+            patterns: [
+              { id: "p1", kind: "monthly", amount: 200, startDate: "2025-06-01" },
+              {
+                id: "p2",
+                kind: "biweekly",
+                amount: 200,
+                anchorDate: "2025-06-01",
+                startDate: "2025-07-01",
+                untilDate: "2026-01-01",
+              },
+            ],
+          },
+        ],
+      });
+      expect(s!.scenarios[0].patterns).toHaveLength(2);
+    });
+  });
+
   it("drops a null/non-object pattern entry, and one missing id or kind", () => {
     const s = sanitizeMortgageUIState({
       terms: validTerms,
@@ -267,6 +351,44 @@ describe("mortgage persistence v2", () => {
     );
     const state = loadMortgageUIState();
     expect(state).toEqual(createDefaultMortgageUIState());
+  });
+
+  it("never overwrites a valid persisted loan with defaults when asked to save invalid terms", () => {
+    // A real loan the user has been using.
+    const real: MortgageUIState = {
+      terms: {
+        principal: 680_000,
+        annualRate: 0.0475,
+        termMonths: 360,
+        startDate: "2023-06-01",
+      },
+      prepayments: [{ date: "2024-01-15", amount: 10_000, note: "bonus" }],
+      asOfDate: "2025-06-01",
+      scenarios: [],
+    };
+    saveMortgageUIState(real);
+
+    // Something hands us unusable terms (a mid-edit value, a bad sync
+    // payload). Substituting the hard-coded defaults here would destroy
+    // the user's actual mortgage, so the previous terms must survive.
+    saveMortgageUIState({
+      ...real,
+      terms: { ...real.terms, principal: -1 },
+    });
+
+    const reloaded = loadMortgageUIState();
+    expect(reloaded.terms).toEqual(real.terms);
+    expect(reloaded.prepayments).toEqual(real.prepayments);
+  });
+
+  it("falls back to defaults for invalid terms only when nothing valid was ever stored", () => {
+    saveMortgageUIState({
+      terms: { principal: -1, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
+      prepayments: [],
+      asOfDate: "2025-01-01",
+      scenarios: [],
+    } as MortgageUIState);
+    expect(loadMortgageUIState().terms).toEqual(createDefaultMortgageUIState().terms);
   });
 
   it("saveMortgageUIState repairs invalid fields before persisting", () => {

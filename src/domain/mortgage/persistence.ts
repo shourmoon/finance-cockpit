@@ -7,6 +7,9 @@ import type {
 import type {
   MortgageScenarioConfig,
 } from "./scenarios";
+// Dates here are the same "YYYY-MM-DD denoting a real calendar day"
+// contract the cashflow side uses, so the check lives in one place.
+import { isValidISODate } from "../dateUtils";
 
 export interface MortgageUIState {
   terms: MortgageOriginalTerms;
@@ -69,8 +72,11 @@ function isValidTerms(value: any): value is MortgageOriginalTerms {
     typeof termMonths === "number" &&
     Number.isInteger(termMonths) &&
     termMonths > 0 &&
-    typeof startDate === "string" &&
-    !!startDate
+    // Must be a real calendar day, not merely a non-empty string: a
+    // startDate like "hello" flows straight into addMonths and yields a
+    // schedule whose every date is "NaN-NaN-NaN", rendered to the user as
+    // "NaN NaN 'N" beside otherwise plausible money figures.
+    isValidISODate(startDate)
   );
 }
 
@@ -80,8 +86,10 @@ function isValidPrepayments(value: any): value is PastPrepaymentLog {
     if (!p || typeof p !== "object") return false;
     const { date, amount } = p as any;
     return (
-      typeof date === "string" &&
-      !!date &&
+      // A prepayment whose date isn't a real day is never applied at all
+      // (it compares against payment dates as a string), so it would sit
+      // in the log looking recorded while contributing nothing.
+      isValidISODate(date) &&
       typeof amount === "number" &&
       Number.isFinite(amount) &&
       amount > 0
@@ -105,11 +113,17 @@ function isValidScenarioPattern(value: any): boolean {
   if (!SCENARIO_PATTERN_KINDS.has(value.kind)) return false;
   if (!Number.isFinite(value.amount)) return false;
 
+  // Optional date bounds still have to be real days when present: they are
+  // compared against schedule dates as strings, and a biweekly anchorDate
+  // additionally reaches parseIsoToDate, which throws — from inside a
+  // render-time useMemo, taking the whole tab down.
+  const optionalDateOk = (d: unknown) => d === undefined || isValidISODate(d);
+
   switch (value.kind) {
     case "oneTime":
-      return typeof value.date === "string" && value.date.length > 0;
+      return isValidISODate(value.date);
     case "monthly":
-      return typeof value.startDate === "string" && value.startDate.length > 0;
+      return isValidISODate(value.startDate) && optionalDateOk(value.untilDate);
     case "yearly":
       return (
         Number.isFinite(value.month) &&
@@ -117,7 +131,11 @@ function isValidScenarioPattern(value: any): boolean {
         Number.isFinite(value.firstYear)
       );
     case "biweekly":
-      return typeof value.anchorDate === "string" && value.anchorDate.length > 0;
+      return (
+        isValidISODate(value.anchorDate) &&
+        optionalDateOk(value.startDate) &&
+        optionalDateOk(value.untilDate)
+      );
     // Unreachable: SCENARIO_PATTERN_KINDS.has(value.kind) above already
     // narrows to exactly these four cases.
     /* v8 ignore next 2 */
@@ -156,10 +174,12 @@ export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null 
 
   if (!isValidTerms(terms)) return null;
   const safePrepayments = isValidPrepayments(prepayments) ? prepayments! : [];
-  const safeAsOfDate =
-    typeof asOfDate === "string" && asOfDate.trim().length > 0
-      ? (asOfDate as ISODate)
-      : terms.startDate;
+  // A non-date asOfDate sorts lexically above every real ISO date, which
+  // makes the scenario engine treat the entire schedule as already paid —
+  // the app would quietly believe the mortgage was paid off.
+  const safeAsOfDate = isValidISODate(asOfDate)
+    ? (asOfDate as ISODate)
+    : terms.startDate;
   const safeScenarios = sanitizeScenarios(scenarios);
 
   return {
@@ -233,19 +253,24 @@ export function loadMortgageUIState(): MortgageUIState {
 export function saveMortgageUIState(state: MortgageUIState): void {
   if (typeof window === "undefined") return;
   try {
+    // Terms are the one field with no safe substitute: overwriting them
+    // with the hard-coded defaults would silently destroy the user's real
+    // mortgage the moment anything hands us an unusable value. Keep
+    // whatever valid terms are already stored instead, and only fall back
+    // to defaults when there is nothing good to preserve.
+    const safeTerms = isValidTerms(state.terms)
+      ? state.terms
+      : loadV2FromStorage()?.terms ?? createDefaultMortgageUIState().terms;
+
     const payload: MortgageUIState = {
       ...state,
-      // Defensive: ensure fields are sane before persisting
-      terms: isValidTerms(state.terms)
-        ? state.terms
-        : createDefaultMortgageUIState().terms,
+      terms: safeTerms,
       prepayments: isValidPrepayments(state.prepayments)
         ? state.prepayments
         : [],
-      asOfDate:
-        typeof state.asOfDate === "string" && state.asOfDate.trim().length > 0
-          ? (state.asOfDate as ISODate)
-          : (state.terms.startDate as ISODate),
+      asOfDate: isValidISODate(state.asOfDate)
+        ? (state.asOfDate as ISODate)
+        : safeTerms.startDate,
       scenarios: sanitizeScenarios(state.scenarios),
     };
 

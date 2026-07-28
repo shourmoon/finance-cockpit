@@ -44,6 +44,7 @@ import {
 // (YYYY‑MM‑DD) into the display format required by the product
 // specification, e.g. "2025-01-26" → "26 Jan '25".
 import { formatDate } from "../utils/dates";
+import { isValidISODate } from "../domain/dateUtils";
 import { DateInputWithDisplay, NumberInput } from "./shared";
 import { ui, colors } from "./ui";
 
@@ -285,13 +286,33 @@ export default function MortgageTab() {
     const pStr = overrides?.principalInput ?? principalInput;
     const rStr = overrides?.rateInput ?? rateInput;
     const yStr = overrides?.yearsInput ?? yearsInput;
-    const startDate = overrides?.startDate ?? terms.startDate;
+    const rawStartDate = overrides?.startDate ?? terms.startDate;
 
-    const principal = parseNumber(pStr) ?? initialUI.terms.principal;
+    // Each field falls back to the *current* committed value when what the
+    // user has typed so far isn't a usable loan term. The raw text stays in
+    // its own state, so the box still shows exactly what was typed — but a
+    // mid-edit "0" or "-5" never reaches the domain layer, which rightly
+    // throws on a non-positive principal and would take the whole tab down
+    // from inside a render-time useMemo. Falling back to the mounted-at
+    // value (initialUI) instead of the current one was also wrong: it
+    // silently reverted edits made earlier in the session.
+    const parsedPrincipal = parseNumber(pStr);
+    const principal =
+      parsedPrincipal !== null && parsedPrincipal > 0
+        ? parsedPrincipal
+        : terms.principal;
+
+    const parsedRate = parseNumber(rStr);
     const annualRate =
-      (parseNumber(rStr) ?? initialUI.terms.annualRate * 100) / 100;
-    const years = parseNumber(yStr) ?? initialUI.terms.termMonths / 12;
-    const termMonths = Math.max(1, Math.round(years * 12));
+      parsedRate !== null && parsedRate >= 0 ? parsedRate / 100 : terms.annualRate;
+
+    const parsedYears = parseNumber(yStr);
+    const termMonths =
+      parsedYears !== null && parsedYears > 0
+        ? Math.max(1, Math.round(parsedYears * 12))
+        : terms.termMonths;
+
+    const startDate = isValidISODate(rawStartDate) ? rawStartDate : terms.startDate;
 
     setTerms({
       principal,
@@ -623,7 +644,10 @@ export default function MortgageTab() {
               label="Date"
               value={p.date}
               onChange={(val) =>
-                updateScenarioPattern(scenarioId, p.id, { date: val })
+                // A cleared date input reports "", which is not a date the
+                // engine can place; hold the last good one, matching how
+                // the loan's own start date behaves.
+                updateScenarioPattern(scenarioId, p.id, { date: val || p.date })
               }
             />
           </div>
@@ -670,7 +694,7 @@ export default function MortgageTab() {
               value={p.startDate}
               onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
-                  startDate: val,
+                  startDate: val || p.startDate,
                 })
               }
             />
@@ -934,7 +958,7 @@ export default function MortgageTab() {
               value={p.anchorDate}
               onChange={(val) =>
                 updateScenarioPattern(scenarioId, p.id, {
-                  anchorDate: val,
+                  anchorDate: val || p.anchorDate,
                 })
               }
             />
@@ -1064,7 +1088,9 @@ export default function MortgageTab() {
                   <div style={{ flex: "3 1 auto", minWidth: 0 }}>
                     <DateInputWithDisplay
                       value={row.date}
-                      onChange={(val) => updatePrepaymentRow(row.id, { date: val })}
+                      onChange={(val) =>
+                        updatePrepaymentRow(row.id, { date: val || row.date })
+                      }
                       captionStyle={{ fontSize: 11, marginTop: 3, color: colors.muted }}
                       ariaLabel="Prepayment date"
                       // A firm min-width so MM/DD/YYYY never clips the year
