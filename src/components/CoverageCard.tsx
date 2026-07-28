@@ -72,6 +72,14 @@ export default function CoverageCard({
           : "Tracking top-ups from now on"}
       </div>
 
+      {metrics.currentMonth.known && metrics.currentMonth.total > 0 && (
+        <div style={styles.currentMonthNote}>
+          {formatMoney(metrics.currentMonth.total)} recorded this month (
+          {monthYearLabel(`${metrics.currentMonth.monthKey}-01`)}) — counted once the month
+          closes.
+        </div>
+      )}
+
       {/* Hero: the history once it means something, the forward read before
           then — which is useful from the very first day. */}
       {hasHistory ? (
@@ -256,6 +264,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "inherit",
   },
   caption: { fontSize: 11, color: colors.faint, marginBottom: 9 },
+  currentMonthNote: {
+    fontSize: 11,
+    lineHeight: 1.4,
+    color: colors.amber,
+    marginTop: -5,
+    marginBottom: 9,
+  },
   hero: { display: "flex", alignItems: "baseline", gap: 7, marginBottom: 2 },
   heroBig: { fontSize: 24, fontWeight: 700, lineHeight: 1.05 },
   heroOf: { fontSize: 12.5, color: colors.muted },

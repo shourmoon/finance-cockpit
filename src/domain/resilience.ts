@@ -52,6 +52,12 @@ export interface CoverageMetrics {
   streakBest: number;
   /** Percent of the second salary that stayed in savings; null when unset. */
   secondSalaryKept: number | null;
+  /**
+   * The current, in-progress month — live so a top-up entered today is
+   * visible immediately, but excluded from every rate above (streaks,
+   * averages, knownMonths) since the month isn't over yet.
+   */
+  currentMonth: MonthBucket;
 }
 
 export interface CoverageOptions {
@@ -101,18 +107,22 @@ export function computeCoverageMetrics(
   const trackingMonth =
     trackingSince && isValidISODate(trackingSince) ? monthKey(trackingSince) : null;
 
+  const emptyBucket = (key: string): MonthBucket => ({
+    monthKey: key,
+    oneOff: 0,
+    shortfall: 0,
+    total: 0,
+    // No tracking date means we have no reason to distrust any month.
+    known: trackingMonth === null || key >= trackingMonth,
+  });
+
   const buckets = new Map<string, MonthBucket>();
   for (let i = 0; i < windowMonths; i++) {
     const key = shiftMonth(firstMonth, i);
-    buckets.set(key, {
-      monthKey: key,
-      oneOff: 0,
-      shortfall: 0,
-      total: 0,
-      // No tracking date means we have no reason to distrust any month.
-      known: trackingMonth === null || key >= trackingMonth,
-    });
+    buckets.set(key, emptyBucket(key));
   }
+  const currentMonthKey = monthKey(asOf);
+  const currentMonth = emptyBucket(currentMonthKey);
 
   for (const txn of transactions) {
     // Only explicitly-marked top-ups count. `name` is user-editable, so it
@@ -121,7 +131,8 @@ export function computeCoverageMetrics(
     if (!isValidISODate(txn.date)) continue;
     if (!(txn.amount > 0)) continue; // a zero or negative "top-up" isn't one
 
-    const bucket = buckets.get(monthKey(txn.date));
+    const txnMonth = monthKey(txn.date);
+    const bucket = txnMonth === currentMonthKey ? currentMonth : buckets.get(txnMonth);
     if (!bucket || !bucket.known) continue;
 
     // Reason defaults to one-off, matching the Apply flow's default.
@@ -130,7 +141,7 @@ export function computeCoverageMetrics(
   }
 
   const months = [...buckets.values()];
-  for (const b of months) {
+  for (const b of [...months, currentMonth]) {
     b.total = lens === "recurring" ? b.shortfall : b.oneOff + b.shortfall;
   }
 
@@ -176,5 +187,6 @@ export function computeCoverageMetrics(
     streakCurrent,
     streakBest,
     secondSalaryKept,
+    currentMonth,
   };
 }

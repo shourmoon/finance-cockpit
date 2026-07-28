@@ -565,6 +565,44 @@ describe("App shell", () => {
       const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
       expect(saved.settings.coverageLens).toBe("recurring");
     });
+
+    it("shows a top-up recorded this month immediately, ahead of the month closing", () => {
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const daysAgo = (n: number) => {
+        const d = new Date(today);
+        d.setUTCDate(d.getUTCDate() - n);
+        return iso(d);
+      };
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 3,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: daysAgo(4), coverageLens: "all",
+          },
+          rules: [],
+          adhocTransactions: [
+            { id: "a", name: "Top Up", amount: 900, date: daysAgo(3), kind: "topUp", reason: "shortfall" },
+          ],
+          overrides: {},
+        })
+      );
+      render(<App />);
+
+      // Visible right away, even though the month isn't complete...
+      expect(screen.getByText(/\$900\.00 recorded this month/)).toBeInTheDocument();
+      // ...and NOT counted toward the historical total, which still waits
+      // for the month to close.
+      expect(screen.getByText("Total topped up").closest("div")).toHaveTextContent("$0.00");
+    });
+
+    it("says nothing about this month when nothing has been recorded yet", () => {
+      render(<App />);
+      expect(screen.queryByText(/recorded this month/)).not.toBeInTheDocument();
+    });
   });
 
   it("hides the top-up hint when the balance stays above the floor", () => {

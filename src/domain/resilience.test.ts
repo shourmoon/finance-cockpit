@@ -278,4 +278,44 @@ describe("computeCoverageMetrics", () => {
     const m = computeCoverageMetrics([bad], { ...BASE, lens: "all" });
     expect(m.totalToppedUp).toBe(0);
   });
+
+  describe("currentMonth (the live, in-progress month)", () => {
+    it("reports a top-up dated in the asOf month without counting it toward any rate", () => {
+      const m = computeCoverageMetrics([topUp("2026-08-05", 900, "shortfall")], {
+        ...BASE,
+        lens: "all",
+      });
+      expect(m.currentMonth.monthKey).toBe("2026-08");
+      expect(m.currentMonth.total).toBe(900);
+      expect(m.currentMonth.shortfall).toBe(900);
+      // Untouched: still excluded from every historical/rate metric.
+      expect(m.totalToppedUp).toBe(0);
+      expect(m.knownMonths).toBe(12);
+      expect(m.cleanMonths).toBe(12);
+    });
+
+    it("is zero when nothing has been recorded yet this month", () => {
+      const m = computeCoverageMetrics([], { ...BASE, lens: "all" });
+      expect(m.currentMonth.total).toBe(0);
+      expect(m.currentMonth.known).toBe(true);
+    });
+
+    it("respects the active lens", () => {
+      const txns = [topUp("2026-08-05", 900, "oneOff")];
+      const all = computeCoverageMetrics(txns, { ...BASE, lens: "all" });
+      const rec = computeCoverageMetrics(txns, { ...BASE, lens: "recurring" });
+      expect(all.currentMonth.total).toBe(900);
+      expect(rec.currentMonth.total).toBe(0);
+    });
+
+    it("is unknown when tracking starts after the current month began", () => {
+      const m = computeCoverageMetrics([topUp("2026-08-05", 900)], {
+        ...BASE,
+        lens: "all",
+        trackingSince: "2026-09-01",
+      });
+      expect(m.currentMonth.known).toBe(false);
+      expect(m.currentMonth.total).toBe(0);
+    });
+  });
 });
