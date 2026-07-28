@@ -3,13 +3,14 @@
 // "Did one salary cover the household, unaided?" — the running score of
 // every applied top-up, plus the forward read from the current projection.
 //
-// Metrics are shown as soon as a single complete month exists; the caption
-// states how many months they rest on, which is what carries the honesty
-// about a thin sample — an earlier version withheld rate metrics below six
-// months, but that hid real data the user had deliberately entered (e.g.
-// backdated top-ups), which was worse than showing a small-sample number.
-// The hero still leads with the forward read until there is any history at
-// all, since that read is useful from the very first day.
+// Metrics are shown as soon as a single known month exists — including the
+// current, in-progress one: this app forecasts ahead, so a top-up is rarely
+// a day-30 surprise, and hiding a real, already-recorded draw until the
+// month closes was worse than showing a number that might still move. The
+// in-progress month is marked (dashed bar, "still open" in its tooltip) so
+// it reads as provisional without being invisible. The hero leads with the
+// forward read until there is any known month at all, since that read is
+// useful from the very first day.
 
 import type { CoverageMetrics, MonthBucket } from "../domain/resilience";
 import type { CoverageLens } from "../domain/types";
@@ -38,8 +39,10 @@ export default function CoverageCard({
   formatMoney: (amount: number) => string;
 }) {
   const { knownMonths, cleanMonths, months } = metrics;
-  // The history leads as soon as there is any complete month to report.
+  // The history leads as soon as there is any known month to report.
   const hasHistory = knownMonths > 0;
+  const latest = months[months.length - 1];
+  const latestInProgress = latest?.known && !latest.complete;
 
   // Bars rescale to the active lens: a $350 shortfall is invisible on a
   // scale set by a $2,400 shock, which would defeat the point of the lens.
@@ -66,19 +69,11 @@ export default function CoverageCard({
 
       <div style={styles.caption}>
         {trackingSince
-          ? `Tracking since ${formatDate(trackingSince)} · ${knownMonths} complete month${
+          ? `Tracking since ${formatDate(trackingSince)} · ${knownMonths} month${
               knownMonths === 1 ? "" : "s"
-            }`
+            } tracked${latestInProgress ? " (this month in progress)" : ""}`
           : "Tracking top-ups from now on"}
       </div>
-
-      {metrics.currentMonth.known && metrics.currentMonth.total > 0 && (
-        <div style={styles.currentMonthNote}>
-          {formatMoney(metrics.currentMonth.total)} recorded this month (
-          {monthYearLabel(`${metrics.currentMonth.monthKey}-01`)}) — counted once the month
-          closes.
-        </div>
-      )}
 
       {/* Hero: the history once it means something, the forward read before
           then — which is useful from the very first day. */}
@@ -168,17 +163,23 @@ function MonthBar({
   lens: CoverageLens;
   formatMoney: (amount: number) => string;
 }) {
+  const openSuffix = bucket.known && !bucket.complete ? ", still open" : "";
   const label = !bucket.known
     ? `${bucket.monthKey}: before tracking began`
     : bucket.total === 0
-    ? `${bucket.monthKey}: no top-up needed`
-    : `${bucket.monthKey}: ${formatMoney(bucket.total)} topped up`;
+    ? `${bucket.monthKey}: no top-up needed${openSuffix}`
+    : `${bucket.monthKey}: ${formatMoney(bucket.total)} topped up${openSuffix}`;
+  // The in-progress month is dashed rather than solid, since its total
+  // could still grow before the month closes.
+  const openStyle: React.CSSProperties = !bucket.complete
+    ? { outline: `1px dashed ${colors.muted}`, outlineOffset: 1 }
+    : {};
 
   if (!bucket.known) {
-    return <span style={styles.colUnknown} title={label} />;
+    return <span style={{ ...styles.colUnknown, ...openStyle }} title={label} />;
   }
   if (bucket.total === 0) {
-    return <span style={styles.colClean} title={label} />;
+    return <span style={{ ...styles.colClean, ...openStyle }} title={label} />;
   }
   // Stacked so a month holding both a shock and a shortfall reads as both —
   // but only the portions this lens actually counts are drawn. Under
@@ -188,7 +189,7 @@ function MonthBar({
   const oneOffPct = (bucket.oneOff / peak) * 100;
   const shortfallPct = (bucket.shortfall / peak) * 100;
   return (
-    <span style={styles.col} title={label}>
+    <span style={{ ...styles.col, ...openStyle }} title={label}>
       {showOneOff && <span style={{ ...styles.segOneOff, height: `${oneOffPct}%` }} />}
       {bucket.shortfall > 0 && (
         <span style={{ ...styles.segShortfall, height: `${shortfallPct}%` }} />
@@ -264,13 +265,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "inherit",
   },
   caption: { fontSize: 11, color: colors.faint, marginBottom: 9 },
-  currentMonthNote: {
-    fontSize: 11,
-    lineHeight: 1.4,
-    color: colors.amber,
-    marginTop: -5,
-    marginBottom: 9,
-  },
   hero: { display: "flex", alignItems: "baseline", gap: 7, marginBottom: 2 },
   heroBig: { fontSize: 24, fontWeight: 700, lineHeight: 1.05 },
   heroOf: { fontSize: 12.5, color: colors.muted },

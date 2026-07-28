@@ -488,10 +488,12 @@ describe("App shell", () => {
       );
       render(<App />);
       // Metrics are shown rather than withheld — the caption carries the
-      // honesty about how little history they rest on.
+      // honesty about how little history they rest on. Tracking started two
+      // months ago, so three months are known: the two complete ones plus
+      // the current, in-progress one.
       expect(screen.getByText("Avg monthly gap")).toBeInTheDocument();
       expect(screen.getByText("2nd salary kept")).toBeInTheDocument();
-      expect(screen.getByText(/2 complete months/)).toBeInTheDocument();
+      expect(screen.getByText(/3 months tracked \(this month in progress\)/)).toBeInTheDocument();
     });
 
     it("does not draw the one-off portion of a month when the lens excludes it", () => {
@@ -566,7 +568,7 @@ describe("App shell", () => {
       expect(saved.settings.coverageLens).toBe("recurring");
     });
 
-    it("shows a top-up recorded this month immediately, ahead of the month closing", () => {
+    it("counts a top-up dated this month immediately, ahead of the month closing", () => {
       const today = new Date();
       const iso = (d: Date) => d.toISOString().slice(0, 10);
       const daysAgo = (n: number) => {
@@ -592,16 +594,10 @@ describe("App shell", () => {
       );
       render(<App />);
 
-      // Visible right away, even though the month isn't complete...
-      expect(screen.getByText(/\$900\.00 recorded this month/)).toBeInTheDocument();
-      // ...and NOT counted toward the historical total, which still waits
-      // for the month to close.
-      expect(screen.getByText("Total topped up").closest("div")).toHaveTextContent("$0.00");
-    });
-
-    it("says nothing about this month when nothing has been recorded yet", () => {
-      render(<App />);
-      expect(screen.queryByText(/recorded this month/)).not.toBeInTheDocument();
+      // Folded in right away — no waiting for the month to close.
+      expect(screen.getByText("Total topped up").closest("div")).toHaveTextContent("$900.00");
+      // The caption marks the in-progress month rather than hiding it.
+      expect(screen.getByText(/this month in progress/)).toBeInTheDocument();
     });
   });
 

@@ -11,8 +11,12 @@
 //                 income genuinely did not cover from months that merely
 //                 absorbed a shock
 //
-// Months are calendar months. The current month is always excluded — it is
-// still in progress and would drag every average down. Months before
+// Months are calendar months, including the current, in-progress one: this
+// app forecasts ahead, so a "shortfall" top-up is one the projection already
+// flagged before it was recorded, and only a "oneOff" shock can land as a
+// genuine surprise — not a reason to hold back real, already-recorded data.
+// The current month is flagged `complete: false` so the UI can mark it as
+// still open without excluding it from any total or streak. Months before
 // `trackingSince` are *unknown* rather than clean: the app wasn't recording
 // then, and absence of data is not evidence of coverage.
 
@@ -31,6 +35,8 @@ export interface MonthBucket {
   total: Money;
   /** False for months before tracking began — unknown, not clean. */
   known: boolean;
+  /** False only for the current, in-progress month — still open. */
+  complete: boolean;
 }
 
 export interface CoverageMetrics {
@@ -52,21 +58,15 @@ export interface CoverageMetrics {
   streakBest: number;
   /** Percent of the second salary that stayed in savings; null when unset. */
   secondSalaryKept: number | null;
-  /**
-   * The current, in-progress month — live so a top-up entered today is
-   * visible immediately, but excluded from every rate above (streaks,
-   * averages, knownMonths) since the month isn't over yet.
-   */
-  currentMonth: MonthBucket;
 }
 
 export interface CoverageOptions {
   lens: CoverageLens;
-  /** Today. The month containing this date is excluded as incomplete. */
+  /** Today. Its month is included, flagged incomplete on its bucket. */
   asOf: ISODate;
   /** When top-up tracking began. Omitted means every month counts as known. */
   trackingSince?: ISODate;
-  /** How many complete months to look back over. Default 12. */
+  /** How many months to look back over, including the current one. Default 12. */
   windowMonths?: number;
   /** Net monthly income of the second earner; omitted hides that metric. */
   secondSalaryMonthly?: Money;
@@ -101,28 +101,25 @@ export function computeCoverageMetrics(
   const { lens, asOf, trackingSince, secondSalaryMonthly } = options;
   const windowMonths = options.windowMonths ?? 12;
 
-  // The window ends at the last *complete* month before asOf.
-  const lastComplete = shiftMonth(monthKey(asOf), -1);
-  const firstMonth = shiftMonth(lastComplete, -(windowMonths - 1));
+  // The window ends at asOf's own month — included, not held back.
+  const currentMonthKey = monthKey(asOf);
+  const firstMonth = shiftMonth(currentMonthKey, -(windowMonths - 1));
   const trackingMonth =
     trackingSince && isValidISODate(trackingSince) ? monthKey(trackingSince) : null;
-
-  const emptyBucket = (key: string): MonthBucket => ({
-    monthKey: key,
-    oneOff: 0,
-    shortfall: 0,
-    total: 0,
-    // No tracking date means we have no reason to distrust any month.
-    known: trackingMonth === null || key >= trackingMonth,
-  });
 
   const buckets = new Map<string, MonthBucket>();
   for (let i = 0; i < windowMonths; i++) {
     const key = shiftMonth(firstMonth, i);
-    buckets.set(key, emptyBucket(key));
+    buckets.set(key, {
+      monthKey: key,
+      oneOff: 0,
+      shortfall: 0,
+      total: 0,
+      // No tracking date means we have no reason to distrust any month.
+      known: trackingMonth === null || key >= trackingMonth,
+      complete: key !== currentMonthKey,
+    });
   }
-  const currentMonthKey = monthKey(asOf);
-  const currentMonth = emptyBucket(currentMonthKey);
 
   for (const txn of transactions) {
     // Only explicitly-marked top-ups count. `name` is user-editable, so it
@@ -131,8 +128,7 @@ export function computeCoverageMetrics(
     if (!isValidISODate(txn.date)) continue;
     if (!(txn.amount > 0)) continue; // a zero or negative "top-up" isn't one
 
-    const txnMonth = monthKey(txn.date);
-    const bucket = txnMonth === currentMonthKey ? currentMonth : buckets.get(txnMonth);
+    const bucket = buckets.get(monthKey(txn.date));
     if (!bucket || !bucket.known) continue;
 
     // Reason defaults to one-off, matching the Apply flow's default.
@@ -141,7 +137,7 @@ export function computeCoverageMetrics(
   }
 
   const months = [...buckets.values()];
-  for (const b of [...months, currentMonth]) {
+  for (const b of months) {
     b.total = lens === "recurring" ? b.shortfall : b.oneOff + b.shortfall;
   }
 
@@ -187,6 +183,5 @@ export function computeCoverageMetrics(
     streakCurrent,
     streakBest,
     secondSalaryKept,
-    currentMonth,
   };
 }
