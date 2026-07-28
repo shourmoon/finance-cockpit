@@ -346,6 +346,49 @@ describe("App shell", () => {
     });
   });
 
+  describe("tracking start date", () => {
+    it("can be moved back so backdated top-ups are counted", () => {
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const monthsAgo = (n: number) =>
+        iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 15)));
+
+      // Tracking starts today, so a top-up from 3 months ago is in an
+      // "unknown" month and cannot count.
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 3,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: iso(today), coverageLens: "all",
+          },
+          rules: [],
+          adhocTransactions: [
+            { id: "h1", name: "Top Up", amount: 900, date: monthsAgo(3), kind: "topUp", reason: "shortfall" },
+          ],
+          overrides: {},
+        })
+      );
+      render(<App />);
+      expect(screen.getByText("Total topped up").parentElement?.textContent).toContain("$0.00");
+
+      // Move the tracking start back and the historical draw is counted.
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.change(screen.getByLabelText("Tracking since"), {
+        target: { value: monthsAgo(6) },
+      });
+      fireEvent.click(screen.getByText("Dashboard"));
+
+      expect(screen.getByText("Total topped up").parentElement?.textContent).toContain("$900.00");
+      const saved = JSON.parse(
+        window.localStorage.getItem("finance-cockpit-app-state-v1")!
+      );
+      expect(saved.settings.trackingSince).toBe(monthsAgo(6));
+    });
+  });
+
   describe("second salary setting", () => {
     it("persists and reveals the kept-share metric once set", () => {
       const today = new Date();
@@ -424,7 +467,7 @@ describe("App shell", () => {
       expect(screen.getByText(/isolated events/)).toBeInTheDocument();
     });
 
-    it("hides rate metrics while history is too thin to mean anything", () => {
+    it("shows rate metrics even on thin history, with the sample size stated", () => {
       const today = new Date();
       const iso = (d: Date) => d.toISOString().slice(0, 10);
       const twoMonthsAgo = iso(
@@ -444,10 +487,11 @@ describe("App shell", () => {
         })
       );
       render(<App />);
-      expect(screen.queryByText("Avg monthly gap")).not.toBeInTheDocument();
-      expect(screen.queryByText("2nd salary kept")).not.toBeInTheDocument();
-      // The forward read leads instead, and is useful from day one.
-      expect(screen.getByText("over your horizon")).toBeInTheDocument();
+      // Metrics are shown rather than withheld — the caption carries the
+      // honesty about how little history they rest on.
+      expect(screen.getByText("Avg monthly gap")).toBeInTheDocument();
+      expect(screen.getByText("2nd salary kept")).toBeInTheDocument();
+      expect(screen.getByText(/2 complete months/)).toBeInTheDocument();
     });
 
     it("does not draw the one-off portion of a month when the lens excludes it", () => {

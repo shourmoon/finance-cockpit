@@ -3,19 +3,18 @@
 // "Did one salary cover the household, unaided?" — the running score of
 // every applied top-up, plus the forward read from the current projection.
 //
-// Two states by design. With little history the metrics can't say anything
-// honest, so the forward read leads and the history accrues behind it; once
-// six complete months exist the rate-based metrics appear. Rate metrics are
-// deliberately withheld early — an average over two months is noise wearing
-// a number's clothes.
+// Metrics are shown as soon as a single complete month exists; the caption
+// states how many months they rest on, which is what carries the honesty
+// about a thin sample — an earlier version withheld rate metrics below six
+// months, but that hid real data the user had deliberately entered (e.g.
+// backdated top-ups), which was worse than showing a small-sample number.
+// The hero still leads with the forward read until there is any history at
+// all, since that read is useful from the very first day.
 
 import type { CoverageMetrics, MonthBucket } from "../domain/resilience";
 import type { CoverageLens } from "../domain/types";
 import { formatDate, monthYearLabel } from "../utils/dates";
 import { ui, colors } from "./ui";
-
-/** Complete months required before rate-based metrics are shown. */
-const MIN_MONTHS_FOR_RATES = 6;
 
 export default function CoverageCard({
   metrics,
@@ -39,7 +38,8 @@ export default function CoverageCard({
   formatMoney: (amount: number) => string;
 }) {
   const { knownMonths, cleanMonths, months } = metrics;
-  const mature = knownMonths >= MIN_MONTHS_FOR_RATES;
+  // The history leads as soon as there is any complete month to report.
+  const hasHistory = knownMonths > 0;
 
   // Bars rescale to the active lens: a $350 shortfall is invisible on a
   // scale set by a $2,400 shock, which would defeat the point of the lens.
@@ -74,7 +74,7 @@ export default function CoverageCard({
 
       {/* Hero: the history once it means something, the forward read before
           then — which is useful from the very first day. */}
-      {mature ? (
+      {hasHistory ? (
         <>
           <div style={styles.hero}>
             <span style={{ ...styles.heroBig, color: heroColor(cleanMonths, knownMonths) }}>
@@ -132,16 +132,12 @@ export default function CoverageCard({
           v={String(metrics.streakCurrent)}
           d={`months now · best ${metrics.streakBest}`}
         />
-        {mature && (
-          <Stat k="Avg monthly gap" v={formatMoney(metrics.averageMonthlyGap)} />
-        )}
-        {mature && (
-          <Stat
-            k="Typical top-up"
-            v={metrics.typicalTopUp === null ? "—" : formatMoney(metrics.typicalTopUp)}
-          />
-        )}
-        {mature && metrics.secondSalaryKept !== null && (
+        <Stat k="Avg monthly gap" v={formatMoney(metrics.averageMonthlyGap)} />
+        <Stat
+          k="Typical top-up"
+          v={metrics.typicalTopUp === null ? "—" : formatMoney(metrics.typicalTopUp)}
+        />
+        {metrics.secondSalaryKept !== null && (
           <Stat
             k="2nd salary kept"
             v={`${metrics.secondSalaryKept.toFixed(1)}%`}

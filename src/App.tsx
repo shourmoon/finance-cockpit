@@ -173,6 +173,10 @@ export default function App() {
     }));
   }
 
+  function updateTrackingSince(val: string) {
+    setState((s) => ({ ...s, settings: { ...s.settings, trackingSince: val } }));
+  }
+
   function updateMinSafeBalance(val: number) {
     setState((s) => ({
       ...s,
@@ -390,6 +394,18 @@ export default function App() {
                   value={state.account.startingBalance}
                   onChange={updateStartingBalance}
                   inputStyle={ui.input}
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={ui.fieldLabel}>Tracking since</span>
+                <SharedDateInput
+                  value={state.settings.trackingSince ?? state.settings.startDate}
+                  onChange={(val) => {
+                    if (val) updateTrackingSince(val);
+                  }}
+                  inputStyle={ui.input}
+                  ariaLabel="Tracking since"
                 />
               </label>
 
