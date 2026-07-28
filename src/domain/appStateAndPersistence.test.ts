@@ -26,6 +26,103 @@ describe("appState & persistence", () => {
     expect(typeof state.overrides).toBe("object");
   });
 
+  describe("v2 -> v3 migration (top-up tracking)", () => {
+    test("preserves kind and reason on ad-hoc transactions", () => {
+      const txn = sanitizeAdhocTransaction({
+        id: "t1", name: "Top Up", amount: 500, date: "2026-03-10",
+        kind: "topUp", reason: "shortfall",
+      });
+      expect(txn).toMatchObject({ kind: "topUp", reason: "shortfall" });
+    });
+
+    test("leaves an ordinary transaction unmarked", () => {
+      const txn = sanitizeAdhocTransaction({
+        id: "t2", name: "Groceries", amount: -80, date: "2026-03-10",
+      });
+      expect(txn!.kind).toBeUndefined();
+      expect(txn!.reason).toBeUndefined();
+    });
+
+    test("drops a bogus kind or reason rather than trusting stored JSON", () => {
+      const txn = sanitizeAdhocTransaction({
+        id: "t3", name: "X", amount: 10, date: "2026-03-10",
+        kind: "nonsense", reason: "alsoNonsense",
+      });
+      expect(txn!.kind).toBeUndefined();
+      expect(txn!.reason).toBeUndefined();
+    });
+
+    test("does NOT backfill old transactions named 'Top Up'", () => {
+      // Past top-ups were never recorded reliably, so name-matching them
+      // would invent history that isn't trustworthy.
+      const upgraded = upgradeAppState({
+        version: 2,
+        account: { startingBalance: 100 },
+        settings: { startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0 },
+        rules: [],
+        adhocTransactions: [
+          { id: "old1", name: "Top Up", amount: 500, date: "2025-06-01" },
+          { id: "old2", name: "Transfer from savings", amount: 300, date: "2025-07-01" },
+        ],
+        overrides: {},
+      });
+      expect(upgraded.adhocTransactions).toHaveLength(2);
+      expect(upgraded.adhocTransactions.every((t) => t.kind === undefined)).toBe(true);
+    });
+
+    test("stamps trackingSince when upgrading a state that lacks it", () => {
+      const upgraded = upgradeAppState({
+        version: 2,
+        account: { startingBalance: 0 },
+        settings: { startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0 },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.trackingSince).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(upgraded.version).toBe(APP_STATE_VERSION);
+    });
+
+    test("keeps an existing trackingSince instead of resetting the clock", () => {
+      const upgraded = upgradeAppState({
+        version: 3,
+        account: { startingBalance: 0 },
+        settings: {
+          startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
+          trackingSince: "2025-09-01",
+        },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.trackingSince).toBe("2025-09-01");
+    });
+
+    test("round-trips the persisted lens and second salary", () => {
+      const upgraded = upgradeAppState({
+        version: 3,
+        account: { startingBalance: 0 },
+        settings: {
+          startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
+          coverageLens: "recurring", secondSalaryMonthly: 6000,
+        },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.coverageLens).toBe("recurring");
+      expect(upgraded.settings.secondSalaryMonthly).toBe(6000);
+    });
+
+    test("falls back to the default lens when the stored value is bogus", () => {
+      const upgraded = upgradeAppState({
+        version: 3,
+        account: { startingBalance: 0 },
+        settings: {
+          startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
+          coverageLens: "sideways", secondSalaryMonthly: "lots",
+        },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.coverageLens).toBe("all");
+      expect(upgraded.settings.secondSalaryMonthly).toBeUndefined();
+    });
+  });
+
   test("upgradeAppState handles completely invalid input by returning fresh state", () => {
     const upgraded = upgradeAppState(null as any);
     const fresh = createInitialAppState();

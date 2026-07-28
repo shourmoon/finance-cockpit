@@ -179,6 +179,9 @@ describe("App shell", () => {
     expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Apply transfer of/i }));
+    // Applying now asks why, so coverage tracking can tell a shock from a
+    // genuine shortfall. Default path: a one-off.
+    fireEvent.click(screen.getByRole("button", { name: /One-off/i }));
 
     // The hint is gone because the applied transfer covers the whole horizon.
     expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
@@ -217,6 +220,7 @@ describe("App shell", () => {
 
     const applyButtons = screen.getAllByRole("button", { name: /Apply transfer of/i });
     fireEvent.click(applyButtons[0]);
+    fireEvent.click(screen.getByRole("button", { name: /One-off/i }));
 
     // Applying the first stretch's deposit as a real inflow covers it, so
     // the plan collapses to the remaining single stretch (falls back to the
@@ -224,6 +228,186 @@ describe("App shell", () => {
     expect(screen.queryByText(/transfers keep you above your floor/)).not.toBeInTheDocument();
     expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
     expect(screen.getAllByText("Top Up").length).toBeGreaterThan(0);
+  });
+
+  it("records a top-up's reason so coverage metrics can separate shocks from shortfalls", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
+      target: { value: "1000" },
+    });
+    fireEvent.click(screen.getByText("Dashboard"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Apply transfer of/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Recurring shortfall/i }));
+
+    const saved = JSON.parse(
+      window.localStorage.getItem("finance-cockpit-app-state-v1")!
+    );
+    const applied = saved.adhocTransactions.find(
+      (t: { kind?: string }) => t.kind === "topUp"
+    );
+    expect(applied).toBeTruthy();
+    expect(applied.reason).toBe("shortfall");
+  });
+
+  it("can cancel the reason prompt without recording a top-up", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
+      target: { value: "1000" },
+    });
+    fireEvent.click(screen.getByText("Dashboard"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Apply transfer of/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+
+    const saved = JSON.parse(
+      window.localStorage.getItem("finance-cockpit-app-state-v1")!
+    );
+    expect(saved.adhocTransactions.some((t: { kind?: string }) => t.kind === "topUp")).toBe(false);
+    // The hint is still there, unapplied.
+    expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
+  });
+
+  describe("One-Salary Coverage card", () => {
+    it("shows the forward read and a tracking note when history is empty", () => {
+      render(<App />);
+      expect(screen.getByText("One-Salary Coverage")).toBeInTheDocument();
+      expect(screen.getByText(/Tracking since/)).toBeInTheDocument();
+    });
+
+    it("shows rate metrics and a verdict once six months exist", () => {
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const monthsAgo = (n: number) => {
+        const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 15));
+        return iso(d);
+      };
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 3,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: monthsAgo(12), coverageLens: "all",
+            secondSalaryMonthly: 6000,
+          },
+          rules: [],
+          adhocTransactions: [
+            { id: "a", name: "Top Up", amount: 1800, date: monthsAgo(5), kind: "topUp", reason: "oneOff" },
+          ],
+          overrides: {},
+        })
+      );
+      render(<App />);
+
+      // Rate-based metrics only appear once there is enough history.
+      expect(screen.getByText("Avg monthly gap")).toBeInTheDocument();
+      expect(screen.getByText("Typical top-up")).toBeInTheDocument();
+      expect(screen.getByText("2nd salary kept")).toBeInTheDocument();
+      // One isolated draw across a year reads as a shock, not a pattern.
+      expect(screen.getByText(/isolated events/)).toBeInTheDocument();
+    });
+
+    it("hides rate metrics while history is too thin to mean anything", () => {
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const twoMonthsAgo = iso(
+        new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 2, 1))
+      );
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 3,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: twoMonthsAgo, coverageLens: "all",
+            secondSalaryMonthly: 6000,
+          },
+          rules: [], adhocTransactions: [], overrides: {},
+        })
+      );
+      render(<App />);
+      expect(screen.queryByText("Avg monthly gap")).not.toBeInTheDocument();
+      expect(screen.queryByText("2nd salary kept")).not.toBeInTheDocument();
+      // The forward read leads instead, and is useful from day one.
+      expect(screen.getByText("over your horizon")).toBeInTheDocument();
+    });
+
+    it("does not draw the one-off portion of a month when the lens excludes it", () => {
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const monthsAgo = (n: number) => {
+        const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 15));
+        return iso(d);
+      };
+      // One month holding BOTH a large shock and a small shortfall.
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 3,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: monthsAgo(12), coverageLens: "recurring",
+          },
+          rules: [],
+          adhocTransactions: [
+            { id: "a", name: "Top Up", amount: 2400, date: monthsAgo(4), kind: "topUp", reason: "oneOff" },
+            { id: "b", name: "Top Up", amount: 300, date: monthsAgo(4), kind: "topUp", reason: "shortfall" },
+          ],
+          overrides: {},
+        })
+      );
+      render(<App />);
+
+      // Under the recurring lens only the $300 counts, so the month's bar
+      // must describe $300 — the shock is not part of this view.
+      const bar = screen.getByTitle(/topped up/);
+      expect(bar.getAttribute("title")).toMatch(/\$300\.00/);
+      // ...and it must render a single segment, not a shock stacked on top.
+      expect(bar.childElementCount).toBe(1);
+    });
+
+    it("counts complete months and lets the lens be switched", () => {
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const monthsAgo = (n: number) => {
+        const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 15));
+        return iso(d);
+      };
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 3,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: monthsAgo(12), coverageLens: "all",
+          },
+          rules: [],
+          adhocTransactions: [
+            { id: "a", name: "Top Up", amount: 1800, date: monthsAgo(3), kind: "topUp", reason: "oneOff" },
+            { id: "b", name: "Top Up", amount: 400, date: monthsAgo(2), kind: "topUp", reason: "shortfall" },
+          ],
+          overrides: {},
+        })
+      );
+      render(<App />);
+
+      // All draws: both months count as assisted.
+      expect(screen.getByText("10 of 12")).toBeInTheDocument();
+      // Recurring only: the one-off drops out.
+      fireEvent.click(screen.getByRole("button", { name: /Recurring only/i }));
+      expect(screen.getByText("11 of 12")).toBeInTheDocument();
+
+      // The lens choice persists to storage.
+      const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+      expect(saved.settings.coverageLens).toBe("recurring");
+    });
   });
 
   it("hides the top-up hint when the balance stays above the floor", () => {

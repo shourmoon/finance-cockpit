@@ -13,7 +13,13 @@ import { toISODate, isValidISODate } from "./dateUtils";
 
 // v1 -> v2: added adhocTransactions (additive; v1 states migrate
 // field-by-field with an empty list, nothing is discarded).
-export const APP_STATE_VERSION = 2;
+// v2 -> v3: added top-up tracking — `kind`/`reason` on ad-hoc transactions
+// and `trackingSince`/`coverageLens`/`secondSalaryMonthly` in settings.
+// Purely additive: existing transactions are left unmarked on purpose.
+// Past top-ups were never recorded reliably (they were entered as edits to
+// other rows), so name-matching "Top Up" would invent untrustworthy history.
+// Tracking starts at the upgrade instead.
+export const APP_STATE_VERSION = 3;
 
 function createDefaultAccount(): CashAccount {
   return {
@@ -27,6 +33,9 @@ function createDefaultSettings(): CashflowSettings {
     startDate: today,
     horizonDays: 90,
     minSafeBalance: 0,
+    // Coverage tracking begins now — there is no earlier history to claim.
+    trackingSince: today,
+    coverageLens: "all",
   };
 }
 
@@ -149,12 +158,24 @@ export function sanitizeAdhocTransaction(raw: any): AdhocTransaction | null {
   if (!raw || typeof raw !== "object") return null;
   if (typeof raw.id !== "string" || raw.id.length === 0) return null;
   if (!isValidISODate(raw.date)) return null;
-  return {
+
+  const txn: AdhocTransaction = {
     id: raw.id,
     name: typeof raw.name === "string" ? raw.name : "Transaction",
     amount: typeof raw.amount === "number" ? raw.amount : 0,
     date: raw.date,
   };
+
+  // Top-up markers are only carried through when they're exactly the values
+  // we write; anything else in stored JSON is dropped rather than trusted.
+  if (raw.kind === "topUp") {
+    txn.kind = "topUp";
+    if (raw.reason === "oneOff" || raw.reason === "shortfall") {
+      txn.reason = raw.reason;
+    }
+  }
+
+  return txn;
 }
 
 /**
@@ -199,7 +220,26 @@ export function upgradeAppState(raw: any): AppState {
       raw.settings && typeof raw.settings.minSafeBalance === "number"
         ? raw.settings.minSafeBalance
         : 0,
+    // Stamped once, on the first load that upgrades to v3. Keeping any
+    // existing value matters: re-stamping would silently reset the clock
+    // and discard however many months of coverage history had accrued.
+    trackingSince:
+      raw.settings && isValidISODate(raw.settings.trackingSince)
+        ? raw.settings.trackingSince
+        : toISODate(new Date()),
+    coverageLens:
+      raw.settings && raw.settings.coverageLens === "recurring" ? "recurring" : "all",
   };
+
+  // Optional: omitted entirely when unset, which is what hides the
+  // "second salary kept" metric rather than showing a placeholder.
+  if (
+    raw.settings &&
+    typeof raw.settings.secondSalaryMonthly === "number" &&
+    Number.isFinite(raw.settings.secondSalaryMonthly)
+  ) {
+    settings.secondSalaryMonthly = raw.settings.secondSalaryMonthly;
+  }
 
   const rules: RecurringRule[] = Array.isArray(raw.rules)
     ? raw.rules

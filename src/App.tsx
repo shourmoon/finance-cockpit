@@ -15,6 +15,8 @@ import type {
   AppState,
   FutureEvent,
   RecurringRule,
+  CoverageLens,
+  TopUpReason,
 } from "./domain/types";
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
@@ -29,6 +31,9 @@ import SyncSection from "./components/SyncSection";
 import { formatDate, monthYearLabel, monthKey } from "./utils/dates";
 import { DateInputWithDisplay as SharedDateInput, NumberInput } from "./components/shared";
 import QuickAddTransactionModal from "./components/QuickAddTransactionModal";
+import TopUpReasonModal from "./components/TopUpReasonModal";
+import CoverageCard from "./components/CoverageCard";
+import { computeCoverageMetrics } from "./domain/resilience";
 import { ui, colors } from "./components/ui";
 
 // Shared date input bound to this screen's input styling.
@@ -62,6 +67,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "config" | "mortgage"
   >("dashboard");
+
+  // A deposit whose Apply was tapped but whose reason has not been chosen
+  // yet — the transaction is only created once the user answers.
+  const [pendingDeposit, setPendingDeposit] = useState<TopUpDeposit | null>(null);
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [showAllEvents, setShowAllEvents] = useState(false);
@@ -108,6 +117,27 @@ export default function App() {
     return byEvent;
   }, [events, state.account.startingBalance]);
 
+
+  const coverageLens: CoverageLens = state.settings.coverageLens ?? "all";
+
+  // Coverage is measured against the app's notion of "now" (settings.startDate),
+  // the same reference the projection uses, so both halves of the card agree.
+  const coverage = useMemo(
+    () =>
+      computeCoverageMetrics(state.adhocTransactions, {
+        lens: coverageLens,
+        asOf: state.settings.startDate,
+        trackingSince: state.settings.trackingSince,
+        secondSalaryMonthly: state.settings.secondSalaryMonthly,
+      }),
+    [
+      state.adhocTransactions,
+      coverageLens,
+      state.settings.startDate,
+      state.settings.trackingSince,
+      state.settings.secondSalaryMonthly,
+    ]
+  );
 
   useEffect(() => {
     saveAppState(state);
@@ -163,26 +193,27 @@ export default function App() {
   }
 
   // Fallback id generator, always invoked from event handlers (see call
-  // sites below), never during render. Suppressed below: this experimental
-  // rule misclassifies a .map()-nested onClick closure as render-time
-  // execution once a second such closure exists.
+  // sites below), never during render.
   function makeId(prefix: string): string {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
       return crypto.randomUUID();
     }
-    // eslint-disable-next-line react-hooks/purity
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  function applyTransfer(deposit: TopUpDeposit) {
+  function applyTransfer(deposit: TopUpDeposit, reason: TopUpReason) {
     const txn: AdhocTransaction = {
       id: makeId("txn"),
-      ...transferDepositToTransaction(deposit),
+      ...transferDepositToTransaction(deposit, reason),
     };
     setState((s) => ({
       ...s,
       adhocTransactions: [...s.adhocTransactions, txn],
     }));
+  }
+
+  function updateCoverageLens(lens: CoverageLens) {
+    setState((s) => ({ ...s, settings: { ...s.settings, coverageLens: lens } }));
   }
 
   function addAdhocTransaction() {
@@ -506,7 +537,7 @@ export default function App() {
                     </span>
                     <button
                       style={{ ...ui.primaryButton, padding: "3px 10px", fontSize: 12 }}
-                      onClick={() => applyTransfer(d)}
+                      onClick={() => setPendingDeposit(d)}
                       aria-label={`Apply transfer of ${formatMoney(d.amount)} on ${formatDate(d.date)}`}
                     >
                       Apply
@@ -533,7 +564,7 @@ export default function App() {
                   {topUpSchedule[0] && (
                     <button
                       style={{ ...ui.primaryButton, alignSelf: "flex-start", marginTop: 6 }}
-                      onClick={() => applyTransfer(topUpSchedule[0])}
+                      onClick={() => setPendingDeposit(topUpSchedule[0])}
                       aria-label={`Apply transfer of ${formatMoney(topUp.amountNeeded)} on ${formatDate(topUp.neededBy)}`}
                     >
                       Apply
@@ -718,6 +749,31 @@ export default function App() {
           </div>
         </>
       )}
+
+      {/* ONE-SALARY COVERAGE (Dashboard, below the events ledger) */}
+      {activeTab === "dashboard" && (
+        <CoverageCard
+          metrics={coverage}
+          lens={coverageLens}
+          onLensChange={updateCoverageLens}
+          trackingSince={state.settings.trackingSince}
+          needsTopUp={topUpSchedule.length > 0 || topUp !== null}
+          slack={metrics.minBalance - (state.settings.minSafeBalance ?? 0)}
+          slackDate={metrics.minBalanceDate}
+          formatMoney={formatMoney}
+        />
+      )}
+
+      {/* TOP-UP REASON PROMPT (before a top-up is recorded) */}
+      <TopUpReasonModal
+        deposit={pendingDeposit}
+        formatMoney={formatMoney}
+        onChoose={(reason) => {
+          if (pendingDeposit) applyTransfer(pendingDeposit, reason);
+          setPendingDeposit(null);
+        }}
+        onClose={() => setPendingDeposit(null)}
+      />
 
       {/* QUICK-ADD ONE-TIME TRANSACTION (from Dashboard) */}
       <QuickAddTransactionModal

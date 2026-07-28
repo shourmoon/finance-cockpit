@@ -66,12 +66,34 @@ export type EventOverridesMap = Record<string, EventOverride>;
 // Ad-hoc one-time transactions
 // ------------------------
 
+/**
+ * Why a top-up was needed. Recorded at Apply time so coverage metrics can
+ * separate the two by measurement rather than inference:
+ * - "oneOff":    a shock (car repair, medical bill). Savings doing its job;
+ *                does not indicate the household is short on income.
+ * - "shortfall": the month simply did not cover. This is the one-salary
+ *                thesis failing, and it's what the recurring-only lens isolates.
+ * Defaults to "oneOff" so a hurried Apply never silently indicts the thesis.
+ */
+export type TopUpReason = "oneOff" | "shortfall";
+
 export interface AdhocTransaction {
   id: UUID;
   name: string;
   amount: Money; // positive for inflow, negative for outflow
   date: ISODate;
+  /**
+   * Marks a transaction created by applying a suggested top-up. Set
+   * explicitly (never inferred from `name`, which the user can edit) so
+   * coverage metrics only ever count real top-ups.
+   */
+  kind?: "topUp";
+  /** Only meaningful when `kind === "topUp"`. */
+  reason?: TopUpReason;
 }
+
+/** Which top-ups the coverage metrics count. */
+export type CoverageLens = "all" | "recurring";
 
 // ------------------------
 // Expanded future events
@@ -118,6 +140,19 @@ export interface CashflowSettings {
   startDate: ISODate;
   horizonDays: number;
   minSafeBalance: Money;
+  /**
+   * When top-up tracking began — stamped on the first v3 load. Months
+   * before this are unknown (the app wasn't recording yet), never counted
+   * as clean.
+   */
+  trackingSince?: ISODate;
+  /** Persisted coverage-card lens, so the choice survives reloads and sync. */
+  coverageLens?: CoverageLens;
+  /**
+   * Optional net monthly income of the second earner, used only for the
+   * "second salary kept" metric. Unset means that metric is hidden.
+   */
+  secondSalaryMonthly?: Money;
 }
 
 export interface CashAccount {

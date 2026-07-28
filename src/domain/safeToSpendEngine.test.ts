@@ -132,7 +132,18 @@ describe("transferDepositToTransaction", () => {
       name: "Top Up",
       amount: 250,
       date: "2025-03-10",
+      kind: "topUp",
+      reason: "oneOff",
     });
+  });
+
+  it("records the reason when one is given, for coverage tracking", () => {
+    const txn = transferDepositToTransaction(
+      { date: "2025-03-10", amount: 250, balanceBefore: -50 },
+      "shortfall"
+    );
+    expect(txn.kind).toBe("topUp");
+    expect(txn.reason).toBe("shortfall");
   });
 
   it("rounds sub-cent amounts to the nearest cent", () => {
