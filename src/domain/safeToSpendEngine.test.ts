@@ -55,6 +55,26 @@ describe("computeTopUpHint", () => {
       lowestDate: "2025-01-02",
     });
   });
+
+  it("gives no hint when the floor itself is unusable", () => {
+    const timeline = [tp("2025-01-01", 200), tp("2025-01-02", -75)];
+    expect(computeTopUpHint(timeline, NaN)).toBeNull();
+    expect(computeTopUpHint(timeline, Infinity)).toBeNull();
+  });
+
+  it("passes over days with an unusable balance rather than sizing off them", () => {
+    const timeline = [
+      tp("2025-01-01", NaN),
+      tp("2025-01-02", -Infinity),
+      tp("2025-01-03", -75),
+    ];
+    expect(computeTopUpHint(timeline, 0)).toEqual({
+      amountNeeded: 75,
+      neededBy: "2025-01-03",
+      lowestBalance: -75,
+      lowestDate: "2025-01-03",
+    });
+  });
 });
 
 describe("computeTopUpSchedule", () => {
@@ -118,6 +138,45 @@ describe("computeTopUpSchedule", () => {
   it("treats a balance exactly at the floor as safe", () => {
     const timeline = [tp("2025-01-01", 100), tp("2025-01-02", 100)];
     expect(computeTopUpSchedule(timeline, 100)).toEqual([]);
+  });
+
+  describe("non-finite inputs cannot wedge the loop", () => {
+    // Every comparison against NaN is false, so a NaN balance used to
+    // satisfy neither "already safe" nor "below the floor": the scan index
+    // never advanced and the loop pushed deposits until the heap died
+    // (measured: 150s and 8.1 GB before V8 aborted). It runs on a render
+    // path, so it has to terminate on any input.
+    it("skips a NaN balance instead of looping forever", () => {
+      const timeline = [
+        tp("2025-01-01", NaN),
+        tp("2025-01-02", -500),
+        tp("2025-01-03", 900),
+      ];
+      const deposits = computeTopUpSchedule(timeline, 0);
+      // The unusable day contributes nothing; the real dip still does.
+      expect(deposits).toEqual([
+        { date: "2025-01-02", amount: 500, balanceBefore: -500 },
+      ]);
+    });
+
+    it("skips infinite balances instead of emitting infinite deposits", () => {
+      const timeline = [
+        tp("2025-01-01", -Infinity),
+        tp("2025-01-02", Infinity),
+        tp("2025-01-03", -200),
+      ];
+      const deposits = computeTopUpSchedule(timeline, 0);
+      expect(deposits).toEqual([
+        { date: "2025-01-03", amount: 200, balanceBefore: -200 },
+      ]);
+      expect(deposits.every((d) => Number.isFinite(d.amount))).toBe(true);
+    });
+
+    it("returns no deposits when the floor itself is unusable", () => {
+      const timeline = [tp("2025-01-01", -500), tp("2025-01-02", 100)];
+      expect(computeTopUpSchedule(timeline, NaN)).toEqual([]);
+      expect(computeTopUpSchedule(timeline, Infinity)).toEqual([]);
+    });
   });
 });
 

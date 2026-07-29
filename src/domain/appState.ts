@@ -21,6 +21,29 @@ import { toISODate, isValidISODate } from "./dateUtils";
 // Tracking starts at the upgrade instead.
 export const APP_STATE_VERSION = 3;
 
+/**
+ * Bounds for the projection horizon. The engine walks one timeline point
+ * per day and the chart holds them all in memory, so an unbounded value
+ * is a real hazard rather than a theoretical one: 200,000 days builds a
+ * 200,001-point timeline. Ten years is far beyond any useful forecast
+ * while keeping the work trivially small.
+ */
+export const MIN_HORIZON_DAYS = 1;
+export const MAX_HORIZON_DAYS = 3650;
+export const DEFAULT_HORIZON_DAYS = 90;
+
+/**
+ * Coerce an untrusted horizon into a usable whole number of days.
+ * NaN/Infinity/missing fall back to the default; anything else is clamped
+ * into range and floored (a fractional horizon silently rounded anyway).
+ */
+export function sanitizeHorizonDays(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return DEFAULT_HORIZON_DAYS;
+  }
+  return Math.min(MAX_HORIZON_DAYS, Math.max(MIN_HORIZON_DAYS, Math.floor(raw)));
+}
+
 function createDefaultAccount(): CashAccount {
   return {
     startingBalance: 0,
@@ -31,7 +54,7 @@ function createDefaultSettings(): CashflowSettings {
   const today = toISODate(new Date());
   return {
     startDate: today,
-    horizonDays: 90,
+    horizonDays: DEFAULT_HORIZON_DAYS,
     minSafeBalance: 0,
     // Coverage tracking begins now — there is no earlier history to claim.
     trackingSince: today,
@@ -179,6 +202,26 @@ export function sanitizeAdhocTransaction(raw: any): AdhocTransaction | null {
 }
 
 /**
+ * Validate the per-event override map entry by entry. This was the one
+ * persisted structure taken wholesale, which let an array or arbitrary
+ * entry shapes through — including a non-finite amount, which the engine
+ * accepts (`typeof === "number"`) and which then poisons every balance
+ * downstream. Unusable entries are dropped; the rest are kept.
+ */
+export function sanitizeOverrides(raw: unknown): EventOverridesMap {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  const out: EventOverridesMap = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const amount = (value as { overrideAmount?: unknown }).overrideAmount;
+    if (typeof amount !== "number" || !Number.isFinite(amount)) continue;
+    out[key] = { eventKey: key, overrideAmount: amount };
+  }
+  return out;
+}
+
+/**
  * Upgrade raw JSON from storage into a valid AppState,
  * filling in defaults and migrating versions if needed.
  */
@@ -212,10 +255,7 @@ export function upgradeAppState(raw: any): AppState {
       raw.settings && isValidISODate(raw.settings.startDate)
         ? raw.settings.startDate
         : toISODate(new Date()),
-    horizonDays:
-      raw.settings && typeof raw.settings.horizonDays === "number"
-        ? raw.settings.horizonDays
-        : 90,
+    horizonDays: sanitizeHorizonDays(raw.settings?.horizonDays),
     minSafeBalance:
       raw.settings && typeof raw.settings.minSafeBalance === "number"
         ? raw.settings.minSafeBalance
@@ -268,8 +308,7 @@ export function upgradeAppState(raw: any): AppState {
       })
     : [];
 
-  const overrides: EventOverridesMap =
-    raw.overrides && typeof raw.overrides === "object" ? raw.overrides : {};
+  const overrides: EventOverridesMap = sanitizeOverrides(raw.overrides);
 
   return {
     version: APP_STATE_VERSION,

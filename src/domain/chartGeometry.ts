@@ -98,9 +98,17 @@ export function buildBalanceChartGeometry(
 ): BalanceChartGeometry | null {
   if (timeline.length === 0) return null;
 
-  const balances = timeline.map((p) => p.balance);
-  let lo = Math.min(minSafeBalance, 0, ...balances);
-  let hi = Math.max(minSafeBalance, 0, ...balances);
+  // Folded rather than spread: Math.min(..., ...balances) passes one
+  // argument per day and throws RangeError once the timeline exceeds the
+  // engine's argument limit (measured: fine at 100k points, "Maximum call
+  // stack size exceeded" at 200k). This runs during render, so that was an
+  // uncaught throw that blanked the dashboard.
+  let lo = Math.min(minSafeBalance, 0);
+  let hi = Math.max(minSafeBalance, 0);
+  for (const p of timeline) {
+    if (p.balance < lo) lo = p.balance;
+    if (p.balance > hi) hi = p.balance;
+  }
   if (lo === hi) {
     // Perfectly flat series (and floor/zero coincide): give the axis a
     // unit span so nothing divides by zero.

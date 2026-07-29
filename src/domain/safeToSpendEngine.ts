@@ -28,11 +28,17 @@ export function computeTopUpHint(
   timeline: readonly TimelinePoint[],
   minSafeBalance: Money
 ): TopUpHint | null {
+  // Matches computeTopUpSchedule: an unusable floor yields no hint, and
+  // days with an unusable balance are passed over rather than sizing a
+  // deposit off Infinity.
+  if (!Number.isFinite(minSafeBalance)) return null;
+
   let lowestBalance = Infinity;
   let lowestDate: ISODate | null = null;
   let neededBy: ISODate | null = null;
 
   for (const p of timeline) {
+    if (!Number.isFinite(p.balance)) continue;
     if (p.balance < lowestBalance) {
       lowestBalance = p.balance;
       lowestDate = p.date;
@@ -85,12 +91,22 @@ export function computeTopUpSchedule(
   minSafeBalance: Money
 ): TopUpDeposit[] {
   const deposits: TopUpDeposit[] = [];
+  // Nothing can be planned against a floor we cannot compare with, and
+  // every comparison against it would be false — which is precisely what
+  // used to stall the scan below.
+  if (!Number.isFinite(minSafeBalance)) return deposits;
+
   let deposited = 0; // cumulative top-ups scheduled so far
   let i = 0;
 
   while (i < timeline.length) {
     const running = timeline[i].balance + deposited;
-    if (running >= minSafeBalance) {
+    // A day whose balance is not a usable number cannot be planned for.
+    // Skipping it also keeps this scan strictly advancing: a NaN satisfies
+    // neither "already safe" nor "below the floor" (every NaN comparison is
+    // false), so without this the index never moved and the loop emitted
+    // deposits until the heap gave out.
+    if (!Number.isFinite(running) || running >= minSafeBalance) {
       i++;
       continue;
     }
@@ -100,8 +116,9 @@ export function computeTopUpSchedule(
     const breachDate = timeline[i].date;
     let lowest = Infinity;
     let j = i;
-    while (j < timeline.length && timeline[j].balance + deposited < minSafeBalance) {
+    while (j < timeline.length) {
       const adjusted = timeline[j].balance + deposited;
+      if (!Number.isFinite(adjusted) || adjusted >= minSafeBalance) break;
       if (adjusted < lowest) lowest = adjusted;
       j++;
     }

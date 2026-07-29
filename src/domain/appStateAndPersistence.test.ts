@@ -5,7 +5,11 @@ import {
   upgradeAppState,
   sanitizeSchedule,
   sanitizeAdhocTransaction,
+  sanitizeHorizonDays,
+  sanitizeOverrides,
   APP_STATE_VERSION,
+  MAX_HORIZON_DAYS,
+  DEFAULT_HORIZON_DAYS,
 } from "./appState";
 import { saveAppState, loadAppState, clearAppState } from "./persistence";
 import type { AppState } from "./types";
@@ -283,6 +287,74 @@ describe("upgradeAppState - defaults for a current-version state with missing fi
     const upgraded = upgradeAppState({ account: { startingBalance: 500 } });
     expect(upgraded.account.startingBalance).toBe(500);
     expect(upgraded.version).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("sanitizeHorizonDays", () => {
+  // The engine builds one timeline point per day and the chart holds them
+  // all, so an unbounded horizon is a hang/crash, not just a big number.
+  test("falls back to the default for values that are not usable numbers", () => {
+    for (const bad of [NaN, Infinity, -Infinity, undefined, null, "90", {}]) {
+      expect(sanitizeHorizonDays(bad)).toBe(DEFAULT_HORIZON_DAYS);
+    }
+  });
+
+  test("clamps out-of-range values into the supported window", () => {
+    expect(sanitizeHorizonDays(0)).toBe(1);
+    expect(sanitizeHorizonDays(-30)).toBe(1);
+    expect(sanitizeHorizonDays(200_000)).toBe(MAX_HORIZON_DAYS);
+  });
+
+  test("floors a fractional horizon and passes ordinary values through", () => {
+    expect(sanitizeHorizonDays(90.7)).toBe(90);
+    expect(sanitizeHorizonDays(365)).toBe(365);
+  });
+
+  test("upgradeAppState applies it to stored state", () => {
+    const state = upgradeAppState({
+      version: 3,
+      account: { startingBalance: 0 },
+      settings: { startDate: "2026-07-28", horizonDays: 1e9, minSafeBalance: 0 },
+      rules: [],
+      adhocTransactions: [],
+      overrides: {},
+    });
+    expect(state.settings.horizonDays).toBe(MAX_HORIZON_DAYS);
+  });
+});
+
+describe("sanitizeOverrides", () => {
+  test("drops entries whose amount is missing or not a finite number", () => {
+    expect(
+      sanitizeOverrides({
+        a: { overrideAmount: 100 },
+        b: { overrideAmount: Infinity },
+        c: { overrideAmount: NaN },
+        d: { overrideAmount: "50" },
+        e: {},
+        f: null,
+        g: "nope",
+      })
+    ).toEqual({ a: { eventKey: "a", overrideAmount: 100 } });
+  });
+
+  test("rejects a non-object or array override map", () => {
+    expect(sanitizeOverrides(["nope"])).toEqual({});
+    expect(sanitizeOverrides("nope")).toEqual({});
+    expect(sanitizeOverrides(null)).toEqual({});
+    expect(sanitizeOverrides(undefined)).toEqual({});
+  });
+
+  test("upgradeAppState no longer copies the override map wholesale", () => {
+    const state = upgradeAppState({
+      version: 3,
+      account: { startingBalance: 0 },
+      settings: { startDate: "2026-07-28", horizonDays: 90, minSafeBalance: 0 },
+      rules: [],
+      adhocTransactions: [],
+      overrides: ["nope"],
+    });
+    expect(state.overrides).toEqual({});
   });
 });
 

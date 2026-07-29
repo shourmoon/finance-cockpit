@@ -55,8 +55,13 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
       <div style={styles.buttonRow}>
         <button
           onClick={() => {
-            if (val.trim() === "") onSave(null);
-            else onSave(Number(val));
+            if (val.trim() === "") return onSave(null);
+            const n = Number(val);
+            // Exponent notation ("1e999") coerces to Infinity, which would
+            // pass the engine's `typeof === "number"` check and poison every
+            // downstream balance. Treat anything unusable as "no override",
+            // matching NumberInput's guard everywhere else in the app.
+            onSave(Number.isFinite(n) ? n : null);
           }}
           style={styles.saveBtn}
         >

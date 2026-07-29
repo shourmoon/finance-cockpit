@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { createInitialAppState } from "./domain/appState";
+import { createInitialAppState, sanitizeHorizonDays } from "./domain/appState";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
 import {
@@ -21,6 +21,7 @@ import type {
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
 import MortgageTab from "./components/MortgageTab";
+import ErrorBoundary from "./components/ErrorBoundary";
 import BalanceChart from "./components/BalanceChart";
 // Import the SyncSection UI for cross-device synchronisation. This
 // component exposes a form to enter a sync key and trigger sync
@@ -162,7 +163,10 @@ export default function App() {
   function updateHorizonDays(val: number) {
     setState((s) => ({
       ...s,
-      settings: { ...s.settings, horizonDays: val },
+      // Clamped at the edge rather than trusted: the engine builds one
+      // timeline point per day, so an unbounded value here is what makes
+      // the dashboard hang or blank out.
+      settings: { ...s.settings, horizonDays: sanitizeHorizonDays(val) },
     }));
   }
 
@@ -355,11 +359,15 @@ export default function App() {
 
               <label style={styles.field}>
                 <span style={ui.fieldLabel}>Horizon (days)</span>
-                <input
-                  type="number"
+                {/* The shared NumberInput keeps in-progress text local and
+                    only commits finite parses, so clearing the box to retype
+                    doesn't momentarily push a 0/NaN horizon into the engine.
+                    This was the last numeric field still bypassing it. */}
+                <NumberInput
                   value={state.settings.horizonDays}
-                  onChange={(e) => updateHorizonDays(Number(e.target.value))}
-                  style={ui.input}
+                  onChange={updateHorizonDays}
+                  ariaLabel="Horizon (days)"
+                  inputStyle={ui.input}
                 />
                 <div style={styles.presetRow}>
                   {[30, 60, 90, 180].map((days) => (
@@ -864,7 +872,11 @@ export default function App() {
       />
 
       {/* MORTGAGE TAB */}
-      {activeTab === "mortgage" && <MortgageTab />}
+      {activeTab === "mortgage" && (
+        <ErrorBoundary label="The mortgage optimizer">
+          <MortgageTab />
+        </ErrorBoundary>
+      )}
 
       {/* OVERRIDE MODAL */}
       <OverrideModal

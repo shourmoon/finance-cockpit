@@ -643,7 +643,7 @@ describe("App shell", () => {
   it("updates horizon and minimum safe balance", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Horizon/i }), {
+    fireEvent.change(screen.getByRole("textbox", { name: /Horizon/i }), {
       target: { value: "10" },
     });
     fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
@@ -652,6 +652,36 @@ describe("App shell", () => {
     const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
     expect(raw.settings.horizonDays).toBe(10);
     expect(raw.settings.minSafeBalance).toBe(200);
+  });
+
+  it("keeps an absurd horizon from building a runaway timeline", () => {
+    // The engine builds one timeline point per day and the chart holds them
+    // all in memory; an unbounded value here used to be a hang, and past
+    // ~100k points the chart's own geometry threw outright.
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    fireEvent.change(screen.getByRole("textbox", { name: /Horizon/i }), {
+      target: { value: "9999999" },
+    });
+    const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+    expect(raw.settings.horizonDays).toBe(3650);
+
+    // The dashboard still renders a real chart rather than blanking out.
+    fireEvent.click(screen.getByText("Dashboard"));
+    expect(
+      screen.getByLabelText("Projected account balance over the horizon")
+    ).toBeInTheDocument();
+  });
+
+  it("does not push a partial horizon into the engine while the field is being retyped", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("Settings & Rules"));
+    const horizon = screen.getByRole("textbox", { name: /Horizon/i });
+    fireEvent.change(horizon, { target: { value: "180" } });
+    // Clearing to retype must leave the last usable value in state.
+    fireEvent.change(horizon, { target: { value: "" } });
+    const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+    expect(raw.settings.horizonDays).toBe(180);
   });
 
   it("adds a new rule through the editor modal", () => {

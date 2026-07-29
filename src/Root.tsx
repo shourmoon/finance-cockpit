@@ -8,6 +8,7 @@
 import { useRegisterSW } from "virtual:pwa-register/react";
 import App from "./App";
 import UpdateBanner from "./components/UpdateBanner";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function Root() {
   const {
@@ -35,7 +36,12 @@ export default function Root() {
 
   return (
     <>
-      <App />
+      {/* Last-resort net: the per-tab boundaries inside App handle the
+          common cases, this keeps a hard failure anywhere else from
+          leaving a blank page with no explanation. */}
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
       <UpdateBanner
         visible={needRefresh}
         onRefresh={() => updateServiceWorker(true)}
