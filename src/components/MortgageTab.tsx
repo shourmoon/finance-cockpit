@@ -23,6 +23,7 @@ import type {
   MortgageOriginalTerms,
   PastPrepaymentLog,
   PastPrepayment,
+  PaymentFrequency,
 } from "../domain/mortgage/types";
 import type {
   MortgageScenarioConfig,
@@ -43,6 +44,7 @@ import {
 // Shared date formatting helper.  This utility converts ISO dates
 // (YYYY‑MM‑DD) into the display format required by the product
 // specification, e.g. "2025-01-26" → "26 Jan '25".
+import { periodsPerYear } from "../domain/mortgage/baseline";
 import { formatDate } from "../utils/dates";
 import { isValidISODate } from "../domain/dateUtils";
 import { DateInputWithDisplay, NumberInput } from "./shared";
@@ -353,18 +355,20 @@ export default function MortgageTab() {
     () =>
       computeEffectiveAnnualRateFromSchedule(
         baseline.schedule,
-        terms.principal
+        terms.principal,
+        periodsPerYear(terms.paymentFrequency)
       ),
-    [baseline.schedule, terms.principal]
+    [baseline.schedule, terms.principal, terms.paymentFrequency]
   );
 
   const actualEffectiveRate = useMemo(
     () =>
       computeEffectiveAnnualRateFromSchedule(
         withPrepayments.schedule,
-        terms.principal
+        terms.principal,
+        periodsPerYear(terms.paymentFrequency)
       ),
-    [withPrepayments.schedule, terms.principal]
+    [withPrepayments.schedule, terms.principal, terms.paymentFrequency]
   );
 
   const totalPastPrepayments = useMemo(
@@ -395,7 +399,8 @@ export default function MortgageTab() {
       // Effective rate after this prepayment
       const effectiveRate = computeEffectiveAnnualRateFromSchedule(
         actual.schedule,
-        terms.principal
+        terms.principal,
+        periodsPerYear(terms.paymentFrequency)
       );
       // Update prevActual for the next iteration
       prevActual = actual;
@@ -1038,19 +1043,59 @@ export default function MortgageTab() {
               setAsOfDate(v);
             }}
           />
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 130 }}>
+            <span style={ui.fieldLabel}>Payment frequency</span>
+            <select
+              aria-label="Payment frequency"
+              style={ui.input}
+              value={terms.paymentFrequency ?? "monthly"}
+              onChange={(e) =>
+                setTerms((t) => ({
+                  ...t,
+                  paymentFrequency: e.target.value as PaymentFrequency,
+                }))
+              }
+            >
+              <option value="monthly">Monthly</option>
+              <option value="biweekly">Every 2 weeks</option>
+            </select>
+            <span style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>
+              {terms.paymentFrequency === "biweekly"
+                ? "Half the monthly payment every 14 days — 26 a year"
+                : "One full payment a month"}
+            </span>
+          </div>
         </div>
 
         {/* Baseline summary */}
         <div style={{ marginTop: 16 }}>
           <div style={styles.subHeading}>Baseline summary</div>
+          {/* The figure below is the amount handed over each period, which
+              for a biweekly loan is half the monthly payment — so the label
+              has to follow the cadence rather than always saying "monthly". */}
           <div style={styles.summaryRow}>
-            <span>Monthly payment</span>
+            <span>
+              {terms.paymentFrequency === "biweekly"
+                ? "Payment every 2 weeks"
+                : "Monthly payment"}
+            </span>
             <span>
               {formatCurrency(
                 baseline.schedule.length > 0 ? baseline.schedule[0].payment : null
               )}
             </span>
           </div>
+          {terms.paymentFrequency === "biweekly" && (
+            <div style={styles.summaryRow}>
+              <span>Paid per year</span>
+              <span>
+                {formatCurrency(
+                  baseline.schedule.length > 0 ? baseline.schedule[0].payment * 26 : null
+                )}
+                <span style={{ color: colors.muted }}> · 13 months’ worth</span>
+              </span>
+            </div>
+          )}
           <div style={styles.summaryRow}>
             <span>Total interest (no prepayments)</span>
             <span>{formatCurrency(baseline.totalInterest)}</span>

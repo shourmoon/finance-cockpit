@@ -42,6 +42,30 @@ describe("sanitizeMortgageUIState (validator branches)", () => {
     ).toEqual([]);
   });
 
+  it("keeps a biweekly payment frequency", () => {
+    const s = sanitizeMortgageUIState({
+      terms: { ...validTerms, paymentFrequency: "biweekly" },
+    });
+    expect(s!.terms.paymentFrequency).toBe("biweekly");
+  });
+
+  it("treats an absent or unrecognised frequency as monthly", () => {
+    expect(sanitizeMortgageUIState({ terms: validTerms })!.terms.paymentFrequency)
+      .toBe("monthly");
+    expect(
+      sanitizeMortgageUIState({
+        terms: { ...validTerms, paymentFrequency: "fortnightly" },
+      })!.terms.paymentFrequency
+    ).toBe("monthly");
+  });
+
+  it("round-trips the frequency through save and load", () => {
+    const state = createDefaultMortgageUIState();
+    state.terms = { ...state.terms, paymentFrequency: "biweekly" };
+    saveMortgageUIState(state);
+    expect(loadMortgageUIState().terms.paymentFrequency).toBe("biweekly");
+  });
+
   it("keeps valid prepayments and scenarios", () => {
     const s = sanitizeMortgageUIState({
       terms: validTerms,
@@ -271,6 +295,7 @@ describe("mortgage persistence v2", () => {
         annualRate: 0.0475,
         termMonths: 300,
         startDate: "2023-04-01",
+        paymentFrequency: "monthly",
       },
       prepayments: [
         { date: "2024-01-01", amount: 1_000, note: "New year extra" },
@@ -361,6 +386,7 @@ describe("mortgage persistence v2", () => {
         annualRate: 0.0475,
         termMonths: 360,
         startDate: "2023-06-01",
+        paymentFrequency: "monthly",
       },
       prepayments: [{ date: "2024-01-15", amount: 10_000, note: "bonus" }],
       asOfDate: "2025-06-01",

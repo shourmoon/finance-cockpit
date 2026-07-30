@@ -124,6 +124,30 @@ describe("MortgageTab", () => {
     });
   });
 
+  it("switches the loan to biweekly and shortens the payoff", () => {
+    render(<MortgageTab />);
+    const before = screen.getByText("Payoff date").parentElement!.textContent!;
+
+    fireEvent.change(screen.getByLabelText("Payment frequency"), {
+      target: { value: "biweekly" },
+    });
+
+    expect(persisted().terms.paymentFrequency).toBe("biweekly");
+    const after = screen.getByText("Payoff date").parentElement!.textContent!;
+    expect(after).not.toBe(before);
+    // Default 300k/5%/30y ends Dec '54 monthly; paying fortnightly retires
+    // it Feb '50, just under five years sooner.
+    expect(before).toMatch(/'54/);
+    expect(after).toMatch(/'50/);
+    expect(screen.getByText(/26 a year/)).toBeInTheDocument();
+
+    // The headline figure is now the fortnightly amount, so it must not
+    // still be labelled "Monthly payment".
+    expect(screen.queryByText("Monthly payment")).not.toBeInTheDocument();
+    expect(screen.getByText("Payment every 2 weeks")).toBeInTheDocument();
+    expect(screen.getByText(/13 months’ worth/)).toBeInTheDocument();
+  });
+
   it("adds a prepayment, shows savings, then deletes it", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add prepayment"));
@@ -203,7 +227,7 @@ describe("MortgageTab", () => {
 
     // Adding a Monthly pattern and giving it an amount is what creates the
     // first real pattern and starts showing results.
-    fireEvent.click(screen.getByText("Monthly"));
+    fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
     fireEvent.change(screen.getAllByPlaceholderText("0")[0], {
       target: { value: "200" },
     });
@@ -234,7 +258,7 @@ describe("MortgageTab", () => {
     fireEvent.click(screen.getByText("+ Add scenario"));
 
     // Add-pattern buttons (only one scenario is present).
-    fireEvent.click(screen.getByText("Monthly"));
+    fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
     fireEvent.click(screen.getByText("One-time"));
     fireEvent.click(screen.getByText("Annual"));
     fireEvent.click(screen.getByText("Biweekly"));
@@ -266,7 +290,7 @@ describe("MortgageTab", () => {
   it("edits the monthly pattern cadence, revealing conditional fields", () => {
     render(<MortgageTab />);
     fireEvent.click(screen.getByText("+ Add scenario"));
-    fireEvent.click(screen.getByText("Monthly"));
+    fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
 
     // A freshly-added monthly pattern's cadence select starts on "Due date".
     const cadence = screen.getByDisplayValue("Due date");
@@ -328,7 +352,7 @@ describe("MortgageTab", () => {
     it("scenario pattern-card inputs use the shared app input chrome", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add scenario"));
-      fireEvent.click(screen.getByText("Monthly"));
+      fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
 
       // A monthly pattern card's Label input and Cadence <select> render
       // through the pattern-card control style, which historically used
@@ -341,7 +365,7 @@ describe("MortgageTab", () => {
     it("every scenario pattern kind's controls share that chrome", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add scenario"));
-      fireEvent.click(screen.getByText("Monthly"));
+      fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
       fireEvent.click(screen.getByText("One-time"));
       fireEvent.click(screen.getByText("Annual"));
       fireEvent.click(screen.getByText("Biweekly"));
@@ -423,7 +447,7 @@ describe("MortgageTab", () => {
       render(<MortgageTab />);
       fireEvent.click(screen.getByText("+ Add scenario"));
       expect(screen.getByDisplayValue("Scenario 1")).toHaveStyle(SHARED_INPUT);
-      fireEvent.click(screen.getByText("Monthly"));
+      fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
       for (const el of screen.getAllByPlaceholderText("0")) {
         expect(el).toHaveStyle(SHARED_INPUT);
       }

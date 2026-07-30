@@ -3,11 +3,24 @@
 export type Money = number;
 export type ISODate = string; // YYYY-MM-DD
 
+/**
+ * How often a payment is actually made.
+ *
+ * "biweekly" means TRUE accelerated biweekly: half the monthly payment every
+ * 14 days. That is 26 half-payments a year — the equivalent of 13 monthly
+ * payments — and the extra one goes to principal, which is what retires the
+ * loan early. It is not the same as a servicer drafting fortnightly but
+ * applying one monthly payment, which accelerates nothing.
+ */
+export type PaymentFrequency = "monthly" | "biweekly";
+
 export interface MortgageOriginalTerms {
   principal: Money;
   annualRate: number;   // e.g. 0.065 for 6.5%
-  termMonths: number;   // e.g. 360
+  termMonths: number;   // contractual term; with biweekly the loan ends sooner
   startDate: ISODate;   // first payment date or loan start date
+  /** Absent means monthly, so existing stored loans keep their behaviour. */
+  paymentFrequency?: PaymentFrequency;
 }
 
 // A single amortization entry in the schedule.

@@ -5,7 +5,7 @@ import type {
   MortgageHistoryResult,
   PastPrepaymentLog,
 } from "./types";
-import { computeMonthlyPayment, addMonths } from "./baseline";
+import { computePeriodPayment, addPeriods, periodsPerYear } from "./baseline";
 
 /**
  * Build an amortization schedule that includes past prepayments.
@@ -21,7 +21,7 @@ export function computeMortgageWithPrepayments(
   terms: MortgageOriginalTerms,
   prepayments: PastPrepaymentLog
 ): MortgageHistoryResult {
-  const payment = computeMonthlyPayment(terms);
+  const payment = computePeriodPayment(terms);
   const schedule: AmortizationEntry[] = [];
 
   // Sort prepayments by date so we can stream them in a single pass.
@@ -29,19 +29,23 @@ export function computeMortgageWithPrepayments(
     a.date.localeCompare(b.date)
   );
 
+  const perYear = periodsPerYear(terms.paymentFrequency);
   let prepayIndex = 0;
   let remaining = terms.principal;
-  const r = terms.annualRate / 12;
+  const r = terms.annualRate / perYear;
   const epsilon = 1e-6;
+  const limit = Math.ceil((terms.termMonths / 12) * perYear);
   let payoffDate = terms.startDate;
 
-  for (let i = 0; i < terms.termMonths && remaining > epsilon; i++) {
-    const date = addMonths(terms.startDate, i);
+  for (let i = 0; i < limit && remaining > epsilon; i++) {
+    const date = addPeriods(terms.startDate, i, terms.paymentFrequency);
     const interest = r > 0 ? remaining * r : 0;
     const scheduledPrincipal = payment - interest;
 
     // Unreachable: the annuity payment from computeMonthlyPayment always
-    // exceeds the first month's interest, and interest only shrinks.
+    // exceeds the first period's interest, and interest only shrinks. (A
+    // biweekly period pays half the monthly amount but also accrues half
+    // the interest, so the margin is preserved.)
     /* v8 ignore next 3 */
     if (scheduledPrincipal < 0) {
       throw new Error("Monthly payment too low to amortize the loan.");

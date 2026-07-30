@@ -19,6 +19,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeBaselineMortgage,
   computeMonthlyPayment,
+  computePeriodPayment,
   addMonths,
 } from "./baseline";
 import { computeMortgageWithPrepayments } from "./history";
@@ -298,6 +299,114 @@ describe("scenario engine schedule integrity", () => {
       upToAsOf.reduce((s, e) => s + e.interest, 0),
       4
     );
+  });
+});
+
+describe("biweekly payment schedules", () => {
+  // True accelerated biweekly: half the monthly payment every 14 days, so 26
+  // half-payments a year equal 13 monthly payments. The extra one goes to
+  // principal, which is what shortens the term. The term is therefore an
+  // OUTPUT, not the contractual termMonths.
+  const monthly: MortgageOriginalTerms = {
+    principal: 680_000,
+    annualRate: 0.0475,
+    termMonths: 360,
+    startDate: "2023-06-01",
+  };
+  const biweekly: MortgageOriginalTerms = { ...monthly, paymentFrequency: "biweekly" };
+
+  it("pays half the monthly amount each period", () => {
+    expect(computePeriodPayment(biweekly)).toBeCloseTo(
+      computeMonthlyPayment(monthly) / 2,
+      8
+    );
+    // The monthly annuity itself is unchanged by the frequency.
+    expect(computeMonthlyPayment(biweekly)).toBeCloseTo(
+      computeMonthlyPayment(monthly),
+      8
+    );
+  });
+
+  it("steps every 14 days", () => {
+    const { schedule } = computeBaselineMortgage(biweekly);
+    expect(schedule[0].date).toBe("2023-06-01");
+    expect(schedule[1].date).toBe("2023-06-15");
+    expect(schedule[2].date).toBe("2023-06-29");
+    for (let i = 1; i < 40; i++) {
+      const prev = Date.parse(schedule[i - 1].date + "T00:00:00Z");
+      const cur = Date.parse(schedule[i].date + "T00:00:00Z");
+      expect((cur - prev) / 86_400_000).toBe(14);
+    }
+  });
+
+  it("retires the loan years early compared with paying monthly", () => {
+    const mo = computeBaselineMortgage(monthly);
+    const bw = computeBaselineMortgage(biweekly);
+    expect(bw.payoffDate < mo.payoffDate).toBe(true);
+    // Roughly four to five years earlier on a 30-year loan at this rate.
+    expect(bw.payoffDate.slice(0, 4)).toBe("2048");
+    expect(bw.totalInterest).toBeLessThan(mo.totalInterest);
+    // And meaningfully less interest — not a rounding-scale difference.
+    expect(mo.totalInterest - bw.totalInterest).toBeGreaterThan(90_000);
+  });
+
+  it("satisfies every amortization invariant, per period", () => {
+    const { schedule } = computeBaselineMortgage(biweekly);
+    const r = biweekly.annualRate / 26;
+    let prevRemaining = biweekly.principal;
+    let principalSum = 0;
+    for (const e of schedule) {
+      expect(e.payment).toBeCloseTo(e.interest + e.principal, 6);
+      expect(e.interest).toBeCloseTo(prevRemaining * r, 6);
+      expect(e.remaining).toBeLessThanOrEqual(prevRemaining + 1e-9);
+      principalSum += e.principal;
+      prevRemaining = e.remaining;
+    }
+    expect(schedule.at(-1)!.remaining).toBeCloseTo(0, 6);
+    expect(principalSum).toBeCloseTo(biweekly.principal, 4);
+  });
+
+  it("applies prepayments on the biweekly cadence too", () => {
+    const prepayments = [{ date: "2026-08-01", amount: 20_000 }];
+    const plain = computeMortgageWithPrepayments(biweekly, []);
+    const withPre = computeMortgageWithPrepayments(biweekly, prepayments);
+
+    expect(withPre.payoffDate < plain.payoffDate).toBe(true);
+    expect(withPre.totalInterest).toBeLessThan(plain.totalInterest);
+
+    const r = biweekly.annualRate / 26;
+    let prevRemaining = biweekly.principal;
+    let principalSum = 0;
+    for (const e of withPre.schedule) {
+      expect(e.payment).toBeCloseTo(e.interest + e.principal, 6);
+      expect(e.interest).toBeCloseTo(prevRemaining * r, 6);
+      principalSum += e.principal;
+      prevRemaining = e.remaining;
+    }
+    expect(principalSum).toBeCloseTo(biweekly.principal, 4);
+    expect(withPre.schedule.at(-1)!.remaining).toBeCloseTo(0, 6);
+  });
+
+  it("leaves monthly loans bit-for-bit unchanged", () => {
+    // The generalisation must not perturb existing monthly results: the
+    // periodic rate for 12 periods is exactly the old r/12.
+    const explicit = computeBaselineMortgage({ ...monthly, paymentFrequency: "monthly" });
+    const implicit = computeBaselineMortgage(monthly);
+    expect(explicit.payoffDate).toBe(implicit.payoffDate);
+    expect(explicit.totalInterest).toBe(implicit.totalInterest);
+    expect(explicit.schedule).toHaveLength(implicit.schedule.length);
+  });
+
+  it("reports an effective annual rate consistent with 26 periods", () => {
+    const { schedule } = computeBaselineMortgage(biweekly);
+    const eff = computeEffectiveAnnualRateFromSchedule(
+      schedule,
+      biweekly.principal,
+      26
+    );
+    // Paying more per year than contracted does not change the loan's rate;
+    // the cashflow IRR still reflects 4.75% nominal compounded 26 times.
+    expect(eff).toBeCloseTo(Math.pow(1 + 0.0475 / 26, 26) - 1, 6);
   });
 });
 

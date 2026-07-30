@@ -692,6 +692,81 @@ describe("mortgage scenarios - branch coverage", () => {
   });
 });
 
+describe("mortgage scenarios on a biweekly loan", () => {
+  const terms = {
+    principal: 680_000,
+    annualRate: 0.0475,
+    termMonths: 360,
+    startDate: "2023-06-01",
+    paymentFrequency: "biweekly" as const,
+  };
+  const ctx = { terms, pastPrepayments: [], asOfDate: "2026-08-01" };
+  const mk = (patterns: any[]) => [
+    { id: "s", name: "S", description: "", active: true, patterns },
+  ];
+
+  it("keeps the simulated future on the biweekly cadence", () => {
+    // Regression: the future was simulated monthly regardless of frequency,
+    // splicing a monthly tail onto a biweekly history and pushing the payoff
+    // out by roughly four years.
+    const r = runMortgageScenarios(ctx, []);
+    const sched = r.actual.schedule;
+    for (let i = 1; i < sched.length; i++) {
+      const gap =
+        (Date.parse(sched[i].date + "T00:00:00Z") -
+          Date.parse(sched[i - 1].date + "T00:00:00Z")) /
+        86_400_000;
+      expect(gap).toBe(14);
+    }
+  });
+
+  it("matches the standalone biweekly schedule when nothing extra is applied", () => {
+    const r = runMortgageScenarios(ctx, []);
+    const direct = computeMortgageWithPrepayments(terms, []);
+    expect(r.actual.schedule).toHaveLength(direct.schedule.length);
+    expect(r.actual.payoffDate).toBe(direct.payoffDate);
+    expect(r.actual.totalInterest).toBeCloseTo(direct.totalInterest, 2);
+  });
+
+  it("applies a monthly extra twelve times a year, not twenty-six", () => {
+    // Regression: the expansion iterated baseline schedule entries, so on a
+    // biweekly loan a "$200 a month" pattern fired on all 26 periods.
+    const r = runMortgageScenarios(
+      ctx,
+      mk([
+        {
+          id: "p",
+          label: "monthly extra",
+          kind: "monthly",
+          amount: 200,
+          startDate: "2026-08-01",
+          dayOfMonthStrategy: "same-as-due-date",
+        },
+      ])
+    );
+    const plain = runMortgageScenarios(ctx, []);
+
+    const window = (s: any[]) =>
+      s.filter((e) => e.date >= "2026-09-01" && e.date < "2027-09-01");
+    const extra =
+      window(r.scenarios[0].schedule).reduce((t, e) => t + e.principal, 0) -
+      window(plain.actual.schedule).reduce((t, e) => t + e.principal, 0);
+
+    // Twelve $200 payments, give or take the interest they themselves save.
+    expect(extra).toBeGreaterThan(2_300);
+    expect(extra).toBeLessThan(2_700);
+  });
+
+  it("still lets a one-time extra land between payment dates", () => {
+    const r = runMortgageScenarios(
+      ctx,
+      mk([{ id: "p", label: "lump", kind: "oneTime", amount: 25_000, date: "2026-09-10" }])
+    );
+    expect(r.scenarios[0].totalInterest).toBeLessThan(r.actual.totalInterest);
+    expect(r.scenarios[0].payoffDate < r.actual.payoffDate).toBe(true);
+  });
+});
+
 describe("mortgage scenarios - extra dates need not align to the due day", () => {
   // Regression: extras used to apply only when their date fell exactly on
   // the loan's monthly payment day. Now an extra applies on the first

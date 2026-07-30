@@ -10,8 +10,9 @@ import type {
 } from "./types";
 import {
   computeBaselineMortgage,
-  computeMonthlyPayment,
-  addMonths,
+  computePeriodPayment,
+  periodsPerYear,
+  addPeriods,
 } from "./baseline";
 import { computeMortgageWithPrepayments } from "./history";
 import { computeEffectiveAnnualRateFromSchedule } from "./irr";
@@ -268,6 +269,24 @@ function sliceScheduleUpTo(
  * Build a map of extra principal amounts keyed by ISO date.
  * Only includes dates strictly *after* the as-of date.
  */
+/**
+ * One anchor entry per calendar month — the first payment falling in it.
+ * Monthly loans already have exactly one entry per month, so this is the
+ * identity there; biweekly loans have two or three and would otherwise make
+ * a "monthly" pattern fire once per period.
+ */
+function monthlyAnchors(schedule: AmortizationEntry[]): AmortizationEntry[] {
+  const seen = new Set<string>();
+  const out: AmortizationEntry[] = [];
+  for (const entry of schedule) {
+    const month = entry.date.slice(0, 7);
+    if (seen.has(month)) continue;
+    seen.add(month);
+    out.push(entry);
+  }
+  return out;
+}
+
 /** True when every date the pattern's expansion will touch is a real day. */
 function hasUsableDates(pattern: ScenarioPattern): boolean {
   const optional = (d: ISODate | undefined) => d === undefined || isValidISODate(d);
@@ -341,8 +360,10 @@ function buildExtraByDateMap(
           ? p.startDate
           : asOfDate;
 
-        // Loop through each month in the baseline schedule to determine dates.
-        for (const entry of baselineSchedule) {
+        // Iterate CALENDAR MONTHS, not schedule entries. A biweekly loan has
+        // 26 entries a year, so walking entries made a "monthly" pattern fire
+        // twenty-six times annually instead of twelve.
+        for (const entry of monthlyAnchors(baselineSchedule)) {
           // Skip dates on or before the start; only future dates apply.
           if (compareIsoDates(entry.date, start) <= 0) continue;
           // Defensive: the baseline schedule never extends past its own
@@ -466,11 +487,15 @@ interface FutureSimulationResult {
  *  - original contractual monthly payment
  *  - optional extra principal map keyed by date
  *
- * We treat the first future payment date as addMonths(effectiveAsOf, 1) —
+ * We treat the first future payment date as one period after effectiveAsOf —
  * except when effectiveAsOf is itself an unpaid first payment date (nothing
  * has happened yet), in which case the first future payment must land ON
- * effectiveAsOf, not a month after it. `firstStep` controls this: callers
+ * effectiveAsOf, not a period after it. `firstStep` controls this: callers
  * pass 0 for that "nothing paid yet" case and 1 otherwise (the default).
+ *
+ * The cadence follows terms.paymentFrequency. Simulating the future monthly
+ * while the history was biweekly used to splice a monthly tail onto a
+ * fortnightly schedule and push the payoff out by about four years.
  */
 function simulateFutureFromAsOf(
   terms: MortgageOriginalTerms,
@@ -479,16 +504,17 @@ function simulateFutureFromAsOf(
   extraByDate: Map<ISODate, Money>,
   firstStep = 1
 ): FutureSimulationResult {
-  const monthlyPayment = computeMonthlyPayment(terms);
+  const periodPayment = computePeriodPayment(terms);
   const futureSchedule: AmortizationEntry[] = [];
 
+  const perYear = periodsPerYear(terms.paymentFrequency);
   let remaining = remainingAtAsOf;
-  const r = terms.annualRate / 12;
+  const r = terms.annualRate / perYear;
   let totalInterestFuture = 0;
   let step = firstStep;
 
-  // Safety cap: don't simulate more than original term + 600 months.
-  const maxSteps = terms.termMonths + 600;
+  // Safety cap: the contractual term plus fifty years' worth of periods.
+  const maxSteps = Math.ceil((terms.termMonths / 12) * perYear) + 50 * perYear;
 
   // Stream extras in date order and apply each one on the first payment
   // date on or after its date, mirroring computeMortgageWithPrepayments in
@@ -501,9 +527,9 @@ function simulateFutureFromAsOf(
   let extraIndex = 0;
 
   while (remaining > 0.01 && step <= maxSteps) {
-    const date = addMonths(effectiveAsOf, step);
+    const date = addPeriods(effectiveAsOf, step, terms.paymentFrequency);
     const interest = r > 0 ? remaining * r : 0;
-    const principal = monthlyPayment - interest;
+    const principal = periodPayment - interest;
     // Unreachable: remainingAtAsOf never exceeds the original principal,
     // so the annuity payment always beats interest.
     /* v8 ignore next 3 */
@@ -668,7 +694,8 @@ export function runMortgageScenarios(
       scenarioSchedule.length > 0
         ? computeEffectiveAnnualRateFromSchedule(
             scenarioSchedule,
-            terms.principal
+            terms.principal,
+            periodsPerYear(terms.paymentFrequency)
           )
         : null;
 

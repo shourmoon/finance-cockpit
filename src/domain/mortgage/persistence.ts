@@ -2,6 +2,7 @@
 import type {
   MortgageOriginalTerms,
   PastPrepaymentLog,
+  PaymentFrequency,
   ISODate,
 } from "./types";
 import type {
@@ -35,6 +36,7 @@ export function createDefaultMortgageUIState(): MortgageUIState {
     annualRate: 0.05,
     termMonths: 360,
     startDate: "2025-01-01",
+    paymentFrequency: "monthly",
   };
 
   return {
@@ -78,6 +80,15 @@ function isValidTerms(value: any): value is MortgageOriginalTerms {
     // "NaN NaN 'N" beside otherwise plausible money figures.
     isValidISODate(startDate)
   );
+}
+
+/**
+ * Normalise the payment cadence. Anything unrecognised — including absent,
+ * which is every loan saved before biweekly support existed — becomes
+ * "monthly", so stored loans keep the behaviour they were created with.
+ */
+function normalizeFrequency(value: unknown): PaymentFrequency {
+  return value === "biweekly" ? "biweekly" : "monthly";
 }
 
 function isValidPrepayments(value: any): value is PastPrepaymentLog {
@@ -183,7 +194,7 @@ export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null 
   const safeScenarios = sanitizeScenarios(scenarios);
 
   return {
-    terms,
+    terms: { ...terms, paymentFrequency: normalizeFrequency(terms.paymentFrequency) },
     prepayments: safePrepayments,
     asOfDate: safeAsOfDate,
     scenarios: safeScenarios,
@@ -264,7 +275,7 @@ export function saveMortgageUIState(state: MortgageUIState): void {
 
     const payload: MortgageUIState = {
       ...state,
-      terms: safeTerms,
+      terms: { ...safeTerms, paymentFrequency: normalizeFrequency(safeTerms.paymentFrequency) },
       prepayments: isValidPrepayments(state.prepayments)
         ? state.prepayments
         : [],

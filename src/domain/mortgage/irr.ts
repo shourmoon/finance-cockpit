@@ -16,7 +16,9 @@ import type { AmortizationEntry, Money } from "./types";
  */
 export function computeEffectiveAnnualRateFromSchedule(
   schedule: AmortizationEntry[],
-  principal: Money
+  principal: Money,
+  /** 12 for a monthly schedule, 26 for biweekly. */
+  periodsPerYear = 12
 ): number {
   if (schedule.length === 0) {
     throw new Error("Schedule is empty");
@@ -66,7 +68,7 @@ export function computeEffectiveAnnualRateFromSchedule(
     }
   }
 
-  const rMonthly = (lo + hi) / 2;
-  const rAnnualEffective = Math.pow(1 + rMonthly, 12) - 1;
+  const rPerPeriod = (lo + hi) / 2;
+  const rAnnualEffective = Math.pow(1 + rPerPeriod, periodsPerYear) - 1;
   return rAnnualEffective;
 }
