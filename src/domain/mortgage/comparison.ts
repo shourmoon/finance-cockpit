@@ -6,7 +6,7 @@ import type {
   MortgageHistoryResult,
   MortgageComparisonResult,
 } from "./types";
-import { computeBaselineMortgage } from "./baseline";
+import { computeBaselineMortgage, periodsToMonths } from "./baseline";
 import { computeMortgageWithPrepayments } from "./history";
 
 /**
@@ -20,7 +20,12 @@ export function compareBaselineWithPrepayments(
   const actual: MortgageHistoryResult = computeMortgageWithPrepayments(terms, prepayments);
 
   const interestSaved = baseline.totalInterest - actual.totalInterest;
-  const monthsSaved = baseline.schedule.length - actual.schedule.length;
+  // Schedule lengths count payment periods; the caller renders this as
+  // years and months, so convert before it leaves the domain.
+  const monthsSaved = periodsToMonths(
+    baseline.schedule.length - actual.schedule.length,
+    terms.paymentFrequency
+  );
 
   return {
     baseline,

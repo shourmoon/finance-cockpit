@@ -12,6 +12,7 @@ import {
   computeBaselineMortgage,
   computePeriodPayment,
   periodsPerYear,
+  periodsToMonths,
   addPeriods,
 } from "./baseline";
 import { computeMortgageWithPrepayments } from "./history";
@@ -703,12 +704,19 @@ export function runMortgageScenarios(
 
     const interestSavedVsBaseline =
       baselineTotalInterest - scenarioTotalInterest;
-    const monthsSavedVsBaseline = baselineMonths - scenarioMonths;
+    // Both differences are counts of payment periods; the UI phrases them as
+    // years and months, so convert on the way out.
+    const monthsSavedVsBaseline = periodsToMonths(
+      baselineMonths - scenarioMonths,
+      terms.paymentFrequency
+    );
 
     const interestSavedVsActual =
       actualTotalInterest - scenarioTotalInterest;
-    const monthsSavedVsActual =
-      actualFullSchedule.length - scenarioMonths;
+    const monthsSavedVsActual = periodsToMonths(
+      actualFullSchedule.length - scenarioMonths,
+      terms.paymentFrequency
+    );
 
     scenarioSummaries.push({
       scenarioId: config.id,

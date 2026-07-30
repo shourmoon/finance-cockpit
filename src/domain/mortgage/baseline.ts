@@ -22,6 +22,22 @@ export function periodsPerYear(frequency?: PaymentFrequency): number {
   return frequency === "biweekly" ? 26 : 12;
 }
 
+/**
+ * Convert a count of payment periods into calendar months.
+ *
+ * Schedule lengths are counts of *periods*, but every "time saved" figure the
+ * UI shows is phrased in years and months. On a monthly loan the two coincide;
+ * on a biweekly one a period is 14 days, so an unconverted count overstates
+ * the saving by 26/12 — a year of shaved term would read as "2 yrs 2 mos".
+ * Monthly stays exact identity (x 12/12), so no existing number moves.
+ */
+export function periodsToMonths(
+  periods: number,
+  frequency?: PaymentFrequency
+): number {
+  return periods * (12 / periodsPerYear(frequency));
+}
+
 /** Advance a date by whole payment periods. */
 export function addPeriods(
   base: ISODate,

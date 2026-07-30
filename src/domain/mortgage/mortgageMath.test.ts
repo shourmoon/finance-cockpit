@@ -28,6 +28,13 @@ import { compareBaselineWithPrepayments } from "./comparison";
 import { runMortgageScenarios } from "./scenarios";
 import type { AmortizationEntry, MortgageOriginalTerms } from "./types";
 
+/** Whole calendar months from `from` to `to`, fractional part included. */
+function monthsBetweenDates(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return (ty - fy) * 12 + (tm - fm) + (td - fd) / 30;
+}
+
 /** A spread of loans: conventional, jumbo, short-term, and high-rate. */
 const LOANS: MortgageOriginalTerms[] = [
   { principal: 300_000, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
@@ -385,6 +392,33 @@ describe("biweekly payment schedules", () => {
     }
     expect(principalSum).toBeCloseTo(biweekly.principal, 4);
     expect(withPre.schedule.at(-1)!.remaining).toBeCloseTo(0, 6);
+  });
+
+  it("reports time saved in calendar months, not payment periods", () => {
+    // "monthsSaved" is read by the UI as months and rendered as years+months.
+    // Deriving it from schedule lengths makes it a count of PERIODS, which on
+    // a biweekly loan overstates the saving by 26/12 — a year of shaved term
+    // would be shown as "2 yrs 2 mos".
+    const prepayments = [{ date: "2024-04-01", amount: 25_000 }];
+    const cmp = compareBaselineWithPrepayments(biweekly, prepayments);
+    const gap = monthsBetweenDates(
+      cmp.actual.payoffDate,
+      cmp.baseline.payoffDate
+    );
+    expect(gap).toBeGreaterThan(0);
+    // Within a month of the real calendar gap between the two payoff dates.
+    expect(cmp.monthsSaved).toBeGreaterThan(gap - 1);
+    expect(cmp.monthsSaved).toBeLessThan(gap + 1);
+  });
+
+  it("leaves monthly time-saved figures as whole payment counts", () => {
+    // On a monthly loan a period IS a month, so the conversion must be exact
+    // identity — no rounding drift introduced into existing numbers.
+    const prepayments = [{ date: "2024-04-01", amount: 25_000 }];
+    const cmp = compareBaselineWithPrepayments(monthly, prepayments);
+    expect(cmp.monthsSaved).toBe(
+      cmp.baseline.schedule.length - cmp.actual.schedule.length
+    );
   });
 
   it("leaves monthly loans bit-for-bit unchanged", () => {

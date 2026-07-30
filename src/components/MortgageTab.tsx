@@ -44,7 +44,7 @@ import {
 // Shared date formatting helper.  This utility converts ISO dates
 // (YYYY‑MM‑DD) into the display format required by the product
 // specification, e.g. "2025-01-26" → "26 Jan '25".
-import { periodsPerYear } from "../domain/mortgage/baseline";
+import { periodsPerYear, periodsToMonths } from "../domain/mortgage/baseline";
 import { formatDate } from "../utils/dates";
 import { isValidISODate } from "../domain/dateUtils";
 import { DateInputWithDisplay, NumberInput } from "./shared";
@@ -390,12 +390,19 @@ export default function MortgageTab() {
       const actual = computeMortgageWithPrepayments(terms, prefix);
       // Total savings vs baseline
       const interestSaved = baseline.totalInterest - actual.totalInterest;
-      const monthsSaved = baseline.schedule.length - actual.schedule.length;
+      // Schedule lengths are payment periods, not months — on a biweekly
+      // loan the two differ by 26/12 and this row is rendered as years+months.
+      const monthsSaved = periodsToMonths(
+        baseline.schedule.length - actual.schedule.length,
+        terms.paymentFrequency
+      );
       // Incremental savings compared with the previous scenario
       const interestSavedIncremental =
         prevActual.totalInterest - actual.totalInterest;
-      const monthsSavedIncremental =
-        prevActual.schedule.length - actual.schedule.length;
+      const monthsSavedIncremental = periodsToMonths(
+        prevActual.schedule.length - actual.schedule.length,
+        terms.paymentFrequency
+      );
       // Effective rate after this prepayment
       const effectiveRate = computeEffectiveAnnualRateFromSchedule(
         actual.schedule,
