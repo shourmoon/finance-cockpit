@@ -874,7 +874,16 @@ export default function App() {
       {/* MORTGAGE TAB */}
       {activeTab === "mortgage" && (
         <ErrorBoundary label="The mortgage optimizer">
-          <MortgageTab />
+          <MortgageTab
+            rules={state.rules}
+            surplus={state.settings.surplus}
+            onSurplusChange={(surplus) =>
+              setState((s) => ({
+                ...s,
+                settings: { ...s.settings, surplus },
+              }))
+            }
+          />
         </ErrorBoundary>
       )}
 

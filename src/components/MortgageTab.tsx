@@ -25,6 +25,7 @@ import type {
   PastPrepayment,
   PaymentFrequency,
 } from "../domain/mortgage/types";
+import type { RecurringRule, SurplusSettings } from "../domain/types";
 import type {
   MortgageScenarioConfig,
   MonthlyScenarioPattern,
@@ -48,6 +49,7 @@ import { periodsPerYear, periodsToMonths } from "../domain/mortgage/baseline";
 import { formatDate } from "../utils/dates";
 import { isValidISODate } from "../domain/dateUtils";
 import { DateInputWithDisplay, NumberInput } from "./shared";
+import SurplusAllocationCard from "./SurplusAllocationCard";
 import { ui, colors } from "./ui";
 
 // Format a currency value (number) into a US dollar string with no
@@ -230,7 +232,22 @@ type PrepaymentImpactRow = {
   monthsSavedIncremental: number;
 };
 
-export default function MortgageTab() {
+/**
+ * Cashflow-side inputs the surplus card needs. Optional so the tab can still
+ * be rendered standalone (its own tests do), in which case the card simply
+ * reports that it cannot size a safety net.
+ */
+export interface MortgageTabProps {
+  rules?: RecurringRule[];
+  surplus?: SurplusSettings;
+  onSurplusChange?: (next: SurplusSettings) => void;
+}
+
+export default function MortgageTab({
+  rules = [],
+  surplus,
+  onSurplusChange,
+}: MortgageTabProps = {}) {
   // Initialise from persisted state if available.
   const initialUI: MortgageUIState =
     loadMortgageUIState() ?? createDefaultMortgageUIState();
@@ -1119,6 +1136,17 @@ export default function MortgageTab() {
           </div>
         </div>
       </SectionCard>
+
+      {surplus && onSurplusChange && (
+        <SurplusAllocationCard
+          terms={terms}
+          prepayments={prepaymentLog}
+          asOfDate={asOfDate || terms.startDate}
+          rules={rules}
+          surplus={surplus}
+          onSurplusChange={onSurplusChange}
+        />
+      )}
 
       {/* Past prepayments and actual vs baseline summary */}
       <SectionCard title="Past Prepayments" subtitle="Log the extra payments you've already made">
