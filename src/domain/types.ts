@@ -136,6 +136,28 @@ export interface CashflowMetrics {
 // Settings & account
 // ------------------------
 
+/**
+ * Inputs for the surplus allocation card: how much cash is parked, how much
+ * of it must stay untouched, and the assumptions the market-vs-mortgage
+ * comparison runs on.
+ */
+export interface SurplusSettings {
+  /**
+   * Cash parked in the high-yield account. Deliberately optional and with no
+   * default — the card stays dormant until the user says what is actually in
+   * there, rather than guessing and presenting a number as if it were theirs.
+   */
+  parkedCash?: Money;
+  /** Months of expenses held back before anything counts as surplus. */
+  reserveMonths: number;
+  /** Expected pre-tax annual market return. */
+  expectedReturn: number;
+  /** Combined marginal rate on long-term capital gains. */
+  capitalGainsRate: number;
+  /** Years over which the two paths are compared. */
+  horizonYears: number;
+}
+
 export interface CashflowSettings {
   startDate: ISODate;
   horizonDays: number;
@@ -153,6 +175,8 @@ export interface CashflowSettings {
    * "second salary kept" metric. Unset means that metric is hidden.
    */
   secondSalaryMonthly?: Money;
+  /** Surplus-allocation inputs. Always present from v4 onward. */
+  surplus: SurplusSettings;
 }
 
 export interface CashAccount {

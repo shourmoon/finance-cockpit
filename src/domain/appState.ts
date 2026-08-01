@@ -4,12 +4,17 @@ import type {
 AdhocTransaction,
 CashAccount,
 CashflowSettings,
+SurplusSettings,
 RecurringRule,
 RecurringSchedule,
 EventOverridesMap,
 UUID,
 } from "./types";
 import { toISODate, isValidISODate } from "./dateUtils";
+// Re-exported so the reserve default has exactly one definition; the
+// surplus module owns it because that is where it is applied.
+import { DEFAULT_RESERVE_MONTHS } from "./surplusAllocation";
+export { DEFAULT_RESERVE_MONTHS };
 
 // v1 -> v2: added adhocTransactions (additive; v1 states migrate
 // field-by-field with an empty list, nothing is discarded).
@@ -19,7 +24,65 @@ import { toISODate, isValidISODate } from "./dateUtils";
 // Past top-ups were never recorded reliably (they were entered as edits to
 // other rows), so name-matching "Top Up" would invent untrustworthy history.
 // Tracking starts at the upgrade instead.
-export const APP_STATE_VERSION = 3;
+// v3 -> v4: added `settings.surplus` — parked cash plus the assumptions the
+// market-vs-mortgage comparison runs on. Additive: v3 states keep everything
+// and simply gain defaults, and parkedCash stays unset so the card is dormant
+// until the user supplies a real balance.
+export const APP_STATE_VERSION = 4;
+
+/** Long-run pre-tax equity return. Conservative relative to historical. */
+export const DEFAULT_EXPECTED_RETURN = 0.07;
+
+/**
+ * Combined marginal rate on long-term capital gains: 15% federal + 3.8% NIIT
+ * + 6.37% NJ. Editable — it is a default, not an assertion about the user.
+ */
+export const DEFAULT_CAPITAL_GAINS_RATE = 0.2517;
+
+/** Years over which the two allocation paths are compared. */
+export const DEFAULT_COMPARISON_YEARS = 30;
+
+/**
+ * Coerce one untrusted surplus number. Anything unusable falls back to the
+ * default rather than to zero: a zero reserve would present the whole balance
+ * as investable and a zero return would make prepaying win automatically —
+ * both far worse than reverting to a sane value.
+ */
+function sanitizeSurplusNumber(
+  raw: unknown,
+  fallback: number,
+  max: number
+): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return fallback;
+  if (raw <= 0 || raw > max) return fallback;
+  return raw;
+}
+
+/** Field-by-field validation of an untrusted `settings.surplus`. */
+export function sanitizeSurplusSettings(raw: any): SurplusSettings {
+  const surplus: SurplusSettings = {
+    reserveMonths: sanitizeSurplusNumber(raw?.reserveMonths, DEFAULT_RESERVE_MONTHS, 120),
+    expectedReturn: sanitizeSurplusNumber(raw?.expectedReturn, DEFAULT_EXPECTED_RETURN, 1),
+    capitalGainsRate: sanitizeSurplusNumber(
+      raw?.capitalGainsRate,
+      DEFAULT_CAPITAL_GAINS_RATE,
+      1
+    ),
+    horizonYears: sanitizeSurplusNumber(raw?.horizonYears, DEFAULT_COMPARISON_YEARS, 100),
+  };
+
+  // Zero is a real answer here ("nothing parked"), so it is accepted where
+  // the others clamp it away. Only a non-number leaves the field unset.
+  if (
+    typeof raw?.parkedCash === "number" &&
+    Number.isFinite(raw.parkedCash) &&
+    raw.parkedCash >= 0
+  ) {
+    surplus.parkedCash = raw.parkedCash;
+  }
+
+  return surplus;
+}
 
 /**
  * Bounds for the projection horizon. The engine walks one timeline point
@@ -59,6 +122,7 @@ function createDefaultSettings(): CashflowSettings {
     // Coverage tracking begins now — there is no earlier history to claim.
     trackingSince: today,
     coverageLens: "all",
+    surplus: sanitizeSurplusSettings(undefined),
   };
 }
 
@@ -269,6 +333,7 @@ export function upgradeAppState(raw: any): AppState {
         : toISODate(new Date()),
     coverageLens:
       raw.settings && raw.settings.coverageLens === "recurring" ? "recurring" : "all",
+    surplus: sanitizeSurplusSettings(raw.settings?.surplus),
   };
 
   // Optional: omitted entirely when unset, which is what hides the

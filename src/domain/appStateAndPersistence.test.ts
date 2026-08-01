@@ -8,6 +8,10 @@ import {
   sanitizeHorizonDays,
   sanitizeOverrides,
   APP_STATE_VERSION,
+  DEFAULT_RESERVE_MONTHS,
+  DEFAULT_EXPECTED_RETURN,
+  DEFAULT_CAPITAL_GAINS_RATE,
+  DEFAULT_COMPARISON_YEARS,
   MAX_HORIZON_DAYS,
   DEFAULT_HORIZON_DAYS,
 } from "./appState";
@@ -96,6 +100,112 @@ describe("appState & persistence", () => {
         rules: [], adhocTransactions: [], overrides: {},
       });
       expect(upgraded.settings.trackingSince).toBe("2025-09-01");
+    });
+
+    test("v3 -> v4 adds surplus settings without touching anything else", () => {
+      // Additive, like every migration before it: a v3 state keeps its
+      // rules, transactions and settings and simply gains defaults.
+      const upgraded = upgradeAppState({
+        version: 3,
+        account: { startingBalance: 4200 },
+        settings: {
+          startDate: "2026-01-01", horizonDays: 120, minSafeBalance: 500,
+          trackingSince: "2025-09-01", coverageLens: "recurring",
+        },
+        rules: [
+          {
+            id: "r1", name: "Rent", amount: -2400, isVariable: false,
+            schedule: { type: "monthly", day: 1 },
+          },
+        ],
+        adhocTransactions: [
+          { id: "a1", name: "Top Up", amount: 500, date: "2026-02-01", kind: "topUp" },
+        ],
+        overrides: {},
+      });
+
+      expect(upgraded.version).toBe(APP_STATE_VERSION);
+      expect(upgraded.rules).toHaveLength(1);
+      expect(upgraded.adhocTransactions).toHaveLength(1);
+      expect(upgraded.settings.trackingSince).toBe("2025-09-01");
+      expect(upgraded.settings.coverageLens).toBe("recurring");
+      expect(upgraded.account.startingBalance).toBe(4200);
+
+      expect(upgraded.settings.surplus).toEqual({
+        reserveMonths: DEFAULT_RESERVE_MONTHS,
+        expectedReturn: DEFAULT_EXPECTED_RETURN,
+        capitalGainsRate: DEFAULT_CAPITAL_GAINS_RATE,
+        horizonYears: DEFAULT_COMPARISON_YEARS,
+      });
+      // Parked cash has no sensible default — the card stays dormant until
+      // the user says what is actually in the account.
+      expect(upgraded.settings.surplus.parkedCash).toBeUndefined();
+    });
+
+    test("round-trips stored surplus settings", () => {
+      const upgraded = upgradeAppState({
+        version: 4,
+        account: { startingBalance: 0 },
+        settings: {
+          startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
+          surplus: {
+            parkedCash: 180000, reserveMonths: 9, expectedReturn: 0.065,
+            capitalGainsRate: 0.238, horizonYears: 25,
+          },
+        },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.surplus).toEqual({
+        parkedCash: 180000, reserveMonths: 9, expectedReturn: 0.065,
+        capitalGainsRate: 0.238, horizonYears: 25,
+      });
+    });
+
+    test("falls back to defaults for unusable surplus values, never to zero", () => {
+      // A zero reserve would present the entire balance as investable, and a
+      // zero return would make prepaying win every time. Both are far more
+      // dangerous than simply reverting to the default.
+      const upgraded = upgradeAppState({
+        version: 4,
+        account: { startingBalance: 0 },
+        settings: {
+          startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
+          surplus: {
+            parkedCash: "loads", reserveMonths: -3, expectedReturn: "7%",
+            capitalGainsRate: 2, horizonYears: 0,
+          },
+        },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.surplus.reserveMonths).toBe(DEFAULT_RESERVE_MONTHS);
+      expect(upgraded.settings.surplus.expectedReturn).toBe(DEFAULT_EXPECTED_RETURN);
+      expect(upgraded.settings.surplus.capitalGainsRate).toBe(
+        DEFAULT_CAPITAL_GAINS_RATE
+      );
+      expect(upgraded.settings.surplus.horizonYears).toBe(DEFAULT_COMPARISON_YEARS);
+      expect(upgraded.settings.surplus.parkedCash).toBeUndefined();
+    });
+
+    test("accepts a zero parked balance as a real answer", () => {
+      // "I have nothing parked" is information, not a missing value.
+      const upgraded = upgradeAppState({
+        version: 4,
+        account: { startingBalance: 0 },
+        settings: {
+          startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
+          surplus: { parkedCash: 0 },
+        },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.surplus.parkedCash).toBe(0);
+    });
+
+    test("survives a v3 state with no settings object at all", () => {
+      const upgraded = upgradeAppState({
+        version: 3, account: { startingBalance: 0 },
+        rules: [], adhocTransactions: [], overrides: {},
+      });
+      expect(upgraded.settings.surplus.reserveMonths).toBe(DEFAULT_RESERVE_MONTHS);
     });
 
     test("round-trips the persisted lens and second salary", () => {
