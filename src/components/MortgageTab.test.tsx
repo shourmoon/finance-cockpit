@@ -348,6 +348,75 @@ describe("MortgageTab", () => {
     expect(persisted().scenarios[0].patterns).toHaveLength(1);
   });
 
+  describe("how far ahead of the original contract", () => {
+    // A biweekly loan is ahead of its own contract before a single
+    // prepayment is made, and the tab used to hide that entirely: its
+    // baseline was the biweekly schedule itself.
+    function setUpBiweeklyLoan() {
+      window.localStorage.setItem(
+        "finance-cockpit-mortgage-v2",
+        JSON.stringify({
+          terms: {
+            principal: 680000,
+            annualRate: 0.0475,
+            termMonths: 360,
+            startDate: "2023-06-01",
+            paymentFrequency: "biweekly",
+          },
+          prepayments: [{ date: "2025-01-01", amount: 150000 }],
+          asOfDate: "2026-08-01",
+          scenarios: [],
+        })
+      );
+    }
+
+    it("credits the biweekly cadence separately from the prepayments", () => {
+      setUpBiweeklyLoan();
+      render(<MortgageTab />);
+
+      expect(screen.getByText("Ahead of the original contract")).toBeInTheDocument();
+      // The contract is 30 years of MONTHLY payments from June 2023.
+      expect(screen.getByText(/May '53/)).toBeInTheDocument();
+      // Cadence alone is worth ~4y 8m and ~$105k here.
+      expect(screen.getByText(/\$105,6\d\d/)).toBeInTheDocument();
+      // Prepayments are credited on their own line, not merged in. (The same
+      // figure also appears in the per-prepayment impact table below.)
+      expect(screen.getAllByText(/\$228,8\d\d/).length).toBeGreaterThan(0);
+      // And the total is the sum, against the contract.
+      expect(screen.getByText(/\$334,5\d\d/)).toBeInTheDocument();
+    });
+
+    it("explains the cadence in plain language", () => {
+      setUpBiweeklyLoan();
+      render(<MortgageTab />);
+      expect(
+        screen.getByText(/one extra monthly payment a year/i)
+      ).toBeInTheDocument();
+    });
+
+    it("omits the cadence line entirely for a monthly loan", () => {
+      // Nothing was bought by cadence, so showing a zero row would be noise.
+      window.localStorage.setItem(
+        "finance-cockpit-mortgage-v2",
+        JSON.stringify({
+          terms: {
+            principal: 680000,
+            annualRate: 0.0475,
+            termMonths: 360,
+            startDate: "2023-06-01",
+            paymentFrequency: "monthly",
+          },
+          prepayments: [{ date: "2025-01-01", amount: 150000 }],
+          asOfDate: "2026-08-01",
+          scenarios: [],
+        })
+      );
+      render(<MortgageTab />);
+      expect(screen.getByText("Ahead of the original contract")).toBeInTheDocument();
+      expect(screen.queryByText("From paying biweekly")).not.toBeInTheDocument();
+    });
+  });
+
   describe("visual cohesion of scenario & prepayment controls", () => {
     it("scenario pattern-card inputs use the shared app input chrome", () => {
       render(<MortgageTab />);

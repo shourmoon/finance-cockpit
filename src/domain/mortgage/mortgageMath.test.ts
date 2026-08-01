@@ -24,7 +24,10 @@ import {
 } from "./baseline";
 import { computeMortgageWithPrepayments } from "./history";
 import { computeEffectiveAnnualRateFromSchedule } from "./irr";
-import { compareBaselineWithPrepayments } from "./comparison";
+import {
+  compareBaselineWithPrepayments,
+  decomposeMortgageSavings,
+} from "./comparison";
 import { runMortgageScenarios } from "./scenarios";
 import type { AmortizationEntry, MortgageOriginalTerms } from "./types";
 
@@ -485,5 +488,97 @@ describe("addMonths calendar arithmetic", () => {
         expect(roundTrip.getUTCDate()).toBe(d);
       }
     }
+  });
+});
+
+describe("decomposeMortgageSavings", () => {
+  // The household's real situation: a 30-year monthly contract that is
+  // actually being paid biweekly, with prepayments on top. Three distinct
+  // things shortened the loan and the card needs to credit each separately.
+  const contract: MortgageOriginalTerms = {
+    principal: 680_000,
+    annualRate: 0.0475,
+    termMonths: 360,
+    startDate: "2023-06-01",
+    paymentFrequency: "biweekly",
+  };
+  const prepayments = [{ date: "2025-01-01", amount: 150_000 }];
+
+  it("measures the contract baseline as monthly, whatever the real cadence", () => {
+    // The 30-year term in the loan document assumes monthly payments. Using
+    // the biweekly schedule as the baseline makes the cadence's own saving
+    // invisible, which is exactly the bug this function exists to fix.
+    const d = decomposeMortgageSavings(contract, prepayments);
+    const monthlyBaseline = computeBaselineMortgage({
+      ...contract,
+      paymentFrequency: "monthly",
+    });
+    expect(d.contract.payoffDate).toBe(monthlyBaseline.payoffDate);
+    expect(d.contract.totalInterest).toBeCloseTo(monthlyBaseline.totalInterest, 6);
+    // 30 years from June 2023.
+    expect(d.contract.payoffDate.slice(0, 4)).toBe("2053");
+  });
+
+  it("credits the cadence and the prepayments separately", () => {
+    const d = decomposeMortgageSavings(contract, prepayments);
+
+    expect(d.fromCadence.monthsSaved).toBeGreaterThan(0);
+    expect(d.fromCadence.interestSaved).toBeGreaterThan(0);
+    expect(d.fromPrepayments.monthsSaved).toBeGreaterThan(0);
+    expect(d.fromPrepayments.interestSaved).toBeGreaterThan(0);
+
+    // Paying biweekly alone is worth roughly four and a half years here.
+    expect(d.fromCadence.monthsSaved).toBeGreaterThan(50);
+    expect(d.fromCadence.monthsSaved).toBeLessThan(60);
+    expect(d.fromCadence.interestSaved).toBeGreaterThan(100_000);
+  });
+
+  it("adds up: the parts equal the whole", () => {
+    const d = decomposeMortgageSavings(contract, prepayments);
+    expect(d.fromCadence.monthsSaved + d.fromPrepayments.monthsSaved).toBeCloseTo(
+      d.total.monthsSaved,
+      6
+    );
+    expect(
+      d.fromCadence.interestSaved + d.fromPrepayments.interestSaved
+    ).toBeCloseTo(d.total.interestSaved, 6);
+  });
+
+  it("attributes nothing to cadence on a genuinely monthly loan", () => {
+    const monthly: MortgageOriginalTerms = { ...contract, paymentFrequency: "monthly" };
+    const d = decomposeMortgageSavings(monthly, prepayments);
+    expect(d.fromCadence.monthsSaved).toBe(0);
+    expect(d.fromCadence.interestSaved).toBeCloseTo(0, 6);
+    expect(d.cadenceExtraPerYear).toBe(0);
+    // All of the saving is then the prepayments'.
+    expect(d.fromPrepayments.interestSaved).toBeCloseTo(d.total.interestSaved, 6);
+  });
+
+  it("quantifies the cadence as one extra monthly payment a year", () => {
+    // 26 half-payments is 13 months' worth, so the biweekly schedule bakes in
+    // exactly one extra monthly payment of principal every year. That is the
+    // plain-language explanation the card shows.
+    const d = decomposeMortgageSavings(contract, []);
+    const monthlyPayment = computeMonthlyPayment(contract);
+    expect(d.cadenceExtraPerYear).toBeCloseTo(monthlyPayment, 6);
+  });
+
+  it("handles a loan with no prepayments at all", () => {
+    const d = decomposeMortgageSavings(contract, []);
+    expect(d.fromPrepayments.monthsSaved).toBeCloseTo(0, 6);
+    expect(d.fromPrepayments.interestSaved).toBeCloseTo(0, 6);
+    expect(d.total.monthsSaved).toBeCloseTo(d.fromCadence.monthsSaved, 6);
+  });
+
+  it("reports months as real calendar time across differing cadences", () => {
+    // The two baselines step at different intervals — one month, one 14 days
+    // — so a difference of schedule lengths would be meaningless here. Only
+    // the gap between the payoff dates is comparable.
+    const d = decomposeMortgageSavings(contract, prepayments);
+    const gap =
+      (Date.parse(d.contract.payoffDate + "T00:00:00Z") -
+        Date.parse(d.actual.payoffDate + "T00:00:00Z")) /
+      (86_400_000 * 30.4375);
+    expect(d.total.monthsSaved).toBeCloseTo(gap, 3);
   });
 });

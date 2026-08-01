@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   computeBaselineMortgage,
   computeMortgageWithPrepayments,
-  compareBaselineWithPrepayments,
+  decomposeMortgageSavings,
   computeEffectiveAnnualRateFromSchedule,
   runMortgageScenarios,
 } from "../domain/mortgage";
@@ -346,8 +346,10 @@ export default function MortgageTab() {
     [terms, prepaymentLog]
   );
 
-  const comparison = useMemo(
-    () => compareBaselineWithPrepayments(terms, prepaymentLog),
+  // The loan document says N years of MONTHLY payments. Paying biweekly is
+  // already an acceleration against that, so the two are credited apart.
+  const savings = useMemo(
+    () => decomposeMortgageSavings(terms, prepaymentLog),
     [terms, prepaymentLog]
   );
 
@@ -1218,15 +1220,42 @@ export default function MortgageTab() {
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <div style={styles.subHeading}>Benefit vs baseline</div>
+          <div style={styles.subHeading}>Ahead of the original contract</div>
           <div style={styles.summaryRow}>
-            <span>Interest saved vs baseline</span>
-            <span>{formatCurrency(comparison.interestSaved)}</span>
+            <span>Contract payoff ({Math.round(terms.termMonths / 12)} yrs, monthly)</span>
+            <span>{formatDateDisplay(savings.contract.payoffDate)}</span>
+          </div>
+          {terms.paymentFrequency === "biweekly" && (
+            <div style={styles.summaryRow}>
+              <span>From paying biweekly</span>
+              <span>
+                {formatMonthsAsYearsMonths(savings.fromCadence.monthsSaved)} ·{" "}
+                {formatCurrency(savings.fromCadence.interestSaved)}
+              </span>
+            </div>
+          )}
+          <div style={styles.summaryRow}>
+            <span>From prepayments</span>
+            <span>
+              {formatMonthsAsYearsMonths(savings.fromPrepayments.monthsSaved)} ·{" "}
+              {formatCurrency(savings.fromPrepayments.interestSaved)}
+            </span>
           </div>
           <div style={styles.summaryRow}>
-            <span>Months saved vs baseline</span>
-            <span>{formatMonthsAsYearsMonths(comparison.monthsSaved)}</span>
+            <span>Total ahead</span>
+            <span>
+              {formatMonthsAsYearsMonths(savings.total.monthsSaved)} ·{" "}
+              {formatCurrency(savings.total.interestSaved)}
+            </span>
           </div>
+          {terms.paymentFrequency === "biweekly" && (
+            <div style={styles.detailsHint}>
+              26 half-payments is 13 months' worth, so the biweekly schedule
+              already puts one extra monthly payment a year (
+              {formatCurrency(savings.cadenceExtraPerYear)}) straight onto
+              principal.
+            </div>
+          )}
         </div>
 
         {perPrepaymentImpacts.length > 0 && (
