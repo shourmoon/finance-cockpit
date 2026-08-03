@@ -26,6 +26,8 @@ import {
 } from "./portfolioProjection";
 import { computePrepaymentHurdleRate } from "./surplusAllocation";
 import { decomposeMortgageSavings } from "./mortgage/comparison";
+import { expandContributionPlan } from "./contributionPlan";
+import { addMonths } from "./mortgage/baseline";
 import type { MortgageOriginalTerms } from "./mortgage/types";
 
 /** Whole calendar months from `from` to `to`, fractional part included. */
@@ -167,11 +169,19 @@ describe("compareSurplusAllocations", () => {
     expect(o.portfolioAfterTax).toBeCloseTo(o.contributions, 4);
   });
 
-  it("compounds a lump for the whole horizon, not one period short", () => {
+  it("compounds a lump from the as-of date to the horizon date", () => {
     // The lump is money in hand on the as-of date, and the mortgage side
-    // applies it at the very next payment. Routing it through the period
-    // buckets quietly cost it one period of growth, because the walk grows
-    // the balance before adding that period's contributions.
+    // applies it at the very next payment, so it must compound over the whole
+    // span. Growth is measured in actual days over 365.25, and the horizon is
+    // a calendar date three years out — 1,096 days here, not the 1,092 that a
+    // count of 78 biweekly periods would have given.
+    const horizonYears = 3;
+    const horizonDate = addMonths(base.asOfDate, horizonYears * 12);
+    const span =
+      (Date.parse(horizonDate + "T00:00:00Z") -
+        Date.parse(base.asOfDate + "T00:00:00Z")) /
+      (365.25 * 86_400_000);
+
     for (const annualReturn of [0.07, 0.1]) {
       const o = compareSurplusAllocations({
         ...base,
@@ -180,14 +190,66 @@ describe("compareSurplusAllocations", () => {
         annualReturn,
         capitalGainsRate: 0,
         // Well before payoff, so no freed payments enter the total.
-        horizonYears: 3,
+        horizonYears,
         splits: [0],
       }).outcomes[0];
       expect(o.portfolioAfterTax).toBeCloseTo(
-        100_000 * Math.pow(1 + annualReturn, 3),
-        2
+        100_000 * Math.pow(1 + annualReturn, span),
+        6
       );
     }
+  });
+
+  it("compounds every contribution from its own date, exactly", () => {
+    // Closed form, independent of the implementation: each dated contribution
+    // is worth amount x (1 + r)^(years from its date to the horizon). This is
+    // the check that bucketing into payment periods could never pass, because
+    // bucketing shifts each contribution up to a period late.
+    const annualReturn = 0.07;
+    const horizonYears = 6;
+    const monthlyContribution = 2_000;
+    const yearlyContribution = 15_000;
+
+    const o = compareSurplusAllocations({
+      ...base,
+      surplus: 0,
+      monthlyContribution,
+      yearlyContribution,
+      yearlyMonth: 3,
+      annualReturn,
+      capitalGainsRate: 0,
+      horizonYears,
+      splits: [0],
+    }).outcomes[0];
+
+    // Rebuild the expected value from the plan itself.
+    const contributions = expandContributionPlan(
+      {
+        asOfDate: base.asOfDate,
+        lumpSum: 0,
+        monthly: monthlyContribution,
+        yearly: yearlyContribution,
+        yearlyMonth: 3,
+      },
+      base.terms.termMonths
+    );
+    const horizonDate = addMonths(base.asOfDate, horizonYears * 12);
+    const years = (from: string, to: string) =>
+      (Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) /
+      (365.25 * 86_400_000);
+
+    let expected = 0;
+    let paidIn = 0;
+    for (const c of contributions) {
+      if (c.date > horizonDate) continue;
+      expected += c.amount * Math.pow(1 + annualReturn, years(c.date, horizonDate));
+      paidIn += c.amount;
+    }
+
+    // The loan outlives this horizon, so no freed payments enter the total.
+    expect(o.remainingDebtAtHorizon).toBeGreaterThan(0);
+    expect(o.contributions).toBeCloseTo(paidIn, 6);
+    expect(o.portfolioAfterTax).toBeCloseTo(expected, 4);
   });
 
   it("counts the freed mortgage payment as invested once the loan ends", () => {
@@ -337,8 +399,17 @@ describe("solveBreakEvenReturn", () => {
 
   it("agrees with the closed form when the clock stops at payoff", () => {
     // The analytic hurdle assumes the comparison ends when the loan does. Set
-    // the horizon to the remaining term and the two must line up; this is what
-    // licenses computePrepaymentHurdleRate as a sanity reference at all.
+    // the horizon to the remaining term and the two line up closely; this is
+    // what licenses computePrepaymentHurdleRate as a sanity reference at all.
+    //
+    // They do not agree exactly, and should not be made to. The closed form
+    // idealises: it treats avoided interest as compounding smoothly at the
+    // mortgage rate, whereas the real loan retires on a discrete payment date
+    // with a partial final instalment, and the market receives the lump on the
+    // as-of date while the servicer applies it at the next payment. The
+    // residual sits at 0.07-0.11 of a point across horizons either side of
+    // payoff, stable rather than drifting — which is the signature of a
+    // modelling difference, not an error.
     const yearsLeft = 20.5;
     const simulated = solveBreakEvenReturn({ ...base, horizonYears: yearsLeft })!;
     const closed = computePrepaymentHurdleRate(
@@ -346,7 +417,7 @@ describe("solveBreakEvenReturn", () => {
       yearsLeft,
       base.capitalGainsRate
     );
-    expect(Math.abs(simulated - closed)).toBeLessThan(0.001);
+    expect(Math.abs(simulated - closed)).toBeLessThan(0.002);
   });
 
   it("falls as the horizon extends past payoff", () => {

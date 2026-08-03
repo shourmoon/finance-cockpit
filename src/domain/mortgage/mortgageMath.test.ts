@@ -519,6 +519,78 @@ describe("decomposeMortgageSavings", () => {
   });
 });
 
+describe("money committed to a loan that cannot absorb it", () => {
+  // A servicer refunds an overpayment; it does not keep it. Anything the loan
+  // could not take must come back with the date it became unusable, or a plan
+  // that overshoots a nearly-retired loan silently destroys money.
+  const terms: MortgageOriginalTerms = {
+    principal: 300_000, annualRate: 0.05, termMonths: 360,
+    startDate: "2025-01-01", paymentFrequency: "monthly",
+  };
+
+  /** Extra principal the schedule actually absorbed, over and above the
+   *  ordinary instalments. Derived from the schedule, not from the plan. */
+  function extraApplied(
+    r: ReturnType<typeof computeMortgageWithPrepayments>,
+    t: MortgageOriginalTerms
+  ): number {
+    const fullPayment = computeMonthlyPayment(t);
+    const scheduledPortion = r.schedule.reduce(
+      (s, e) => s + Math.max(0, Math.min(e.principal, fullPayment - e.interest)),
+      0
+    );
+    return t.principal - scheduledPortion;
+  }
+
+  it("hands back the part of a lump the loan did not need", () => {
+    const r = computeMortgageWithPrepayments(terms, [
+      { date: "2025-02-01", amount: 1_000_000 },
+    ]);
+    const handedBack = r.unappliedPrepayments.reduce((s, u) => s + u.amount, 0);
+
+    expect(r.schedule.reduce((s, e) => s + e.principal, 0)).toBeCloseTo(
+      terms.principal,
+      4
+    );
+    // Conservation: what the loan took plus what came back is what was given.
+    expect(extraApplied(r, terms) + handedBack).toBeCloseTo(1_000_000, 0);
+    expect(handedBack).toBeGreaterThan(600_000);
+    expect(r.unappliedPrepayments[0].date).toBe("2025-02-01");
+  });
+
+  it("hands back everything dated after the loan is already gone", () => {
+    const r = computeMortgageWithPrepayments(terms, [
+      { date: "2025-02-01", amount: 400_000 },
+      { date: "2027-06-01", amount: 20_000 },
+      { date: "2028-06-01", amount: 5_000 },
+    ]);
+    const dates = r.unappliedPrepayments.map((u) => u.date);
+    expect(dates).toContain("2027-06-01");
+    expect(dates).toContain("2028-06-01");
+    const late = r.unappliedPrepayments.filter((u) => u.date >= "2027-06-01");
+    expect(late.reduce((s, u) => s + u.amount, 0)).toBeCloseTo(25_000, 6);
+  });
+
+  it("hands back nothing when every dollar was needed", () => {
+    const r = computeMortgageWithPrepayments(terms, [
+      { date: "2026-01-01", amount: 10_000 },
+    ]);
+    expect(r.unappliedPrepayments).toEqual([]);
+  });
+
+  it("conserves money exactly: applied plus handed back equals committed", () => {
+    for (const amount of [5_000, 100_000, 299_000, 500_000, 2_000_000]) {
+      const plan = [
+        { date: "2025-06-01", amount },
+        { date: "2030-06-01", amount },
+      ];
+      const r = computeMortgageWithPrepayments(terms, plan);
+      const handedBack = r.unappliedPrepayments.reduce((s, u) => s + u.amount, 0);
+      expect(extraApplied(r, terms) + handedBack).toBeCloseTo(2 * amount, 0);
+    }
+  });
+});
+
 describe("decomposeMortgageSavings with a future plan", () => {
   // Four things can shorten this loan and the user wants each credited on
   // its own line: the biweekly cadence, the prepayments already made, a

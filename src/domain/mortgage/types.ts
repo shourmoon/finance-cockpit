@@ -53,6 +53,16 @@ export interface MortgageHistoryResult {
   schedule: AmortizationEntry[];
   totalInterest: Money;
   payoffDate: ISODate;
+  /**
+   * Extra principal that was offered but could not be used, with the date it
+   * became unusable — money committed toward a loan that was already smaller
+   * than the payment, or already gone.
+   *
+   * A servicer refunds an overpayment; it does not keep it. Callers modelling
+   * a household's whole position must put this back in their pocket, or a
+   * plan that overshoots a nearly-retired loan appears to destroy money.
+   */
+  unappliedPrepayments: { date: ISODate; amount: Money }[];
 }
 
 // Comparison between baseline and actual.

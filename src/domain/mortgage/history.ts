@@ -4,6 +4,8 @@ import type {
   AmortizationEntry,
   MortgageHistoryResult,
   PastPrepaymentLog,
+  ISODate,
+  Money,
 } from "./types";
 import { computePeriodPayment, addPeriods, periodsPerYear } from "./baseline";
 
@@ -32,6 +34,9 @@ export function computeMortgageWithPrepayments(
   const perYear = periodsPerYear(terms.paymentFrequency);
   let prepayIndex = 0;
   let remaining = terms.principal;
+  // Extra principal offered that the loan could not absorb. See the field
+  // docs on MortgageHistoryResult: the money stays the household's.
+  const unappliedPrepayments: { date: ISODate; amount: Money }[] = [];
   const r = terms.annualRate / perYear;
   const epsilon = 1e-6;
   const limit = Math.ceil((terms.termMonths / 12) * perYear);
@@ -69,6 +74,18 @@ export function computeMortgageWithPrepayments(
     // period's total overshot what was owed.
     const totalPrincipal = Math.min(scheduledPrincipal + extra, remaining);
 
+    // How much of `extra` actually went to principal. The scheduled portion
+    // has first claim on what is owed, so anything the loan could not take
+    // beyond that is handed back rather than quietly absorbed.
+    if (extra > 0) {
+      const scheduledApplied = Math.min(scheduledPrincipal, remaining);
+      const extraApplied = Math.max(0, totalPrincipal - scheduledApplied);
+      const leftOver = extra - extraApplied;
+      if (leftOver > epsilon) {
+        unappliedPrepayments.push({ date, amount: leftOver });
+      }
+    }
+
     remaining = Math.max(0, remaining - totalPrincipal);
 
     schedule.push({
@@ -82,11 +99,21 @@ export function computeMortgageWithPrepayments(
     payoffDate = date;
   }
 
+  // Anything the loop never reached: the loan was retired before these fell
+  // due, so they were never owed at all.
+  for (; prepayIndex < sortedPrepayments.length; prepayIndex++) {
+    const p = sortedPrepayments[prepayIndex];
+    if (p.amount > epsilon) {
+      unappliedPrepayments.push({ date: p.date, amount: p.amount });
+    }
+  }
+
   const totalInterest = schedule.reduce((sum, e) => sum + e.interest, 0);
 
   return {
     schedule,
     totalInterest,
     payoffDate,
+    unappliedPrepayments,
   };
 }

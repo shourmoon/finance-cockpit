@@ -23,9 +23,9 @@ import type {
 import { computeMortgageWithPrepayments } from "./mortgage/history";
 import { monthsBetween } from "./mortgage/comparison";
 import {
+  addMonths,
   addPeriods,
   computePeriodPayment,
-  periodsPerYear,
 } from "./mortgage/baseline";
 import {
   expandContributionPlan,
@@ -110,36 +110,15 @@ export interface AllocationComparison {
   marketFavoured: boolean;
 }
 
-/**
- * Total contribution falling in each payment period from `asOfDate`.
- *
- * The market walk steps in payment periods, while contributions are dated, so
- * they have to be bucketed. Bucketing rather than spreading a monthly figure
- * evenly matters for the yearly stream in particular: a March bonus is
- * invested in March, not smeared across the year, and the two destinations
- * therefore see the same money on the same days.
- */
-function bucketByPeriod(
-  contributions: DatedContribution[],
-  asOfDate: ISODate,
-  frequency: MortgageOriginalTerms["paymentFrequency"],
-  periods: number
-): Money[] {
-  const buckets = new Array<Money>(periods).fill(0);
-  if (periods === 0) return buckets;
+/** Days in a year, averaged over the leap cycle. */
+const DAYS_PER_YEAR = 365.25;
 
-  // Period i covers [date(i), date(i+1)); anything before the first period
-  // lands in it, anything past the horizon is dropped.
-  const edges: ISODate[] = [];
-  for (let i = 0; i <= periods; i++) edges.push(addPeriods(asOfDate, i, frequency));
-
-  let i = 0;
-  for (const c of contributions) {
-    while (i < periods && c.date >= edges[i + 1]) i++;
-    if (i >= periods) break;
-    buckets[i] += c.amount;
-  }
-  return buckets;
+/** Exact year fraction between two dates. Negative when `to` precedes `from`. */
+function yearsBetween(from: ISODate, to: ISODate): number {
+  return (
+    (Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) /
+    (DAYS_PER_YEAR * 86_400_000)
+  );
 }
 
 /** Clamp to a usable number, falling back to `fallback`. */
@@ -177,83 +156,89 @@ interface PathResult {
 }
 
 /**
- * Walk one path from `asOfDate` to the horizon.
+ * Value one path at the horizon.
  *
- * Per period: if the loan is already retired, the payment that would have gone
- * to the servicer goes into the market instead. Contributions are tracked
- * separately from value so capital gains land on the gain alone.
+ * If the loan is retired before then, the payment that would have gone to the
+ * servicer goes into the market instead. Contributions are tracked separately
+ * from value so capital gains land on the gain alone.
  *
- * `toMarketByPeriod` and `toPrepaymentByPeriod` are both exactly
- * `horizonPeriods` long and the walk is bounded by the same number, so they are
- * indexed directly rather than defensively.
- *
- * Contributions are added after the period's growth, so each is treated as
- * arriving at the end of the period it falls in — at most 14 days later than
- * its real date. That errs against the market, which is the side carrying the
- * risk, so the bias is the conservative one. The lump is not subject to this:
- * it arrives as `initialInvestment` and compounds from the start.
+ * Every contribution compounds from its own calendar date to the horizon, so
+ * the result is exact rather than discretised onto the payment grid.
  */
 function simulatePath(
   schedule: AmortizationEntry[],
   payoffDate: ISODate,
   totalInterest: Money,
-  initialInvestment: Money,
-  perYear: number,
+  lumpToMarket: Money,
   periodPayment: Money,
-  horizonPeriods: number,
+  frequency: MortgageOriginalTerms["paymentFrequency"],
   asOfDate: ISODate,
+  horizonDate: ISODate,
   capitalGainsRate: number,
-  periodReturn: number,
-  toMarketByPeriod: Money[],
-  toPrepaymentByPeriod: Money[]
+  annualReturn: number,
+  toMarketDated: DatedContribution[],
+  unappliedPrepayments: DatedContribution[]
 ): PathResult {
-  let value = initialInvestment;
-  let basis = initialInvestment;
+  // Everything the household puts into the market, on the day it goes in.
+  const invested: DatedContribution[] = [];
+  if (lumpToMarket > 0) invested.push({ date: asOfDate, amount: lumpToMarket });
+  for (const c of toMarketDated) invested.push(c);
 
-  // Only the part of the schedule still ahead of us is relevant.
-  const future = schedule.filter((e) => e.date > asOfDate);
-
-  for (let i = 0; i < horizonPeriods; i++) {
-    value *= 1 + periodReturn;
-
-    let contribution = toMarketByPeriod[i];
-
-    // The loan is gone once we run past the end of its remaining schedule.
-    const stillPaying = i < future.length;
-    if (!stillPaying) {
-      // Everything that was going to the servicer is now investable: the
-      // scheduled payment AND the mortgage-directed contributions, which have
-      // nothing left to pay down. Dropping the latter would understate the
-      // prepay path badly — enough to make the market "win" at a 0% return,
-      // which is how this was caught.
-      contribution += periodPayment + toPrepaymentByPeriod[i];
+  // Once the loan is retired, everything that was going to the servicer is
+  // investable instead: the scheduled payment, and any mortgage-directed
+  // contributions dated after payoff, which have nothing left to pay down.
+  // The freed payment keeps the loan's own cadence, so its dates continue
+  // from the final payment rather than from the as-of date — those two grids
+  // only coincide when the as-of date happens to fall on a payment day.
+  if (payoffDate <= horizonDate) {
+    // The final instalment is only what was still owed, which is usually less
+    // than a full payment. The difference is freed on that very day, and not
+    // crediting it left the two paths spending unequal amounts in their last
+    // month — enough that prepaying could lose at a zero return.
+    const last = schedule.at(-1);
+    if (last && last.payment < periodPayment) {
+      invested.push({ date: payoffDate, amount: periodPayment - last.payment });
     }
-
-    if (contribution > 0) {
-      value += contribution;
-      basis += contribution;
+    for (let k = 1; ; k++) {
+      const date = addPeriods(payoffDate, k, frequency);
+      if (date > horizonDate) break;
+      invested.push({ date, amount: periodPayment });
     }
+  }
+  // Whatever the loan could not absorb comes back to the household, on the
+  // date it became unusable — money committed to a mortgage smaller than the
+  // payment, or already retired. Without this a plan that overshoots a
+  // nearly-paid-off loan appears to destroy money, and the mortgage path
+  // could lose to the market even at a zero return.
+  for (const c of unappliedPrepayments) invested.push(c);
+
+  // Each contribution compounds from its own date to the horizon. No
+  // bucketing into payment periods: that shifted every contribution up to a
+  // period late, which understated the market by a small but systematic
+  // margin and made the two arms of the comparison unequally funded.
+  let value = 0;
+  let basis = 0;
+  for (const c of invested) {
+    if (c.date > horizonDate) continue;
+    value += c.amount * Math.pow(1 + annualReturn, yearsBetween(c.date, horizonDate));
+    basis += c.amount;
   }
 
   const gain = Math.max(0, value - basis);
   const portfolioAfterTax = value - gain * capitalGainsRate;
 
-  // Debt left when the clock stops: the balance after the last payment that
-  // fell inside the horizon, or zero if the loan finished first.
+  // What is still owed when the clock stops, read off the schedule by date
+  // rather than by counting periods from the as-of date.
   const remainingDebtAtHorizon =
-    future.length > horizonPeriods
-      ? future[horizonPeriods - 1]?.remaining ?? 0
-      : 0;
-
-  const debtFreePeriods = Math.max(0, horizonPeriods - future.length);
+    payoffDate <= horizonDate ? 0 : Math.max(0, balanceOn(schedule, horizonDate));
 
   return {
     payoffDate,
     totalInterest,
     contributions: basis,
     portfolioAfterTax,
-    remainingDebtAtHorizon: Math.max(0, remainingDebtAtHorizon),
-    debtFreeYears: debtFreePeriods / perYear,
+    remainingDebtAtHorizon,
+    debtFreeYears: Math.max(0, yearsBetween(payoffDate, horizonDate)),
   };
 }
 
@@ -273,10 +258,10 @@ function simulatePath(
  * schedules on all fifty of them.
  */
 interface PreparedComparison {
-  perYear: number;
   periodPayment: Money;
+  frequency: MortgageOriginalTerms["paymentFrequency"];
   horizonYears: number;
-  horizonPeriods: number;
+  horizonDate: ISODate;
   capitalGainsRate: number;
   asOfDate: ISODate;
   fractions: number[];
@@ -288,8 +273,8 @@ interface PreparedComparison {
     monthlyToMarket: Money;
     yearlyToPrepayment: Money;
     yearlyToMarket: Money;
-    toMarketByPeriod: Money[];
-    toPrepaymentByPeriod: Money[];
+    toMarketDated: DatedContribution[];
+    unappliedPrepayments: DatedContribution[];
     schedule: AmortizationEntry[];
     payoffDate: ISODate;
     totalInterest: Money;
@@ -299,12 +284,18 @@ interface PreparedComparison {
 function prepareComparison(
   input: Omit<AllocationInput, "annualReturn">
 ): PreparedComparison {
-  const perYear = periodsPerYear(input.terms.paymentFrequency);
   const periodPayment = computePeriodPayment(input.terms);
 
   const surplus = Math.max(0, num(input.surplus, 0));
   const horizonYears = Math.max(0, num(input.horizonYears, 0));
-  const horizonPeriods = Math.max(0, Math.round(horizonYears * perYear));
+  // A calendar date, not a count of payment periods: 78 biweekly periods is
+  // 1,092 days, which is three weeks short of three years, and deriving the
+  // horizon from the payment grid quietly imported that error into every
+  // figure measured at it.
+  const horizonDate = addMonths(
+    input.asOfDate,
+    Math.max(0, Math.round(horizonYears * 12))
+  );
   const capitalGainsRate = Math.min(1, Math.max(0, num(input.capitalGainsRate, 0)));
   const monthlyContribution = Math.max(0, num(input.monthlyContribution, 0));
   const yearlyContribution = Math.max(0, num(input.yearlyContribution, 0));
@@ -365,10 +356,8 @@ function prepareComparison(
       ...toPrepaymentDated,
     ];
 
-    const { schedule, payoffDate, totalInterest } = computeMortgageWithPrepayments(
-      input.terms,
-      prepayments
-    );
+    const { schedule, payoffDate, totalInterest, unappliedPrepayments } =
+      computeMortgageWithPrepayments(input.terms, prepayments);
 
     return {
       fraction,
@@ -378,18 +367,8 @@ function prepareComparison(
       monthlyToMarket,
       yearlyToPrepayment,
       yearlyToMarket,
-      toMarketByPeriod: bucketByPeriod(
-        toMarketDated,
-        asOfDate,
-        input.terms.paymentFrequency,
-        horizonPeriods
-      ),
-      toPrepaymentByPeriod: bucketByPeriod(
-        toPrepaymentDated,
-        asOfDate,
-        input.terms.paymentFrequency,
-        horizonPeriods
-      ),
+      toMarketDated,
+      unappliedPrepayments,
       schedule,
       payoffDate,
       totalInterest,
@@ -397,10 +376,10 @@ function prepareComparison(
   });
 
   return {
-    perYear,
     periodPayment,
+    frequency: input.terms.paymentFrequency,
     horizonYears,
-    horizonPeriods,
+    horizonDate,
     capitalGainsRate,
     asOfDate,
     fractions,
@@ -414,7 +393,6 @@ function evaluateComparison(
   rawAnnualReturn: number
 ): AllocationComparison {
   const annualReturn = Math.max(-0.999, num(rawAnnualReturn, 0));
-  const periodReturn = Math.pow(1 + annualReturn, 1 / ctx.perYear) - 1;
 
   const runs = ctx.runs.map((r) => ({
     ...r,
@@ -423,14 +401,14 @@ function evaluateComparison(
       r.payoffDate,
       r.totalInterest,
       r.toMarket,
-      ctx.perYear,
       ctx.periodPayment,
-      ctx.horizonPeriods,
+      ctx.frequency,
       ctx.asOfDate,
+      ctx.horizonDate,
       ctx.capitalGainsRate,
-      periodReturn,
-      r.toMarketByPeriod,
-      r.toPrepaymentByPeriod
+      annualReturn,
+      r.toMarketDated,
+      r.unappliedPrepayments
     ),
   }));
 
@@ -557,9 +535,12 @@ export function solveBreakEvenReturn(
     return c.outcomes[1].netWorthAtHorizon - c.outcomes[0].netWorthAtHorizon;
   };
 
-  // A loan with nothing left to prepay makes both paths identical, so there
-  // is no crossing to find.
-  if (advantage(0) <= 0) return null;
+  // A loan with nothing left to prepay makes both paths effectively
+  // identical. Requiring a materially positive advantage rather than merely
+  // a positive one keeps floating-point noise on an indistinguishable pair
+  // from being solved into a confident-looking rate.
+  const MATERIAL = 0.01;
+  if (advantage(0) <= MATERIAL) return null;
   // No sane return lets the market catch up; treat as out of range rather
   // than reporting a bogus edge value.
   if (advantage(MAX_SEARCH_RETURN) > 0) return null;
