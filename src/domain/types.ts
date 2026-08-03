@@ -148,6 +148,12 @@ export interface SurplusSettings {
    * there, rather than guessing and presenting a number as if it were theirs.
    */
   parkedCash?: Money;
+  /**
+   * Ongoing money the household can direct each month, alongside (or instead
+   * of) the lump. Optional and defaulted to zero: most people start with a
+   * balance and add a stream later.
+   */
+  monthlyContribution: Money;
   /** Months of expenses held back before anything counts as surplus. */
   reserveMonths: number;
   /** Expected pre-tax annual market return. */

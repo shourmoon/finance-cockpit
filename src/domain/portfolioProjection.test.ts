@@ -318,6 +318,17 @@ describe("solveBreakEvenReturn", () => {
   it("has no answer when there is nothing to allocate", () => {
     expect(solveBreakEvenReturn({ ...base, surplus: 0 })).toBeNull();
     expect(solveBreakEvenReturn({ ...base, horizonYears: 0 })).toBeNull();
+    // A non-numeric amount is "nothing", not "some unknown quantity".
+    expect(
+      solveBreakEvenReturn({ ...base, surplus: Number.NaN })
+    ).toBeNull();
+    expect(
+      solveBreakEvenReturn({
+        ...base,
+        surplus: Number.NaN,
+        monthlyContribution: Number.NaN,
+      })
+    ).toBeNull();
   });
 
   it("has no answer when the market can never catch up", () => {
@@ -335,5 +346,103 @@ describe("solveBreakEvenReturn", () => {
       prepayments: [{ date: "2026-07-01", amount: 700_000 }],
     });
     expect(paidOff).toBeNull();
+  });
+});
+
+describe("recurring contributions", () => {
+  // The surplus is not always a lump. A household that can put $2,000 a month
+  // toward either destination faces the same question, and the comparison has
+  // to stay fair: the same monthly amount goes somewhere in every path.
+  const recurring = { ...base, surplus: 0, monthlyContribution: 2_000 };
+
+  it("shortens the loan when the recurring money goes to the mortgage", () => {
+    const r = compareSurplusAllocations({ ...recurring, splits: [0, 1] });
+    expect(r.outcomes[1].monthsShaved).toBeGreaterThan(0);
+    expect(r.outcomes[1].payoffDate < r.outcomes[0].payoffDate).toBe(true);
+  });
+
+  it("splits the monthly amount the same way as the lump", () => {
+    const r = compareSurplusAllocations({ ...recurring, splits: [0, 0.5, 1] });
+    expect(r.outcomes.map((o) => o.monthlyToPrepayment)).toEqual([0, 1_000, 2_000]);
+    expect(r.outcomes.map((o) => o.monthlyToMarket)).toEqual([2_000, 1_000, 0]);
+  });
+
+  it("invests the market share every month rather than dropping it", () => {
+    // The all-market path must accumulate the recurring money too, or the
+    // mortgage side would win by default.
+    const r = compareSurplusAllocations({ ...recurring, splits: [0], horizonYears: 10 });
+    // 10 years x 12 x $2,000 of contributions, plus freed payments.
+    expect(r.outcomes[0].contributions).toBeGreaterThan(200_000);
+  });
+
+  it("handles a lump and a recurring stream together", () => {
+    const both = {
+      ...base,
+      surplus: 72_000,
+      monthlyContribution: 2_000,
+      splits: [0, 1],
+    };
+    const r = compareSurplusAllocations(both);
+    const lumpOnly = compareSurplusAllocations({ ...both, monthlyContribution: 0 });
+    // Adding a recurring stream on top of the lump shaves strictly more.
+    expect(r.outcomes[1].monthsShaved).toBeGreaterThan(
+      lumpOnly.outcomes[1].monthsShaved
+    );
+  });
+
+  it("never lets the market win at a zero return", () => {
+    // The sharpest available sanity check on cashflow equalisation. At a 0%
+    // market return, cash put in the market just sits there while the same
+    // cash put on the mortgage avoids 4.75% interest, so prepaying MUST win.
+    // It didn't, until the recurring stream was made investable at payoff:
+    // in the all-to-mortgage path the monthly extra principal has nothing
+    // left to pay down once the loan is retired, and was being dropped.
+    for (const input of [
+      { ...recurring, splits: [0, 1] },
+      { ...base, surplus: 72_000, monthlyContribution: 2_000, splits: [0, 1] },
+      { ...base, monthlyContribution: 0, splits: [0, 1] },
+    ]) {
+      const r = compareSurplusAllocations({ ...input, annualReturn: 0 });
+      expect(r.outcomes[1].netWorthAtHorizon).toBeGreaterThan(
+        r.outcomes[0].netWorthAtHorizon
+      );
+      expect(r.marketFavoured).toBe(false);
+    }
+  });
+
+  it("keeps the same total going out of the household in every split", () => {
+    // Cashflow equalisation, stated directly: before payoff each path spends
+    // the mortgage payment plus the whole recurring amount, wherever it goes.
+    const r = compareSurplusAllocations({ ...recurring, splits: [0, 0.5, 1] });
+    for (const o of r.outcomes) {
+      expect(o.monthlyToPrepayment + o.monthlyToMarket).toBeCloseTo(2_000, 6);
+    }
+  });
+
+  it("still finds a break-even with only recurring money", () => {
+    const be = solveBreakEvenReturn(recurring);
+    expect(be).not.toBeNull();
+    expect(be!).toBeGreaterThan(0.03);
+    expect(be!).toBeLessThan(0.09);
+  });
+
+  it("treats an unusable monthly amount as none", () => {
+    for (const monthlyContribution of [Number.NaN, -500, undefined]) {
+      const r = compareSurplusAllocations({
+        ...base,
+        monthlyContribution,
+        splits: [0, 1],
+      });
+      for (const o of r.outcomes) {
+        expect(Number.isFinite(o.netWorthAtHorizon)).toBe(true);
+        expect(o.monthlyToPrepayment).toBe(0);
+      }
+    }
+  });
+
+  it("has no break-even when there is neither a lump nor a stream", () => {
+    expect(
+      solveBreakEvenReturn({ ...base, surplus: 0, monthlyContribution: 0 })
+    ).toBeNull();
   });
 });

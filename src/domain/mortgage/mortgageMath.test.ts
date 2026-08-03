@@ -582,3 +582,131 @@ describe("decomposeMortgageSavings", () => {
     expect(d.total.monthsSaved).toBeCloseTo(gap, 3);
   });
 });
+
+describe("decomposeMortgageSavings with a future plan", () => {
+  // Four things can shorten this loan and the user wants each credited on
+  // its own line: the biweekly cadence, the prepayments already made, a
+  // future lump sum, and a future recurring contribution.
+  const contract: MortgageOriginalTerms = {
+    principal: 680_000,
+    annualRate: 0.0475,
+    termMonths: 360,
+    startDate: "2023-06-01",
+    paymentFrequency: "biweekly",
+  };
+  const prepayments = [{ date: "2025-01-01", amount: 150_000 }];
+  const asOfDate = "2026-08-01";
+
+  it("adds a leg for a future lump sum", () => {
+    const d = decomposeMortgageSavings(contract, prepayments, {
+      asOfDate,
+      lumpSum: 72_000,
+      monthly: 0,
+    });
+    expect(d.fromFutureLump.monthsSaved).toBeGreaterThan(0);
+    expect(d.fromFutureLump.interestSaved).toBeGreaterThan(0);
+    expect(d.fromFutureRecurring.monthsSaved).toBe(0);
+    expect(d.projected.payoffDate < d.actual.payoffDate).toBe(true);
+  });
+
+  it("adds a leg for a future recurring contribution", () => {
+    const d = decomposeMortgageSavings(contract, prepayments, {
+      asOfDate,
+      lumpSum: 0,
+      monthly: 2_000,
+    });
+    expect(d.fromFutureRecurring.monthsSaved).toBeGreaterThan(0);
+    expect(d.fromFutureRecurring.interestSaved).toBeGreaterThan(0);
+    expect(d.fromFutureLump.monthsSaved).toBe(0);
+  });
+
+  it("credits lump and recurring separately when both are used", () => {
+    const d = decomposeMortgageSavings(contract, prepayments, {
+      asOfDate,
+      lumpSum: 72_000,
+      monthly: 2_000,
+    });
+    expect(d.fromFutureLump.monthsSaved).toBeGreaterThan(0);
+    expect(d.fromFutureRecurring.monthsSaved).toBeGreaterThan(0);
+    // The two are distinct contributions, not the same number twice.
+    expect(d.fromFutureLump.interestSaved).not.toBeCloseTo(
+      d.fromFutureRecurring.interestSaved,
+      0
+    );
+  });
+
+  it("keeps every leg summing to the whole", () => {
+    // The waterfall must reconcile or the card is telling four small lies
+    // that happen to look plausible.
+    const d = decomposeMortgageSavings(contract, prepayments, {
+      asOfDate,
+      lumpSum: 72_000,
+      monthly: 2_000,
+    });
+    const legs = [
+      d.fromCadence,
+      d.fromPrepayments,
+      d.fromFutureLump,
+      d.fromFutureRecurring,
+    ];
+    expect(legs.reduce((s, l) => s + l.monthsSaved, 0)).toBeCloseTo(
+      d.total.monthsSaved,
+      6
+    );
+    expect(legs.reduce((s, l) => s + l.interestSaved, 0)).toBeCloseTo(
+      d.total.interestSaved,
+      6
+    );
+  });
+
+  it("measures the total against the contract, not against today", () => {
+    const d = decomposeMortgageSavings(contract, prepayments, {
+      asOfDate,
+      lumpSum: 72_000,
+      monthly: 2_000,
+    });
+    const gap =
+      (Date.parse(d.contract.payoffDate + "T00:00:00Z") -
+        Date.parse(d.projected.payoffDate + "T00:00:00Z")) /
+      (86_400_000 * 30.4375);
+    expect(d.total.monthsSaved).toBeCloseTo(gap, 3);
+  });
+
+  it("behaves exactly as before when no plan is supplied", () => {
+    // The two-argument form is still the "where things stand today" view.
+    const withoutPlan = decomposeMortgageSavings(contract, prepayments);
+    expect(withoutPlan.fromFutureLump.monthsSaved).toBe(0);
+    expect(withoutPlan.fromFutureRecurring.monthsSaved).toBe(0);
+    expect(withoutPlan.projected.payoffDate).toBe(withoutPlan.actual.payoffDate);
+    expect(withoutPlan.total.monthsSaved).toBeCloseTo(
+      withoutPlan.fromCadence.monthsSaved + withoutPlan.fromPrepayments.monthsSaved,
+      6
+    );
+  });
+
+  it("ignores a plan whose amounts are zero or unusable", () => {
+    for (const plan of [
+      { asOfDate, lumpSum: 0, monthly: 0 },
+      { asOfDate, lumpSum: Number.NaN, monthly: Number.NaN },
+      { asOfDate, lumpSum: -5_000, monthly: -100 },
+    ]) {
+      const d = decomposeMortgageSavings(contract, prepayments, plan);
+      expect(d.fromFutureLump.monthsSaved).toBe(0);
+      expect(d.fromFutureRecurring.monthsSaved).toBe(0);
+      expect(d.projected.payoffDate).toBe(d.actual.payoffDate);
+    }
+  });
+
+  it("stops recurring contributions at the payoff rather than overpaying", () => {
+    // A large monthly contribution retires the loan early; the schedule must
+    // still repay exactly the principal borrowed, never more.
+    const d = decomposeMortgageSavings(contract, prepayments, {
+      asOfDate,
+      lumpSum: 0,
+      monthly: 20_000,
+    });
+    expect(d.projected.payoffDate < d.actual.payoffDate).toBe(true);
+    expect(d.projected.totalInterest).toBeGreaterThan(0);
+    expect(d.projected.totalInterest).toBeLessThan(d.actual.totalInterest);
+  });
+});

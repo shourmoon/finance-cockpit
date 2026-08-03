@@ -9,6 +9,7 @@ import type {
   ISODate,
 } from "./types";
 import {
+  addMonths,
   computeBaselineMortgage,
   computeMonthlyPayment,
   computePeriodPayment,
@@ -53,10 +54,48 @@ function monthsBetween(from: ISODate, to: ISODate): number {
   return ms / (86_400_000 * DAYS_PER_MONTH);
 }
 
+/** A plan amount is only real if it is a positive, finite number. */
+function usableAmount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : 0;
+}
+
+/**
+ * One extra payment a month from `from`, enough of them to outlast any
+ * schedule. Entries falling after payoff are simply never applied — the
+ * amortization loop stops once the balance is cleared — so over-generating
+ * is safe and avoids having to know the payoff date in advance.
+ */
+function monthlyContributions(
+  from: ISODate,
+  amount: Money,
+  termMonths: number
+): PastPrepaymentLog {
+  const out: PastPrepaymentLog = [];
+  for (let i = 0; i < termMonths; i++) {
+    out.push({ date: addMonths(from, i), amount });
+  }
+  return out;
+}
+
 /** One leg of the decomposition. */
 export interface SavingsLeg {
   monthsSaved: number;
   interestSaved: Money;
+}
+
+/**
+ * Money the household is considering putting toward the loan from `asOfDate`
+ * onward, as opposed to prepayments already made.
+ */
+export interface FuturePrepaymentPlan {
+  /** The date from which the plan starts. */
+  asOfDate: ISODate;
+  /** A single extra payment made at asOfDate. */
+  lumpSum: Money;
+  /** Extra principal every month from asOfDate until the loan is retired. */
+  monthly: Money;
 }
 
 export interface MortgageSavingsBreakdown {
@@ -71,7 +110,13 @@ export interface MortgageSavingsBreakdown {
   fromCadence: SavingsLeg;
   /** Bought by the recorded prepayments. */
   fromPrepayments: SavingsLeg;
-  /** Both legs together, against the original contract. */
+  /** Bought by a planned future lump sum. Zero without a plan. */
+  fromFutureLump: SavingsLeg;
+  /** Bought by planned future monthly contributions. Zero without a plan. */
+  fromFutureRecurring: SavingsLeg;
+  /** Where the loan lands once the whole plan is applied. */
+  projected: { payoffDate: ISODate; totalInterest: Money };
+  /** Every leg together, against the original contract. */
   total: SavingsLeg;
 
   /**
@@ -82,7 +127,9 @@ export interface MortgageSavingsBreakdown {
 }
 
 /**
- * Separate the three things that shortened a mortgage.
+ * Separate everything that shortened — or would shorten — a mortgage, into
+ * legs that reconcile: the payment cadence, the prepayments already made,
+ * and optionally a planned future lump sum and monthly contribution.
  *
  * The loan document says thirty years of MONTHLY payments; that is the only
  * honest baseline. Paying biweekly is itself an acceleration — 26 half
@@ -100,10 +147,14 @@ export interface MortgageSavingsBreakdown {
  * difference of schedule lengths: the contract steps monthly and the actual
  * schedule may step every 14 days, so their lengths are not comparable
  * quantities at all.
+ *
+ * Called with two arguments this is the "where things stand today" view and
+ * the two future legs are zero. Pass a plan to project forward.
  */
 export function decomposeMortgageSavings(
   terms: MortgageOriginalTerms,
-  prepayments: PastPrepaymentLog
+  prepayments: PastPrepaymentLog,
+  plan?: FuturePrepaymentPlan
 ): MortgageSavingsBreakdown {
   // The contract is monthly by definition, whatever cadence is being paid.
   const contract = computeBaselineMortgage({
@@ -121,6 +172,39 @@ export function decomposeMortgageSavings(
   const fromPrepayments: SavingsLeg = {
     monthsSaved: monthsBetween(actual.payoffDate, cadence.payoffDate),
     interestSaved: cadence.totalInterest - actual.totalInterest,
+  };
+
+  // Layer the plan on one piece at a time so each gets its own leg. The order
+  // — lump first, then recurring — is a presentational choice: the two are
+  // simultaneous in reality, so the split between them is an attribution
+  // convention, not a fact. What matters is that the legs reconcile.
+  const lump = usableAmount(plan?.lumpSum);
+  const monthly = usableAmount(plan?.monthly);
+
+  const withLump =
+    plan && lump > 0
+      ? computeMortgageWithPrepayments(terms, [
+          ...prepayments,
+          { date: plan.asOfDate, amount: lump },
+        ])
+      : actual;
+
+  const withAll =
+    plan && monthly > 0
+      ? computeMortgageWithPrepayments(terms, [
+          ...prepayments,
+          ...(lump > 0 ? [{ date: plan.asOfDate, amount: lump }] : []),
+          ...monthlyContributions(plan.asOfDate, monthly, terms.termMonths),
+        ])
+      : withLump;
+
+  const fromFutureLump: SavingsLeg = {
+    monthsSaved: monthsBetween(withLump.payoffDate, actual.payoffDate),
+    interestSaved: actual.totalInterest - withLump.totalInterest,
+  };
+  const fromFutureRecurring: SavingsLeg = {
+    monthsSaved: monthsBetween(withAll.payoffDate, withLump.payoffDate),
+    interestSaved: withLump.totalInterest - withAll.totalInterest,
   };
 
   // Paid per year on the real cadence, less twelve monthly payments.
@@ -143,9 +227,15 @@ export function decomposeMortgageSavings(
     },
     fromCadence,
     fromPrepayments,
+    fromFutureLump,
+    fromFutureRecurring,
+    projected: {
+      payoffDate: withAll.payoffDate,
+      totalInterest: withAll.totalInterest,
+    },
     total: {
-      monthsSaved: monthsBetween(actual.payoffDate, contract.payoffDate),
-      interestSaved: contract.totalInterest - actual.totalInterest,
+      monthsSaved: monthsBetween(withAll.payoffDate, contract.payoffDate),
+      interestSaved: contract.totalInterest - withAll.totalInterest,
     },
     cadenceExtraPerYear: perYearOnCadence - perYearMonthly,
   };

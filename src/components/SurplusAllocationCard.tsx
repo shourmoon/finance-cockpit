@@ -127,6 +127,31 @@ const styles = {
     color: colors.faint,
     marginTop: 2,
   },
+  legRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 8,
+    fontSize: 12,
+    color: colors.textSoft,
+    padding: "4px 0",
+  },
+  legTotal: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 8,
+    fontSize: 13,
+    fontWeight: 600,
+    color: colors.title,
+    borderTop: `1px solid ${colors.hairline}`,
+    marginTop: 4,
+    paddingTop: 6,
+  },
+  legValue: {
+    color: colors.positive,
+    whiteSpace: "nowrap",
+  },
   verdict: {
     marginTop: 12,
     fontSize: 13,
@@ -221,12 +246,28 @@ export default function SurplusAllocationCard({
     [surplus.parkedCash, surplus.reserveMonths, monthlyExpenses]
   );
 
+  const free = breakdown.surplus;
+  const monthly = surplus.monthlyContribution > 0 ? surplus.monthlyContribution : 0;
+
+  // Where things stand today: no future plan, so the two forward legs are
+  // zero and `total` is what has already been achieved.
   const ahead = useMemo(
     () => decomposeMortgageSavings(terms, prepayments),
     [terms, prepayments]
   );
 
-  const free = breakdown.surplus;
+  // The same waterfall with the whole surplus committed to the mortgage —
+  // the upper bound on what the future money could buy, which is what the
+  // attribution rows are showing.
+  const projected = useMemo(
+    () =>
+      decomposeMortgageSavings(terms, prepayments, {
+        asOfDate,
+        lumpSum: free,
+        monthly,
+      }),
+    [terms, prepayments, asOfDate, free, monthly]
+  );
 
   const comparison = useMemo(
     () =>
@@ -235,12 +276,13 @@ export default function SurplusAllocationCard({
         prepayments,
         asOfDate,
         surplus: free,
+        monthlyContribution: monthly,
         annualReturn: surplus.expectedReturn,
         capitalGainsRate: surplus.capitalGainsRate,
         horizonYears: surplus.horizonYears,
         splits: SPLITS,
       }),
-    [terms, prepayments, asOfDate, free, surplus]
+    [terms, prepayments, asOfDate, free, monthly, surplus]
   );
 
   const breakEven = useMemo(
@@ -250,10 +292,11 @@ export default function SurplusAllocationCard({
         prepayments,
         asOfDate,
         surplus: free,
+        monthlyContribution: monthly,
         capitalGainsRate: surplus.capitalGainsRate,
         horizonYears: surplus.horizonYears,
       }),
-    [terms, prepayments, asOfDate, free, surplus]
+    [terms, prepayments, asOfDate, free, monthly, surplus]
   );
 
   const set = (patch: Partial<SurplusSettings>) =>
@@ -290,6 +333,17 @@ export default function SurplusAllocationCard({
             label="Reserve months"
             value={surplus.reserveMonths}
             onChange={(v) => set({ reserveMonths: v ?? surplus.reserveMonths })}
+          />
+        </div>
+      </div>
+
+      <div style={styles.fieldRow}>
+        <div style={{ ...styles.field, flex: 1 }}>
+          <NumberField
+            label="Plus per month"
+            value={surplus.monthlyContribution || undefined}
+            onChange={(v) => set({ monthlyContribution: v ?? 0 })}
+            placeholder="e.g. 2,000"
           />
         </div>
       </div>
@@ -347,10 +401,19 @@ export default function SurplusAllocationCard({
                 >
                   <div style={styles.splitName}>
                     {SPLIT_LABELS[i]}
-                    {o.toPrepayment > 0 && (
+                    {(o.toPrepayment > 0 || o.monthlyToPrepayment > 0) && (
                       <span style={{ color: colors.faint, fontWeight: 400 }}>
                         {" "}
-                        · {money(o.toPrepayment)} to the mortgage
+                        ·{" "}
+                        {[
+                          o.toPrepayment > 0 ? money(o.toPrepayment) : null,
+                          o.monthlyToPrepayment > 0
+                            ? `${money(o.monthlyToPrepayment)}/mo`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" + ")}{" "}
+                        to the mortgage
                       </span>
                     )}
                   </div>
@@ -403,10 +466,65 @@ export default function SurplusAllocationCard({
                 )}
               </div>
 
-              <div style={{ ...styles.note, marginTop: 8 }}>
-                Measured {surplus.horizonYears} years out, after{" "}
-                {percent(surplus.capitalGainsRate)} capital gains tax, with the
-                freed mortgage payment reinvested in every case.
+              <div style={{ ...ui.miniLabel, marginTop: 16, marginBottom: 2 }}>
+                Where the time comes from
+              </div>
+              <div style={styles.note}>
+                If every dollar went to the mortgage, each cause would be worth:
+              </div>
+              <div data-testid="attribution" style={{ marginTop: 6 }}>
+                {terms.paymentFrequency === "biweekly" && (
+                  <div style={styles.legRow} data-testid="leg-cadence">
+                    <span>Paying biweekly</span>
+                    <span style={styles.legValue}>
+                      {yearsMonths(projected.fromCadence.monthsSaved)} ·{" "}
+                      {money(projected.fromCadence.interestSaved)}
+                    </span>
+                  </div>
+                )}
+                <div style={styles.legRow} data-testid="leg-prepayments">
+                  <span>Prepayments already made</span>
+                  <span style={styles.legValue}>
+                    {yearsMonths(projected.fromPrepayments.monthsSaved)} ·{" "}
+                    {money(projected.fromPrepayments.interestSaved)}
+                  </span>
+                </div>
+                {free > 0 && (
+                  <div style={styles.legRow} data-testid="leg-futureLump">
+                    <span>This lump ({money(free)})</span>
+                    <span style={styles.legValue}>
+                      {yearsMonths(projected.fromFutureLump.monthsSaved)} ·{" "}
+                      {money(projected.fromFutureLump.interestSaved)}
+                    </span>
+                  </div>
+                )}
+                {monthly > 0 && (
+                  <div style={styles.legRow} data-testid="leg-futureRecurring">
+                    <span>{money(monthly)} a month</span>
+                    <span style={styles.legValue}>
+                      {yearsMonths(projected.fromFutureRecurring.monthsSaved)} ·{" "}
+                      {money(projected.fromFutureRecurring.interestSaved)}
+                    </span>
+                  </div>
+                )}
+                <div style={styles.legTotal} data-testid="leg-total">
+                  <span>
+                    Debt-free {formatDate(projected.projected.payoffDate)}
+                  </span>
+                  <span style={styles.legValue}>
+                    {yearsMonths(projected.total.monthsSaved)} ·{" "}
+                    {money(projected.total.interestSaved)}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ ...styles.note, marginTop: 10 }}>
+                Time saved is measured against your original{" "}
+                {Math.round(terms.termMonths / 12)}-year monthly contract, and
+                the legs are stacked in that order, so they add up to the total.
+                Wealth is measured {surplus.horizonYears} years out, after{" "}
+                {percent(surplus.capitalGainsRate)} capital gains tax, with
+                everything freed at payoff reinvested in every case.
               </div>
             </>
           )}

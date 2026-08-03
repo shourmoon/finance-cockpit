@@ -21,6 +21,7 @@ import type {
   AmortizationEntry,
 } from "./mortgage/types";
 import { computeMortgageWithPrepayments } from "./mortgage/history";
+import { addMonths } from "./mortgage/baseline";
 import {
   computePeriodPayment,
   periodsPerYear,
@@ -36,8 +37,14 @@ export interface AllocationInput {
   prepayments: PastPrepaymentLog;
   /** "Now": the date the new money would be deployed. */
   asOfDate: ISODate;
-  /** Cash free to allocate, from computeSurplus(). */
+  /** Cash free to allocate right now, from computeSurplus(). */
   surplus: Money;
+  /**
+   * Ongoing money the household can direct each month from asOfDate onward,
+   * split between the two destinations on the same fraction as the lump.
+   * Optional; absent or unusable means none.
+   */
+  monthlyContribution?: Money;
   /** Expected pre-tax annual market return, e.g. 0.07. */
   annualReturn: number;
   /** Combined marginal rate on long-term capital gains. */
@@ -52,6 +59,10 @@ export interface AllocationOutcome {
   fractionToPrepayment: number;
   toPrepayment: Money;
   toMarket: Money;
+  /** Of the monthly contribution, what goes to extra principal. */
+  monthlyToPrepayment: Money;
+  /** Of the monthly contribution, what is invested. */
+  monthlyToMarket: Money;
   /** When the mortgage is retired under this split. */
   payoffDate: ISODate;
   /** Months earlier than the all-market path. Zero for the reference. */
@@ -83,6 +94,23 @@ export interface AllocationComparison {
   outcomes: AllocationOutcome[];
   /** True when the all-market path ends up worth the most. */
   marketFavoured: boolean;
+}
+
+/**
+ * One extra payment a month from `from`. Generated out to the full term so
+ * the stream always outlasts the schedule; entries falling after payoff are
+ * simply never applied by the amortization loop.
+ */
+function monthlyPrepayments(
+  from: ISODate,
+  amount: Money,
+  termMonths: number
+): { date: ISODate; amount: Money }[] {
+  const out: { date: ISODate; amount: Money }[] = [];
+  for (let i = 0; i < termMonths; i++) {
+    out.push({ date: addMonths(from, i), amount });
+  }
+  return out;
 }
 
 /** Clamp to a usable number, falling back to `fallback`. */
@@ -137,7 +165,9 @@ function simulatePath(
   horizonPeriods: number,
   asOfDate: ISODate,
   capitalGainsRate: number,
-  periodReturn: number
+  periodReturn: number,
+  monthlyToMarket: Money,
+  monthlyToPrepayment: Money
 ): PathResult {
   let value = initialInvestment;
   let basis = initialInvestment;
@@ -147,8 +177,16 @@ function simulatePath(
   // Only the part of the schedule still ahead of us is relevant.
   const future = schedule.filter((e) => e.date > asOfDate);
 
+  // Recurring money is quoted per month but the walk steps in payment
+  // periods, so spread each stream across the periods in a year.
+  const perPeriodToMarket = (monthlyToMarket * 12) / perYear;
+  const perPeriodToPrepayment = (monthlyToPrepayment * 12) / perYear;
+
   for (let i = 0; i < horizonPeriods; i++) {
     value *= 1 + periodReturn;
+
+    let contribution = perPeriodToMarket;
+
     // The loan is gone once we run past the end of its remaining schedule.
     const stillPaying = i < future.length;
     if (!stillPaying) {
@@ -156,8 +194,17 @@ function simulatePath(
         periodsToPayoff = i;
         sawPayoff = true;
       }
-      value += periodPayment;
-      basis += periodPayment;
+      // Everything that was going to the servicer is now investable: the
+      // scheduled payment AND the recurring extra principal, which has
+      // nothing left to pay down. Dropping the latter would understate the
+      // prepay path badly — enough to make the market "win" at a 0% return,
+      // which is how this was caught.
+      contribution += periodPayment + perPeriodToPrepayment;
+    }
+
+    if (contribution > 0) {
+      value += contribution;
+      basis += contribution;
     }
   }
 
@@ -202,6 +249,7 @@ export function compareSurplusAllocations(
   const horizonPeriods = Math.max(0, Math.round(horizonYears * perYear));
   const capitalGainsRate = Math.min(1, Math.max(0, num(input.capitalGainsRate, 0)));
   const annualReturn = Math.max(-0.999, num(input.annualReturn, 0));
+  const monthlyContribution = Math.max(0, num(input.monthlyContribution, 0));
   const periodReturn = Math.pow(1 + annualReturn, 1 / perYear) - 1;
   const asOfDate = input.asOfDate;
 
@@ -223,10 +271,21 @@ export function compareSurplusAllocations(
     const toPrepayment = Math.min(requestedPrepay, owedNow);
     const toMarket = surplus - toPrepayment;
 
-    const prepayments =
-      toPrepayment > 0
-        ? [...input.prepayments, { date: asOfDate, amount: toPrepayment }]
-        : input.prepayments;
+    const monthlyToPrepayment = monthlyContribution * fraction;
+    const monthlyToMarket = monthlyContribution - monthlyToPrepayment;
+
+    // Recurring extra principal is expressed as one prepayment a month.
+    // Entries past payoff are never applied, so over-generating is safe.
+    const recurring =
+      monthlyToPrepayment > 0
+        ? monthlyPrepayments(asOfDate, monthlyToPrepayment, input.terms.termMonths)
+        : [];
+
+    const prepayments = [
+      ...input.prepayments,
+      ...(toPrepayment > 0 ? [{ date: asOfDate, amount: toPrepayment }] : []),
+      ...recurring,
+    ];
 
     const { schedule, payoffDate, totalInterest } = computeMortgageWithPrepayments(
       input.terms,
@@ -237,6 +296,8 @@ export function compareSurplusAllocations(
       fraction,
       toPrepayment,
       toMarket,
+      monthlyToPrepayment,
+      monthlyToMarket,
       path: simulatePath(
         schedule,
         payoffDate,
@@ -247,7 +308,9 @@ export function compareSurplusAllocations(
         horizonPeriods,
         asOfDate,
         capitalGainsRate,
-        periodReturn
+        periodReturn,
+        monthlyToMarket,
+        monthlyToPrepayment
       ),
     };
   };
@@ -272,6 +335,8 @@ export function compareSurplusAllocations(
       fractionToPrepayment: r.fraction,
       toPrepayment: r.toPrepayment,
       toMarket: r.toMarket,
+      monthlyToPrepayment: r.monthlyToPrepayment,
+      monthlyToMarket: r.monthlyToMarket,
       payoffDate: r.path.payoffDate,
       monthsShaved,
       interestSaved: referenceRun.path.totalInterest - r.path.totalInterest,
@@ -338,7 +403,12 @@ const MAX_SEARCH_RETURN = 0.5;
 export function solveBreakEvenReturn(
   input: Omit<AllocationInput, "annualReturn" | "splits">
 ): number | null {
-  if (!Number.isFinite(input.surplus) || input.surplus <= 0) return null;
+  const lump = Number.isFinite(input.surplus) ? input.surplus : 0;
+  const stream = Number.isFinite(input.monthlyContribution)
+    ? (input.monthlyContribution as number)
+    : 0;
+  // Nothing to allocate either way means there is no question to answer.
+  if (lump <= 0 && stream <= 0) return null;
   if (!Number.isFinite(input.horizonYears) || input.horizonYears <= 0) {
     return null;
   }

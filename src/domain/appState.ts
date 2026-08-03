@@ -61,6 +61,14 @@ function sanitizeSurplusNumber(
 /** Field-by-field validation of an untrusted `settings.surplus`. */
 export function sanitizeSurplusSettings(raw: any): SurplusSettings {
   const surplus: SurplusSettings = {
+    // Zero is the sensible default and a legitimate value, so this one is
+    // clamped up from bad input rather than replaced by a non-zero default.
+    monthlyContribution:
+      typeof raw?.monthlyContribution === "number" &&
+      Number.isFinite(raw.monthlyContribution) &&
+      raw.monthlyContribution > 0
+        ? raw.monthlyContribution
+        : 0,
     reserveMonths: sanitizeSurplusNumber(raw?.reserveMonths, DEFAULT_RESERVE_MONTHS, 120),
     expectedReturn: sanitizeSurplusNumber(raw?.expectedReturn, DEFAULT_EXPECTED_RETURN, 1),
     capitalGainsRate: sanitizeSurplusNumber(

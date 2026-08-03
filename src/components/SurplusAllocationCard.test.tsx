@@ -39,6 +39,7 @@ const rules: RecurringRule[] = [
 
 const surplus: SurplusSettings = {
   parkedCash: 120_000,
+  monthlyContribution: 0,
   reserveMonths: 6,
   expectedReturn: 0.07,
   capitalGainsRate: 0.2517,
@@ -163,6 +164,49 @@ describe("SurplusAllocationCard", () => {
   it("stays quiet once the mortgage is paid off", () => {
     setup({}, { prepayments: [{ date: "2026-07-01", amount: 700_000 }] });
     expect(screen.getByText(/mortgage is already paid off/i)).toBeInTheDocument();
+  });
+
+  it("takes a recurring contribution alongside the lump", () => {
+    const { onSurplusChange } = setup();
+    fireEvent.change(screen.getByLabelText(/per month/i), {
+      target: { value: "2000" },
+    });
+    expect(onSurplusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ monthlyContribution: 2_000 })
+    );
+  });
+
+  it("shaves more with a recurring stream than with the lump alone", () => {
+    setup({ monthlyContribution: 2_000 });
+    const withStream = screen.getByTestId("split-row-2");
+    expect(within(withStream).getByTestId("months-sooner")).toHaveTextContent(
+      /sooner/
+    );
+    // The row names both destinations so it is clear what is being committed.
+    expect(withStream).toHaveTextContent(/month/i);
+  });
+
+  it("attributes months and interest to each cause separately", () => {
+    setup({ monthlyContribution: 2_000 });
+    const legs = screen.getByTestId("attribution");
+    // The four causes are named and credited apart from one another.
+    expect(within(legs).getByTestId("leg-cadence")).toHaveTextContent(/biweekly/i);
+    expect(within(legs).getByTestId("leg-prepayments")).toBeInTheDocument();
+    expect(within(legs).getByTestId("leg-futureLump")).toBeInTheDocument();
+    expect(within(legs).getByTestId("leg-futureRecurring")).toBeInTheDocument();
+    expect(within(legs).getByTestId("leg-total")).toBeInTheDocument();
+  });
+
+  it("hides the future legs until there is a future plan", () => {
+    // Rows reading "— · —" would be noise before anything is committed.
+    setup({ monthlyContribution: 0, parkedCash: 20_000 });
+    expect(screen.queryByTestId("leg-futureLump")).not.toBeInTheDocument();
+  });
+
+  it("omits the cadence leg on a monthly loan", () => {
+    setup({}, { terms: { ...terms, paymentFrequency: "monthly" } });
+    expect(screen.queryByTestId("leg-cadence")).not.toBeInTheDocument();
+    expect(screen.getByTestId("leg-prepayments")).toBeInTheDocument();
   });
 
   it("uses the shared input chrome", () => {
