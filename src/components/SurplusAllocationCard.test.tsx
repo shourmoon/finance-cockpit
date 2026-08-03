@@ -81,6 +81,34 @@ describe("SurplusAllocationCard", () => {
     expect(screen.queryByText(/free to allocate/i)).not.toBeInTheDocument();
   });
 
+  it("still compares a monthly stream when the reserve is underfunded", () => {
+    // The reserve gates the PARKED CASH, which is what an emergency fund is
+    // made of. A monthly stream is future income and is not held back by it,
+    // so refusing to compare it was too broad a gate — and the attribution
+    // below then credited a plan the card had just said it would not act on.
+    setup({ parkedCash: 20_000, monthlyContribution: 2_000 });
+
+    expect(screen.getByText(/short of your safety net/i)).toBeInTheDocument();
+    // No lump is offered...
+    expect(screen.queryByTestId("leg-futureLump")).not.toBeInTheDocument();
+    // ...but the stream is still compared, and credited.
+    expect(screen.getByTestId("split-row-2")).toHaveTextContent(/\$2,000\/mo/);
+    expect(screen.getByTestId("leg-futureMonthly")).toBeInTheDocument();
+    expect(screen.getByTestId("verdict")).toBeInTheDocument();
+  });
+
+  it("credits nothing forward when the reserve is short and there is no stream", () => {
+    // Nothing is available, so the attribution must be history only — it must
+    // not quietly credit the parked cash the card is holding back.
+    setup({ parkedCash: 20_000, monthlyContribution: 0, yearlyContribution: 0 });
+    expect(screen.queryByTestId("leg-futureLump")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("leg-futureMonthly")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("split-row-2")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/what has shortened your loan so far/i)
+    ).toBeInTheDocument();
+  });
+
   it("shows the reserve it held back and what is left over", () => {
     setup();
     // 6 months x $8,000 of outflows = $48,000 held back, $72,000 free.
@@ -305,6 +333,38 @@ describe("SurplusAllocationCard", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not claim to commit streams an expired end date has cancelled", () => {
+    // With the end date already past, neither stream contributes anything —
+    // the legs correctly read "— · $0". But the split row still said
+    // "$2,000/mo + $15,000/yr to the mortgage", describing a commitment that
+    // does nothing. The row is what the reader agrees to; it has to be true.
+    setup({
+      monthlyContribution: 2_000,
+      yearlyContribution: 15_000,
+      contributionsUntil: "2020-01-01",
+    });
+
+    const row = screen.getByTestId("split-row-2");
+    expect(row).toHaveTextContent(/\$72,000/);
+    expect(row).not.toHaveTextContent(/\/mo/);
+    expect(row).not.toHaveTextContent(/\/yr/);
+
+    // And the reason is stated rather than left to be inferred.
+    expect(screen.getByText(/date has already passed/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("leg-futureMonthly")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("leg-futureYearly")).not.toBeInTheDocument();
+  });
+
+  it("keeps the streams alive for an end date still ahead", () => {
+    setup({
+      monthlyContribution: 2_000,
+      yearlyContribution: 15_000,
+      contributionsUntil: "2031-12-31",
+    });
+    expect(screen.getByTestId("split-row-2")).toHaveTextContent(/\$2,000\/mo/);
+    expect(screen.queryByText(/date has already passed/i)).not.toBeInTheDocument();
+  });
+
   it("credits a yearly bonus on its own line, naming the month", () => {
     setup({ monthlyContribution: 2_000, yearlyContribution: 15_000 });
     const legs = screen.getByTestId("attribution");
@@ -323,6 +383,16 @@ describe("SurplusAllocationCard", () => {
     expect(row).toHaveTextContent(/\$72,000/);
     expect(row).toHaveTextContent(/\$2,000\/mo/);
     expect(row).toHaveTextContent(/\$15,000\/yr/);
+  });
+
+  it("still names a month when the stored value is out of range", () => {
+    for (const yearlyMonth of [0, 13, -1, Number.NaN]) {
+      setup({ yearlyContribution: 15_000, yearlyMonth });
+      expect(screen.getByTestId("leg-futureYearly")).toHaveTextContent(
+        /each [A-Z][a-z]{2}/
+      );
+      cleanup();
+    }
   });
 
   it("persists a bonus, its month, and an end date", () => {

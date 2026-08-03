@@ -603,7 +603,11 @@ export default function MortgageTab({
                     />
                   </div>
                   <NumberInput
-                    inputStyle={{ ...ui.input, flex: "2 1 0", minWidth: 72, textAlign: "right", fontWeight: 600 }}
+                    // Wide enough for a seven-figure prepayment: at 72 a real
+                    // $150,000 was clipped to "15000" on a 360px phone, which
+                    // is the one number on this row that must never be
+                    // misread. The row wraps rather than squeezing it further.
+                    inputStyle={{ ...ui.input, flex: "2 1 0", minWidth: 104, textAlign: "right", fontWeight: 600 }}
                     ariaLabel="Prepayment amount"
                     placeholder="Amount"
                     value={row.amount}
@@ -816,6 +820,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: `1px dashed ${colors.cardBorder}`,
   },
   prepayTopRow: {
+    flexWrap: "wrap",
     display: "flex",
     alignItems: "flex-start",
     gap: 8,

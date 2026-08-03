@@ -167,6 +167,29 @@ describe("compareSurplusAllocations", () => {
     expect(o.portfolioAfterTax).toBeCloseTo(o.contributions, 4);
   });
 
+  it("compounds a lump for the whole horizon, not one period short", () => {
+    // The lump is money in hand on the as-of date, and the mortgage side
+    // applies it at the very next payment. Routing it through the period
+    // buckets quietly cost it one period of growth, because the walk grows
+    // the balance before adding that period's contributions.
+    for (const annualReturn of [0.07, 0.1]) {
+      const o = compareSurplusAllocations({
+        ...base,
+        surplus: 100_000,
+        monthlyContribution: 0,
+        annualReturn,
+        capitalGainsRate: 0,
+        // Well before payoff, so no freed payments enter the total.
+        horizonYears: 3,
+        splits: [0],
+      }).outcomes[0];
+      expect(o.portfolioAfterTax).toBeCloseTo(
+        100_000 * Math.pow(1 + annualReturn, 3),
+        2
+      );
+    }
+  });
+
   it("counts the freed mortgage payment as invested once the loan ends", () => {
     // With no surplus at all, a horizon past payoff must still accumulate
     // wealth, because the payment stops leaving the household.

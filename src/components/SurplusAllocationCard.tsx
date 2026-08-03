@@ -60,6 +60,15 @@ const MONTH_NAMES = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+/**
+ * Month name for a 1-12 value. Persisted state is already clamped to that
+ * range, but the card takes its settings as props and an out-of-range value
+ * would otherwise render "$15,000 each " with the month silently missing.
+ */
+function monthName(month: number): string {
+  return MONTH_NAMES[Math.min(12, Math.max(1, Math.round(month || 1))) - 1];
+}
+
 /** The splits offered, as fractions of the surplus sent to the mortgage. */
 const SPLITS = [0, 0.5, 1];
 const SPLIT_LABELS = ["All to market", "Half and half", "All to mortgage"];
@@ -157,6 +166,15 @@ const styles = {
   legValue: {
     color: colors.positive,
     whiteSpace: "nowrap",
+  },
+  warning: {
+    fontSize: 12,
+    lineHeight: 1.45,
+    color: colors.dangerText,
+    background: colors.dangerSurface,
+    border: `1px solid ${colors.dangerBorder}`,
+    borderRadius: 8,
+    padding: 9,
   },
   verdict: {
     marginTop: 12,
@@ -265,12 +283,34 @@ export default function SurplusAllocationCard({
   );
 
   const free = breakdown.surplus;
-  const monthly = surplus.monthlyContribution > 0 ? surplus.monthlyContribution : 0;
-  const yearly = surplus.yearlyContribution > 0 ? surplus.yearlyContribution : 0;
+
+  // An end date already in the past cancels both streams outright. Treat them
+  // as zero from here on rather than carrying amounts the plan will never
+  // spend: otherwise the split rows advertise a commitment ("$2,000/mo to the
+  // mortgage") that buys nothing, which is the row telling the reader they
+  // are agreeing to something untrue.
+  const streamsExpired =
+    surplus.contributionsUntil !== undefined &&
+    surplus.contributionsUntil < asOfDate;
+  const monthly =
+    !streamsExpired && surplus.monthlyContribution > 0
+      ? surplus.monthlyContribution
+      : 0;
+  const yearly =
+    !streamsExpired && surplus.yearlyContribution > 0
+      ? surplus.yearlyContribution
+      : 0;
   // Whether any new money is actually being committed. The first two legs are
   // history and are worth showing either way; the wording changes so the
   // section never implies a plan that does not exist.
-  const hasPlan = breakdown.surplus > 0 || surplus.monthlyContribution > 0 || surplus.yearlyContribution > 0;
+  //
+  // Note what the reserve does and does not gate. It holds back PARKED CASH,
+  // which is what an emergency fund is made of, so an underfunded reserve
+  // leaves `free` at zero. It does not touch the monthly or yearly streams:
+  // those are future income, not the balance being protected, and a household
+  // rebuilding its savings can still reasonably ask where its monthly surplus
+  // should go.
+  const hasPlan = free > 0 || monthly > 0 || yearly > 0;
 
   // Where things stand today: no future plan, so the two forward legs are
   // zero and `total` is what has already been achieved.
@@ -286,6 +326,8 @@ export default function SurplusAllocationCard({
     () =>
       decomposeMortgageSavings(terms, prepayments, {
         asOfDate,
+        // `free` is already zero when the reserve is short, so the lump leg
+        // never credits cash the card is holding back.
         lumpSum: free,
         monthly,
         yearly,
@@ -307,6 +349,7 @@ export default function SurplusAllocationCard({
         yearlyMonth: surplus.yearlyMonth,
         contributionsUntil: surplus.contributionsUntil,
         annualReturn: surplus.expectedReturn,
+
         capitalGainsRate: surplus.capitalGainsRate,
         horizonYears: surplus.horizonYears,
         splits: SPLITS,
@@ -457,6 +500,13 @@ export default function SurplusAllocationCard({
         </div>
       )}
 
+      {streamsExpired && (
+        <div style={{ ...styles.warning, marginTop: 8 }}>
+          That date has already passed, so nothing you put aside each month or
+          year is being counted. Clear it, or move it forward.
+        </div>
+      )}
+
       {!knowsBalance ? (
         <div style={{ ...styles.emptyState, marginTop: 10 }}>
           Tell me what's parked in savings and I'll work out how much of it is
@@ -468,30 +518,35 @@ export default function SurplusAllocationCard({
           I can't size your safety net without knowing your monthly outgoings —
           add your recurring expenses on the Config tab first.
         </div>
-      ) : breakdown.reserveShortfall > 0 ? (
-        <div style={{ ...styles.emptyState, marginTop: 10 }}>
-          You're {money(breakdown.reserveShortfall)} short of your safety net (
-          {surplus.reserveMonths} months of expenses ={" "}
-          {money(breakdown.reserveTarget)}). Nothing to allocate yet — fill that
-          first.
-        </div>
       ) : (
         <>
-          <div style={{ marginTop: 12 }}>
-            <div style={styles.summaryRow}>
-              <span>
-                Safety net ({surplus.reserveMonths} mo &times;{" "}
-                {money(monthlyExpenses)})
-              </span>
-              <span>{money(breakdown.reserveTarget)}</span>
+          {breakdown.reserveShortfall > 0 && (
+            <div style={{ ...styles.emptyState, marginTop: 10 }}>
+              You're {money(breakdown.reserveShortfall)} short of your safety
+              net ({surplus.reserveMonths} months of expenses ={" "}
+              {money(breakdown.reserveTarget)}), so none of the parked cash is
+              free yet — fill that first.
+              {(monthly > 0 || yearly > 0) &&
+                " What you put aside each month is separate, and is compared below."}
             </div>
-            <div style={styles.summaryRow}>
-              <span style={{ color: colors.text }}>Free to allocate</span>
-              <span style={styles.freeAmount}>{money(free)}</span>
+          )}
+          {breakdown.reserveShortfall === 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={styles.summaryRow}>
+                <span>
+                  Safety net ({surplus.reserveMonths} mo &times;{" "}
+                  {money(monthlyExpenses)})
+                </span>
+                <span>{money(breakdown.reserveTarget)}</span>
+              </div>
+              <div style={styles.summaryRow}>
+                <span style={{ color: colors.text }}>Free to allocate</span>
+                <span style={styles.freeAmount}>{money(free)}</span>
+              </div>
             </div>
-          </div>
+          )}
 
-          {paidOff ? (
+          {!hasPlan ? null : paidOff ? (
             <div style={{ ...styles.emptyState, marginTop: 10 }}>
               Your mortgage is already paid off — there's nothing left to
               prepay, so this is all a market decision now.
@@ -633,7 +688,7 @@ export default function SurplusAllocationCard({
         {yearly > 0 && (
           <div style={styles.legRow} data-testid="leg-futureYearly">
             <span>
-              {money(yearly)} each {MONTH_NAMES[surplus.yearlyMonth - 1]}
+              {money(yearly)} each {monthName(surplus.yearlyMonth)}
             </span>
             <span
               style={styles.legValue}

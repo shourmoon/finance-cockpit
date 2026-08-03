@@ -22,12 +22,15 @@ import type {
 } from "./mortgage/types";
 import { computeMortgageWithPrepayments } from "./mortgage/history";
 import { monthsBetween } from "./mortgage/comparison";
-import { addPeriods } from "./mortgage/baseline";
+import {
+  addPeriods,
+  computePeriodPayment,
+  periodsPerYear,
+} from "./mortgage/baseline";
 import {
   expandContributionPlan,
   type DatedContribution,
 } from "./contributionPlan";
-import { computePeriodPayment, periodsPerYear } from "./mortgage/baseline";
 
 /** Splits the card offers by default: none, a quarter, half, most, all. */
 export const DEFAULT_SPLITS = [0, 0.25, 0.5, 0.75, 1];
@@ -176,14 +179,19 @@ interface PathResult {
 /**
  * Walk one path from `asOfDate` to the horizon.
  *
- * Per period: if the loan is already retired, the payment that would have
- * gone to the servicer goes into the market instead. Contributions are
- * tracked separately from value so capital gains land on the gain alone.
- */
-/**
+ * Per period: if the loan is already retired, the payment that would have gone
+ * to the servicer goes into the market instead. Contributions are tracked
+ * separately from value so capital gains land on the gain alone.
+ *
  * `toMarketByPeriod` and `toPrepaymentByPeriod` are both exactly
- * `horizonPeriods` long and the walk is bounded by the same number, so they
- * are indexed directly rather than defensively.
+ * `horizonPeriods` long and the walk is bounded by the same number, so they are
+ * indexed directly rather than defensively.
+ *
+ * Contributions are added after the period's growth, so each is treated as
+ * arriving at the end of the period it falls in — at most 14 days later than
+ * its real date. That errs against the market, which is the side carrying the
+ * risk, so the bias is the conservative one. The lump is not subject to this:
+ * it arrives as `initialInvestment` and compounds from the start.
  */
 function simulatePath(
   schedule: AmortizationEntry[],
@@ -341,10 +349,15 @@ function prepareComparison(
         input.terms.termMonths
       );
 
-    // The lump is excluded here and passed separately: it is clamped to what
-    // is actually owed, which the plan expansion knows nothing about.
+    // Neither lump goes through the plan expansion. The mortgage-bound lump
+    // is clamped to what is actually owed, which the expansion knows nothing
+    // about; the market-bound lump is money in hand on the as-of date and is
+    // seeded into the portfolio before the walk starts, so it compounds for
+    // the whole horizon. Routing it through the buckets instead cost it a
+    // period of growth, because the walk grows the balance before adding
+    // that period's contributions.
     const toPrepaymentDated = planFor(0, monthlyToPrepayment, yearlyToPrepayment);
-    const toMarketDated = planFor(toMarket, monthlyToMarket, yearlyToMarket);
+    const toMarketDated = planFor(0, monthlyToMarket, yearlyToMarket);
 
     const prepayments = [
       ...input.prepayments,
@@ -409,7 +422,7 @@ function evaluateComparison(
       r.schedule,
       r.payoffDate,
       r.totalInterest,
-      0,
+      r.toMarket,
       ctx.perYear,
       ctx.periodPayment,
       ctx.horizonPeriods,
