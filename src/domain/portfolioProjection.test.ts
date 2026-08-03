@@ -25,6 +25,7 @@ import {
   solveBreakEvenReturn,
 } from "./portfolioProjection";
 import { computePrepaymentHurdleRate } from "./surplusAllocation";
+import { decomposeMortgageSavings } from "./mortgage/comparison";
 import type { MortgageOriginalTerms } from "./mortgage/types";
 
 /** Whole calendar months from `from` to `to`, fractional part included. */
@@ -177,6 +178,26 @@ describe("compareSurplusAllocations", () => {
     });
     expect(r.outcomes[0].portfolioAfterTax).toBeGreaterThan(0);
     expect(r.outcomes[0].contributions).toBeGreaterThan(0);
+  });
+
+  it("reports months sooner from the payoff dates, not clipped by the horizon", () => {
+    // A horizon shorter than either payoff must not silently report "no time
+    // saved". The card shows the payoff dates alongside this figure and an
+    // attribution breakdown that is never clipped, so a clipped value here
+    // would put two contradictory claims on the same screen.
+    for (const horizonYears of [1, 3, 5, 30]) {
+      const r = compareSurplusAllocations({
+        ...base,
+        monthlyContribution: 2_000,
+        horizonYears,
+        splits: [0, 1],
+      });
+      const o = r.outcomes[1];
+      const gap = monthsBetweenDates(o.payoffDate, r.reference.payoffDate);
+      expect(gap).toBeGreaterThan(1);
+      expect(o.monthsShaved).toBeGreaterThan(gap - 1.5);
+      expect(o.monthsShaved).toBeLessThan(gap + 1.5);
+    }
   });
 
   it("subtracts debt still outstanding at a short horizon", () => {
@@ -445,4 +466,55 @@ describe("recurring contributions", () => {
       solveBreakEvenReturn({ ...base, surplus: 0, monthlyContribution: 0 })
     ).toBeNull();
   });
+});
+
+describe("consistency with the attribution breakdown", () => {
+  // The card shows both, side by side. The time the all-to-mortgage split
+  // buys (measured against all-to-market) is exactly the time the future
+  // money buys in the waterfall (its lump leg plus its recurring leg). If
+  // these two ever disagree the card contradicts itself on screen.
+  const cases = [
+    { surplus: 72_000, monthlyContribution: 0 },
+    { surplus: 0, monthlyContribution: 2_000 },
+    { surplus: 72_000, monthlyContribution: 2_000 },
+    { surplus: 250_000, monthlyContribution: 5_000 },
+  ];
+
+  it.each(cases)(
+    "agrees on months bought for $surplus + $monthlyContribution/mo",
+    ({ surplus, monthlyContribution }) => {
+      const r = compareSurplusAllocations({
+        ...base,
+        surplus,
+        monthlyContribution,
+        splits: [0, 1],
+      });
+      const d = decomposeMortgageSavings(base.terms, base.prepayments, {
+        asOfDate: base.asOfDate,
+        lumpSum: surplus,
+        monthly: monthlyContribution,
+      });
+      const fromFutureMoney =
+        d.fromFutureLump.monthsSaved + d.fromFutureRecurring.monthsSaved;
+      expect(r.outcomes[1].monthsShaved).toBeCloseTo(fromFutureMoney, 6);
+    }
+  );
+
+  it.each(cases)(
+    "agrees on the projected payoff date for $surplus + $monthlyContribution/mo",
+    ({ surplus, monthlyContribution }) => {
+      const r = compareSurplusAllocations({
+        ...base,
+        surplus,
+        monthlyContribution,
+        splits: [1],
+      });
+      const d = decomposeMortgageSavings(base.terms, base.prepayments, {
+        asOfDate: base.asOfDate,
+        lumpSum: surplus,
+        monthly: monthlyContribution,
+      });
+      expect(r.outcomes[0].payoffDate).toBe(d.projected.payoffDate);
+    }
+  );
 });

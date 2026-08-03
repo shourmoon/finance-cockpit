@@ -21,12 +21,9 @@ import type {
   AmortizationEntry,
 } from "./mortgage/types";
 import { computeMortgageWithPrepayments } from "./mortgage/history";
+import { monthsBetween } from "./mortgage/comparison";
 import { addMonths } from "./mortgage/baseline";
-import {
-  computePeriodPayment,
-  periodsPerYear,
-  periodsToMonths,
-} from "./mortgage/baseline";
+import { computePeriodPayment, periodsPerYear } from "./mortgage/baseline";
 
 /** Splits the card offers by default: none, a quarter, half, most, all. */
 export const DEFAULT_SPLITS = [0, 0.25, 0.5, 0.75, 1];
@@ -145,7 +142,6 @@ interface PathResult {
   portfolioAfterTax: Money;
   remainingDebtAtHorizon: Money;
   debtFreeYears: number;
-  periodsToPayoff: number;
 }
 
 /**
@@ -171,8 +167,6 @@ function simulatePath(
 ): PathResult {
   let value = initialInvestment;
   let basis = initialInvestment;
-  let periodsToPayoff = horizonPeriods;
-  let sawPayoff = false;
 
   // Only the part of the schedule still ahead of us is relevant.
   const future = schedule.filter((e) => e.date > asOfDate);
@@ -190,10 +184,6 @@ function simulatePath(
     // The loan is gone once we run past the end of its remaining schedule.
     const stillPaying = i < future.length;
     if (!stillPaying) {
-      if (!sawPayoff) {
-        periodsToPayoff = i;
-        sawPayoff = true;
-      }
       // Everything that was going to the servicer is now investable: the
       // scheduled payment AND the recurring extra principal, which has
       // nothing left to pay down. Dropping the latter would understate the
@@ -227,7 +217,6 @@ function simulatePath(
     portfolioAfterTax,
     remainingDebtAtHorizon: Math.max(0, remainingDebtAtHorizon),
     debtFreeYears: debtFreePeriods / perYear,
-    periodsToPayoff,
   };
 }
 
@@ -238,9 +227,37 @@ function simulatePath(
  * reference, whether or not the caller asked for it, so "months shaved" and
  * "wealth given up" always have something to be measured against.
  */
-export function compareSurplusAllocations(
-  input: AllocationInput
-): AllocationComparison {
+/**
+ * Everything about a comparison that does NOT depend on the market return:
+ * the fractions, how much money goes where, and each split's amortization
+ * schedule. Building this is the expensive part — an amortization per split
+ * — and the break-even solver varies only the return, so it prepares once
+ * and re-walks the cheap portfolio loop per iteration instead of rebuilding
+ * schedules on all fifty of them.
+ */
+interface PreparedComparison {
+  perYear: number;
+  periodPayment: Money;
+  horizonYears: number;
+  horizonPeriods: number;
+  capitalGainsRate: number;
+  asOfDate: ISODate;
+  fractions: number[];
+  runs: {
+    fraction: number;
+    toPrepayment: Money;
+    toMarket: Money;
+    monthlyToPrepayment: Money;
+    monthlyToMarket: Money;
+    schedule: AmortizationEntry[];
+    payoffDate: ISODate;
+    totalInterest: Money;
+  }[];
+}
+
+function prepareComparison(
+  input: Omit<AllocationInput, "annualReturn">
+): PreparedComparison {
   const perYear = periodsPerYear(input.terms.paymentFrequency);
   const periodPayment = computePeriodPayment(input.terms);
 
@@ -248,9 +265,7 @@ export function compareSurplusAllocations(
   const horizonYears = Math.max(0, num(input.horizonYears, 0));
   const horizonPeriods = Math.max(0, Math.round(horizonYears * perYear));
   const capitalGainsRate = Math.min(1, Math.max(0, num(input.capitalGainsRate, 0)));
-  const annualReturn = Math.max(-0.999, num(input.annualReturn, 0));
   const monthlyContribution = Math.max(0, num(input.monthlyContribution, 0));
-  const periodReturn = Math.pow(1 + annualReturn, 1 / perYear) - 1;
   const asOfDate = input.asOfDate;
 
   const requested = Array.isArray(input.splits) ? input.splits : DEFAULT_SPLITS;
@@ -260,15 +275,16 @@ export function compareSurplusAllocations(
     .map((f) => Math.min(1, Math.max(0, f)));
   const withReference = fractions.includes(0) ? fractions : [0, ...fractions];
 
-  const run = (fraction: number) => {
-    const requestedPrepay = surplus * fraction;
+  // What is owed today does not vary by split, so build it once.
+  const owedNow = balanceOn(
+    computeMortgageWithPrepayments(input.terms, input.prepayments).schedule,
+    asOfDate
+  );
+
+  const runs = withReference.map((fraction) => {
     // Never send more to the servicer than is actually owed; the excess would
     // simply be refunded, so it stays invested here.
-    const owedNow = balanceOn(
-      computeMortgageWithPrepayments(input.terms, input.prepayments).schedule,
-      asOfDate
-    );
-    const toPrepayment = Math.min(requestedPrepay, owedNow);
+    const toPrepayment = Math.min(surplus * fraction, owedNow);
     const toMarket = surplus - toPrepayment;
 
     const monthlyToPrepayment = monthlyContribution * fraction;
@@ -276,15 +292,12 @@ export function compareSurplusAllocations(
 
     // Recurring extra principal is expressed as one prepayment a month.
     // Entries past payoff are never applied, so over-generating is safe.
-    const recurring =
-      monthlyToPrepayment > 0
-        ? monthlyPrepayments(asOfDate, monthlyToPrepayment, input.terms.termMonths)
-        : [];
-
     const prepayments = [
       ...input.prepayments,
       ...(toPrepayment > 0 ? [{ date: asOfDate, amount: toPrepayment }] : []),
-      ...recurring,
+      ...(monthlyToPrepayment > 0
+        ? monthlyPrepayments(asOfDate, monthlyToPrepayment, input.terms.termMonths)
+        : []),
     ];
 
     const { schedule, payoffDate, totalInterest } = computeMortgageWithPrepayments(
@@ -298,24 +311,50 @@ export function compareSurplusAllocations(
       toMarket,
       monthlyToPrepayment,
       monthlyToMarket,
-      path: simulatePath(
-        schedule,
-        payoffDate,
-        totalInterest,
-        toMarket,
-        perYear,
-        periodPayment,
-        horizonPeriods,
-        asOfDate,
-        capitalGainsRate,
-        periodReturn,
-        monthlyToMarket,
-        monthlyToPrepayment
-      ),
+      schedule,
+      payoffDate,
+      totalInterest,
     };
-  };
+  });
 
-  const runs = withReference.map(run);
+  return {
+    perYear,
+    periodPayment,
+    horizonYears,
+    horizonPeriods,
+    capitalGainsRate,
+    asOfDate,
+    fractions,
+    runs,
+  };
+}
+
+/** Walk every prepared path at one market return and assemble the outcomes. */
+function evaluateComparison(
+  ctx: PreparedComparison,
+  rawAnnualReturn: number
+): AllocationComparison {
+  const annualReturn = Math.max(-0.999, num(rawAnnualReturn, 0));
+  const periodReturn = Math.pow(1 + annualReturn, 1 / ctx.perYear) - 1;
+
+  const runs = ctx.runs.map((r) => ({
+    ...r,
+    path: simulatePath(
+      r.schedule,
+      r.payoffDate,
+      r.totalInterest,
+      r.toMarket,
+      ctx.perYear,
+      ctx.periodPayment,
+      ctx.horizonPeriods,
+      ctx.asOfDate,
+      ctx.capitalGainsRate,
+      periodReturn,
+      r.monthlyToMarket,
+      r.monthlyToPrepayment
+    ),
+  }));
+
   const referenceRun = runs.find((r) => r.fraction === 0)!;
 
   const toOutcome = (r: (typeof runs)[number]): AllocationOutcome => {
@@ -325,9 +364,14 @@ export function compareSurplusAllocations(
       referenceRun.path.portfolioAfterTax -
       referenceRun.path.remainingDebtAtHorizon;
 
-    const monthsShaved = periodsToMonths(
-      referenceRun.path.periodsToPayoff - r.path.periodsToPayoff,
-      input.terms.paymentFrequency
+    // Measured between payoff dates, deliberately NOT clipped to the
+    // horizon. The horizon governs how far out wealth is measured; it must
+    // not silently rewrite how much time was bought, or a short horizon
+    // would report "no time saved" beside two payoff dates years apart —
+    // and beside an attribution breakdown that is never clipped.
+    const monthsShaved = monthsBetween(
+      r.path.payoffDate,
+      referenceRun.path.payoffDate
     );
     const wealthGivenUp = referenceNet - netWorthAtHorizon;
 
@@ -354,8 +398,8 @@ export function compareSurplusAllocations(
   const reference = allOutcomes.find((o) => o.fractionToPrepayment === 0)!;
 
   // Report only what the caller asked for, but keep the reference available.
-  const outcomes = fractions.length
-    ? allOutcomes.filter((o) => fractions.includes(o.fractionToPrepayment))
+  const outcomes = ctx.fractions.length
+    ? allOutcomes.filter((o) => ctx.fractions.includes(o.fractionToPrepayment))
     : [];
 
   const best = allOutcomes.reduce((a, b) =>
@@ -363,14 +407,21 @@ export function compareSurplusAllocations(
   );
 
   return {
-    horizonYears,
+    horizonYears: ctx.horizonYears,
     expectedReturn: annualReturn,
-    capitalGainsRate,
+    capitalGainsRate: ctx.capitalGainsRate,
     reference,
     outcomes,
     marketFavoured: best.fractionToPrepayment === 0,
   };
 }
+
+export function compareSurplusAllocations(
+  input: AllocationInput
+): AllocationComparison {
+  return evaluateComparison(prepareComparison(input), input.annualReturn);
+}
+
 
 /** Widest market return the solver will consider before giving up. */
 const MAX_SEARCH_RETURN = 0.5;
@@ -413,8 +464,11 @@ export function solveBreakEvenReturn(
     return null;
   }
 
+  // Schedules do not depend on the return, so build them once and re-walk
+  // only the portfolio loop per iteration.
+  const ctx = prepareComparison({ ...input, splits: [0, 1] });
   const advantage = (annualReturn: number) => {
-    const c = compareSurplusAllocations({ ...input, annualReturn, splits: [0, 1] });
+    const c = evaluateComparison(ctx, annualReturn);
     return c.outcomes[1].netWorthAtHorizon - c.outcomes[0].netWorthAtHorizon;
   };
 
@@ -427,8 +481,11 @@ export function solveBreakEvenReturn(
 
   let lo = 0;
   let hi = MAX_SEARCH_RETURN;
-  // 50 halvings takes the bracket well below floating-point relevance.
-  for (let i = 0; i < 50; i++) {
+  // Stop once the bracket is far tighter than anything that could matter:
+  // the card renders one decimal place of a percent, and 1e-9 on the rate is
+  // pennies on the net-worth difference. The iteration cap is a guard, not
+  // the normal exit — bisection reaches the tolerance in about 29 steps.
+  for (let i = 0; i < 60 && hi - lo > 1e-9; i++) {
     const mid = (lo + hi) / 2;
     if (advantage(mid) > 0) lo = mid;
     else hi = mid;

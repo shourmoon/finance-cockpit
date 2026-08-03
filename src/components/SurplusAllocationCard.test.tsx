@@ -197,6 +197,40 @@ describe("SurplusAllocationCard", () => {
     expect(within(legs).getByTestId("leg-total")).toBeInTheDocument();
   });
 
+  it("shows legs that actually add up to the total on screen", () => {
+    // Rounding each leg independently makes them disagree with the total by a
+    // month — 55+98+34+54 = 241 displayed against a displayed total of 242.
+    // On a page about money, figures that visibly fail to reconcile destroy
+    // trust in every other number on it.
+    setup({ monthlyContribution: 2_000 });
+    const legs = screen.getByTestId("attribution");
+
+    const monthsOf = (testId: string) => {
+      const text = within(legs).getByTestId(testId + "-value").textContent ?? "";
+      const yrs = /(\d+)\s*yrs?/.exec(text);
+      const mos = /(\d+)\s*mos?/.exec(text);
+      return (yrs ? Number(yrs[1]) * 12 : 0) + (mos ? Number(mos[1]) : 0);
+    };
+    const dollarsOf = (testId: string) => {
+      const text = within(legs).getByTestId(testId + "-value").textContent ?? "";
+      const m = /\$([\d,]+)/.exec(text);
+      return m ? Number(m[1].replace(/,/g, "")) : 0;
+    };
+
+    const parts = [
+      "leg-cadence",
+      "leg-prepayments",
+      "leg-futureLump",
+      "leg-futureRecurring",
+    ];
+    expect(parts.reduce((s, id) => s + monthsOf(id), 0)).toBe(
+      monthsOf("leg-total")
+    );
+    expect(parts.reduce((s, id) => s + dollarsOf(id), 0)).toBe(
+      dollarsOf("leg-total")
+    );
+  });
+
   it("hides the future legs until there is a future plan", () => {
     // Rows reading "— · —" would be noise before anything is committed.
     setup({ monthlyContribution: 0, parkedCash: 20_000 });
@@ -207,6 +241,37 @@ describe("SurplusAllocationCard", () => {
     setup({}, { terms: { ...terms, paymentFrequency: "monthly" } });
     expect(screen.queryByTestId("leg-cadence")).not.toBeInTheDocument();
     expect(screen.getByTestId("leg-prepayments")).toBeInTheDocument();
+  });
+
+  it("never leaves a field showing a value the card is not using", () => {
+    // Typing something unparseable leaves the old number in effect. If the
+    // box still reads "abc" while the projections below it are computed from
+    // $120,000, the card is quietly lying about its own inputs — unacceptable
+    // when someone is about to move real money on the strength of it.
+    setup();
+    const field = screen.getByLabelText(/parked in savings/i);
+
+    fireEvent.change(field, { target: { value: "abc" } });
+    fireEvent.blur(field);
+    expect(field).toHaveValue("120000");
+
+    // Same for a negative amount, which is not a balance.
+    fireEvent.change(field, { target: { value: "-5000" } });
+    fireEvent.blur(field);
+    expect(field).toHaveValue("120000");
+  });
+
+  it("keeps a genuinely empty field empty on blur", () => {
+    // Clearing the box is a real action — it means "I have not said" — and
+    // must not be undone by the blur repair above.
+    const { onSurplusChange } = setup();
+    const field = screen.getByLabelText(/parked in savings/i);
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.blur(field);
+    expect(field).toHaveValue("");
+    expect(onSurplusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ parkedCash: undefined })
+    );
   });
 
   it("uses the shared input chrome", () => {

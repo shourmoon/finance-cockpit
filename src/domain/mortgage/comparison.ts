@@ -47,8 +47,15 @@ export function compareBaselineWithPrepayments(
 /** Mean days in a calendar month, for expressing gaps between payoff dates. */
 const DAYS_PER_MONTH = 30.4375;
 
-/** Calendar months between two ISO dates. Positive when `to` is later. */
-function monthsBetween(from: ISODate, to: ISODate): number {
+/**
+ * Calendar months between two ISO dates. Positive when `to` is later.
+ *
+ * Exported so every "months saved" figure in the app derives from one
+ * definition. Schedule-length differences are not usable for this: a monthly
+ * schedule and a biweekly one step at different intervals, so only the gap
+ * between payoff dates is comparable across them.
+ */
+export function monthsBetween(from: ISODate, to: ISODate): number {
   const ms =
     Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z");
   return ms / (86_400_000 * DAYS_PER_MONTH);

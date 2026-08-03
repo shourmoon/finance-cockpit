@@ -26,6 +26,7 @@ import {
   solveBreakEvenReturn,
 } from "../domain/portfolioProjection";
 import { formatDate } from "../utils/dates";
+import { apportion } from "../utils/apportion";
 import { ui, colors } from "./ui";
 
 const money = (v: number | null | undefined): string =>
@@ -211,6 +212,18 @@ function NumberField({
           const n = Number(raw.replace(/,/g, ""));
           if (Number.isFinite(n) && n >= 0) onChange(n);
         }}
+        onBlur={() => {
+          // Unparseable or negative text left the value untouched, so the box
+          // would keep displaying something the card never used. Snap it back
+          // to what is actually in effect once the user is done typing —
+          // during typing this must not fire, or "1." and "-" would be
+          // clobbered mid-entry. An empty box is a real answer and is left be.
+          if (text.trim() === "") return;
+          const n = Number(text.replace(/,/g, ""));
+          if (!Number.isFinite(n) || n < 0 || n !== value) {
+            setText(value === undefined ? "" : String(value));
+          }
+        }}
         style={ui.input}
       />
     </>
@@ -298,6 +311,34 @@ export default function SurplusAllocationCard({
       }),
     [terms, prepayments, asOfDate, free, monthly, surplus]
   );
+
+  // Display values are apportioned so the four legs add up to the total
+  // exactly as rendered, rather than each being rounded on its own.
+  const legDisplay = useMemo(() => {
+    const parts = [
+      projected.fromCadence,
+      projected.fromPrepayments,
+      projected.fromFutureLump,
+      projected.fromFutureRecurring,
+    ];
+    const months = apportion(
+      parts.map((l) => l.monthsSaved),
+      projected.total.monthsSaved
+    );
+    const interest = apportion(
+      parts.map((l) => l.interestSaved),
+      projected.total.interestSaved
+    );
+    const keys = ["cadence", "prepayments", "futureLump", "futureRecurring"] as const;
+    return Object.fromEntries(
+      keys.map((k, i) => [k, { months: months[i], interest: interest[i] }])
+    ) as Record<(typeof keys)[number], { months: number; interest: number }>;
+  }, [projected]);
+
+  const totalDisplay = {
+    months: Math.round(projected.total.monthsSaved),
+    interest: Math.round(projected.total.interestSaved),
+  };
 
   const set = (patch: Partial<SurplusSettings>) =>
     onSurplusChange({ ...surplus, ...patch });
@@ -476,34 +517,37 @@ export default function SurplusAllocationCard({
                 {terms.paymentFrequency === "biweekly" && (
                   <div style={styles.legRow} data-testid="leg-cadence">
                     <span>Paying biweekly</span>
-                    <span style={styles.legValue}>
-                      {yearsMonths(projected.fromCadence.monthsSaved)} ·{" "}
-                      {money(projected.fromCadence.interestSaved)}
+                    <span style={styles.legValue} data-testid="leg-cadence-value">
+                      {yearsMonths(legDisplay.cadence.months)} ·{" "}
+                      {money(legDisplay.cadence.interest)}
                     </span>
                   </div>
                 )}
                 <div style={styles.legRow} data-testid="leg-prepayments">
                   <span>Prepayments already made</span>
-                  <span style={styles.legValue}>
-                    {yearsMonths(projected.fromPrepayments.monthsSaved)} ·{" "}
-                    {money(projected.fromPrepayments.interestSaved)}
+                  <span style={styles.legValue} data-testid="leg-prepayments-value">
+                    {yearsMonths(legDisplay.prepayments.months)} ·{" "}
+                    {money(legDisplay.prepayments.interest)}
                   </span>
                 </div>
                 {free > 0 && (
                   <div style={styles.legRow} data-testid="leg-futureLump">
                     <span>This lump ({money(free)})</span>
-                    <span style={styles.legValue}>
-                      {yearsMonths(projected.fromFutureLump.monthsSaved)} ·{" "}
-                      {money(projected.fromFutureLump.interestSaved)}
+                    <span style={styles.legValue} data-testid="leg-futureLump-value">
+                      {yearsMonths(legDisplay.futureLump.months)} ·{" "}
+                      {money(legDisplay.futureLump.interest)}
                     </span>
                   </div>
                 )}
                 {monthly > 0 && (
                   <div style={styles.legRow} data-testid="leg-futureRecurring">
                     <span>{money(monthly)} a month</span>
-                    <span style={styles.legValue}>
-                      {yearsMonths(projected.fromFutureRecurring.monthsSaved)} ·{" "}
-                      {money(projected.fromFutureRecurring.interestSaved)}
+                    <span
+                      style={styles.legValue}
+                      data-testid="leg-futureRecurring-value"
+                    >
+                      {yearsMonths(legDisplay.futureRecurring.months)} ·{" "}
+                      {money(legDisplay.futureRecurring.interest)}
                     </span>
                   </div>
                 )}
@@ -511,9 +555,9 @@ export default function SurplusAllocationCard({
                   <span>
                     Debt-free {formatDate(projected.projected.payoffDate)}
                   </span>
-                  <span style={styles.legValue}>
-                    {yearsMonths(projected.total.monthsSaved)} ·{" "}
-                    {money(projected.total.interestSaved)}
+                  <span style={styles.legValue} data-testid="leg-total-value">
+                    {yearsMonths(totalDisplay.months)} ·{" "}
+                    {money(totalDisplay.interest)}
                   </span>
                 </div>
               </div>
