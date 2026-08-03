@@ -8,7 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "verify": "tsc --noEmit && eslint . && vitest run --coverage",
+    "verify:ui": "node scripts/verify-ui.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

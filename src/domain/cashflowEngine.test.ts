@@ -4,7 +4,7 @@ import {
 buildFutureEvents,
 buildTimelineAndMetrics,
 } from "./cashflowEngine";
-import { createInitialAppState } from "./appState";
+import { createInitialAppState, upgradeAppState } from "./appState";
 import { toISODate, parseISODate } from "./dateUtils";
 import type {
 AppState,
@@ -27,6 +27,58 @@ function makeBaseState(): AppState {
     overrides: {},
   };
 }
+
+describe("the reported minimum describes the curve that is drawn", () => {
+  // Found by cashflowInvariants.test.ts on its first run, in code that had
+  // shipped long before. The minimum was seeded with the balance BEFORE the
+  // first day's events — a moment the chart never plots — so the dashboard
+  // could name a lowest point that contradicted the chart beside it.
+  const state = upgradeAppState({
+    version: 4,
+    account: { startingBalance: 4090 },
+    settings: { startDate: "2026-03-01", horizonDays: 60, minSafeBalance: 2000 },
+    rules: [
+      {
+        id: "sal", name: "Salary", amount: 5240, isVariable: false,
+        schedule: { type: "monthly", day: 1 },
+      },
+    ],
+    adhocTransactions: [],
+    overrides: {},
+  });
+
+  test("names a low point that exists on the timeline", () => {
+    const { timeline, metrics } = runCashflowProjection(state);
+    const charted = Math.min(...timeline.map((p) => p.balance));
+    expect(metrics.minBalance).toBe(charted);
+    expect(timeline.find((p) => p.date === metrics.minBalanceDate)?.balance).toBe(
+      metrics.minBalance
+    );
+  });
+
+  test("does not flag a dip the curve never takes", () => {
+    // Starting below the floor but paid on day one: the drawn curve never
+    // goes under, so the status must not claim it does.
+    const belowFloor = upgradeAppState({
+      ...state,
+      account: { startingBalance: 500 },
+      settings: { ...state.settings, minSafeBalance: 2000 },
+    });
+    const { timeline, metrics } = runCashflowProjection(belowFloor);
+    expect(Math.min(...timeline.map((p) => p.balance))).toBeGreaterThanOrEqual(2000);
+    expect(metrics.status).toBe("ok");
+  });
+
+  test("does not report a negative day that never happens", () => {
+    const negativeStart = upgradeAppState({
+      ...state,
+      account: { startingBalance: -1000 },
+    });
+    const { timeline, metrics } = runCashflowProjection(negativeStart);
+    expect(timeline.every((p) => p.balance >= 0)).toBe(true);
+    expect(metrics.firstNegativeDate).toBeNull();
+  });
+});
 
 describe("cashflowEngine - basic schedules", () => {
   test("monthly schedule generates one event per month in horizon", () => {

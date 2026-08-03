@@ -16,16 +16,87 @@ npx vitest run -t "test name"        # Run tests matching a name
 ```bash
 npm run lint                         # eslint (flat config in eslint.config.js)
 npx vitest run --coverage            # enforces per-directory coverage thresholds
+npm run verify                       # the whole gate: tsc + eslint + coverage
+npm run verify:ui                    # real browser at 360px (see below)
 ```
 
-CI (`.github/workflows/ci.yml`) runs `tsc --noEmit`, `eslint .`, and `npx vitest run --coverage` on every push/PR. Coverage thresholds (in `vitest.config.ts`) require **100%** on `src/domain`, `src/utils`, and `workers`; UI components have pragmatic floors. `main.tsx` and `Root.tsx` (service-worker glue) are excluded from coverage.
+CI (`.github/workflows/ci.yml`) runs `npm run verify` on every push/PR. `verify:ui` needs a browser and so runs locally, not in CI — which is exactly why it is listed in the definition of done below rather than left to CI to catch. Coverage thresholds (in `vitest.config.ts`) require **100%** on `src/domain`, `src/utils`, and `workers`; UI components have pragmatic floors. `main.tsx` and `Root.tsx` (service-worker glue) are excluded from coverage.
 
-### Development workflow — TDD when appropriate
+### Development workflow — how this project is verified
 
-Prefer test-driven development: write the failing test(s) first, confirm they're red, then implement until green, then run the wider gate (`tsc --noEmit`, `eslint .`, `npx vitest run --coverage`). Apply it with judgment:
+This app tells someone where to put real money. A wrong number here is not a
+cosmetic bug, so the bar is higher than "the tests pass".
 
-- **Do write the test first** for domain/logic/behavior changes (cashflow engine, mortgage math, persistence, sync, utils), for bug fixes (encode the reproduction as a red test), and for UI changes with an assertable outcome — an element/label appearing, a computed value, or a shared-token style checked via jest-dom's `toHaveStyle` (see the cohesion suites in `MortgageTab.test.tsx`).
-- **Verify differently** for purely visual/aesthetic work with no property jsdom can assert (spacing, gradients, real layout/clipping) — drive the real app with Playwright and screenshot at a phone width (~360px). Keep the existing behavior and cohesion tests green as the regression net.
+#### Definition of done
+
+Work is not finished until all of these hold. Do not report completion before
+running them.
+
+1. `npm run verify` is clean — typecheck, lint, and 100% coverage on
+   `src/domain`, `src/utils`, `workers`.
+2. Anything touching **money, dates, or units** is covered by an invariant
+   suite (below), not only by tests written beside the implementation.
+3. Anything touching the **UI** passes `npm run verify:ui` — a real browser at
+   360px. jsdom cannot see clipping, overflow, or layout.
+4. Any figure shown in **two places** comes from one source and reconciles on
+   screen. Two numbers for one quantity is a defect even when both are close.
+
+#### Why the ordinary gate is not enough
+
+Every defect that has escaped in this project was found the same way: by
+comparing a result against something **independent of the implementation** —
+a closed form, a physical impossibility, a conservation law, or the rendered
+page. None was found by the tests written alongside the code, because those
+encode the same assumptions the code does. Mutation testing does not close
+the gap either: it proves the tests notice deliberate edits, not that the
+right properties were ever considered.
+
+So for any new computation over money or time, **write the laws before the
+code**. Put them in a `*Invariants.test.ts` file, phrased against the problem
+rather than the implementation, and run them over generated inputs — see
+`src/domain/allocationInvariants.test.ts`, whose first run found two defects
+that every existing test passed over. Its generator is a seeded PRNG so any
+failure is reproducible.
+
+#### The checklist for money code
+
+Each line is a class of defect that has actually shipped here:
+
+- **Conservation.** Every amount committed must end up somewhere. Money that
+  cannot be applied (a prepayment larger than the balance) is handed back,
+  never absorbed. Assert `in === out` over generated inputs.
+- **Units.** Every quantity has one. Payment *periods* are not months —
+  biweekly makes them differ by 26/12. Convert at the domain boundary and
+  name the result for its unit.
+- **Timing.** Every amount has a date, and compounds from that date. Do not
+  discretise onto a payment grid; do not derive a calendar horizon from a
+  period count (78 biweekly periods is 1,092 days, not 3 years).
+- **Impossibilities.** Assert what cannot happen regardless of the code:
+  cash that does not grow cannot beat avoiding interest, a balance cannot go
+  negative, a schedule cannot outlive its term.
+- **Agreement.** Two modules computing the same quantity must be tested
+  against each other, not each against itself.
+- **Degenerate inputs.** Zero, negative, NaN, Infinity, dates before the loan
+  and after payoff, a stream larger than the debt. Fall back to a safe
+  default, never to a silently wrong number, and never to zero where zero
+  means "no reserve" or "no tax".
+
+#### Tests first, and red before green
+
+Write the failing test first for domain, logic, persistence and sync changes,
+for bug fixes (encode the reproduction), and for UI changes with an assertable
+outcome — an element or label appearing, a computed value, a shared token
+checked via `toHaveStyle`. Confirm it is red for the reason you expect before
+implementing: a test that was green all along has verified nothing.
+
+For purely visual work with no property jsdom can assert (spacing, gradients,
+real layout), drive the app with `npm run verify:ui` and screenshot at 360px.
+
+#### When a defect is found
+
+Fix the cause, then ask which of the classes above it belongs to and add the
+law that would have caught it. A defect that only gets a regression test will
+recur in the next feature wearing different clothes.
 
 Backend worker (optional, for sync):
 
