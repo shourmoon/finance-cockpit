@@ -474,47 +474,191 @@ describe("consistency with the attribution breakdown", () => {
   // money buys in the waterfall (its lump leg plus its recurring leg). If
   // these two ever disagree the card contradicts itself on screen.
   const cases = [
-    { surplus: 72_000, monthlyContribution: 0 },
-    { surplus: 0, monthlyContribution: 2_000 },
-    { surplus: 72_000, monthlyContribution: 2_000 },
-    { surplus: 250_000, monthlyContribution: 5_000 },
+    { surplus: 72_000, monthlyContribution: 0, yearlyContribution: 0 },
+    { surplus: 0, monthlyContribution: 2_000, yearlyContribution: 0 },
+    { surplus: 72_000, monthlyContribution: 2_000, yearlyContribution: 0 },
+    { surplus: 250_000, monthlyContribution: 5_000, yearlyContribution: 0 },
+    { surplus: 0, monthlyContribution: 0, yearlyContribution: 15_000 },
+    { surplus: 72_000, monthlyContribution: 2_000, yearlyContribution: 15_000 },
+    {
+      surplus: 72_000, monthlyContribution: 2_000, yearlyContribution: 15_000,
+      contributionsUntil: "2031-12-31",
+    },
   ];
 
   it.each(cases)(
-    "agrees on months bought for $surplus + $monthlyContribution/mo",
-    ({ surplus, monthlyContribution }) => {
+    "agrees on months bought for $surplus + $monthlyContribution/mo + $yearlyContribution/yr",
+    ({ surplus, monthlyContribution, yearlyContribution, contributionsUntil }) => {
       const r = compareSurplusAllocations({
         ...base,
         surplus,
         monthlyContribution,
+        yearlyContribution,
+        contributionsUntil,
         splits: [0, 1],
       });
       const d = decomposeMortgageSavings(base.terms, base.prepayments, {
         asOfDate: base.asOfDate,
         lumpSum: surplus,
         monthly: monthlyContribution,
+        yearly: yearlyContribution,
+        until: contributionsUntil,
       });
       const fromFutureMoney =
-        d.fromFutureLump.monthsSaved + d.fromFutureRecurring.monthsSaved;
+        d.fromFutureLump.monthsSaved +
+        d.fromFutureMonthly.monthsSaved +
+        d.fromFutureYearly.monthsSaved;
       expect(r.outcomes[1].monthsShaved).toBeCloseTo(fromFutureMoney, 6);
     }
   );
 
   it.each(cases)(
-    "agrees on the projected payoff date for $surplus + $monthlyContribution/mo",
-    ({ surplus, monthlyContribution }) => {
+    "agrees on the projected payoff date for $surplus + $monthlyContribution/mo + $yearlyContribution/yr",
+    ({ surplus, monthlyContribution, yearlyContribution, contributionsUntil }) => {
       const r = compareSurplusAllocations({
         ...base,
         surplus,
         monthlyContribution,
+        yearlyContribution,
+        contributionsUntil,
         splits: [1],
       });
       const d = decomposeMortgageSavings(base.terms, base.prepayments, {
         asOfDate: base.asOfDate,
         lumpSum: surplus,
         monthly: monthlyContribution,
+        yearly: yearlyContribution,
+        until: contributionsUntil,
       });
       expect(r.outcomes[0].payoffDate).toBe(d.projected.payoffDate);
     }
   );
+});
+
+describe("yearly contributions and bounded streams", () => {
+  const bonus = {
+    ...base,
+    surplus: 0,
+    monthlyContribution: 0,
+    yearlyContribution: 15_000,
+    yearlyMonth: 3,
+  };
+
+  it("shortens the loan when a yearly bonus goes to the mortgage", () => {
+    const r = compareSurplusAllocations({ ...bonus, splits: [0, 1] });
+    expect(r.outcomes[1].monthsShaved).toBeGreaterThan(0);
+    expect(r.outcomes[1].payoffDate < r.outcomes[0].payoffDate).toBe(true);
+  });
+
+  it("splits the yearly amount like every other stream", () => {
+    const r = compareSurplusAllocations({ ...bonus, splits: [0, 0.5, 1] });
+    expect(r.outcomes.map((o) => o.yearlyToPrepayment)).toEqual([0, 7_500, 15_000]);
+    expect(r.outcomes.map((o) => o.yearlyToMarket)).toEqual([15_000, 7_500, 0]);
+  });
+
+  it("never lets the market win at a zero return, with a bonus too", () => {
+    // The same impossibility check that caught the dropped monthly stream.
+    for (const input of [
+      bonus,
+      { ...bonus, monthlyContribution: 2_000 },
+      { ...base, yearlyContribution: 15_000, yearlyMonth: 3 },
+    ]) {
+      const r = compareSurplusAllocations({
+        ...input,
+        annualReturn: 0,
+        splits: [0, 1],
+      });
+      expect(r.outcomes[1].netWorthAtHorizon).toBeGreaterThan(
+        r.outcomes[0].netWorthAtHorizon
+      );
+    }
+  });
+
+  it("stops contributing after the end date", () => {
+    const bounded = compareSurplusAllocations({
+      ...base,
+      surplus: 0,
+      monthlyContribution: 2_000,
+      contributionsUntil: "2029-12-31",
+      splits: [0, 1],
+    });
+    const openEnded = compareSurplusAllocations({
+      ...base,
+      surplus: 0,
+      monthlyContribution: 2_000,
+      splits: [0, 1],
+    });
+    // A stream that stops early buys less time and gives up less wealth.
+    expect(bounded.outcomes[1].monthsShaved).toBeLessThan(
+      openEnded.outcomes[1].monthsShaved
+    );
+    expect(bounded.outcomes[1].monthsShaved).toBeGreaterThan(0);
+  });
+
+  it("leaves the lump untouched by the end date", () => {
+    // The lump is committed now, so bounding the streams must not cancel it.
+    const r = compareSurplusAllocations({
+      ...base,
+      monthlyContribution: 0,
+      contributionsUntil: "2020-01-01",
+      splits: [0, 1],
+    });
+    expect(r.outcomes[1].toPrepayment).toBe(base.surplus);
+    expect(r.outcomes[1].monthsShaved).toBeGreaterThan(0);
+  });
+
+  it("invests a bonus on its own date rather than smearing it", () => {
+    // Bucketing by period, not spreading, is what keeps the two arms funded
+    // identically. A March bonus invested in March compounds for longer than
+    // the same money dripped through the year, so the market path must not
+    // be quietly penalised by an averaging shortcut.
+    const r = compareSurplusAllocations({
+      ...bonus,
+      annualReturn: 0,
+      splits: [0],
+      horizonYears: 10,
+    });
+    // Ten years of $15k bonuses, all of it basis at a zero return, plus the
+    // freed mortgage payment once the loan ends.
+    expect(r.outcomes[0].contributions).toBeGreaterThanOrEqual(10 * 15_000);
+  });
+
+  it("keeps the whole committed amount in play across every split", () => {
+    const r = compareSurplusAllocations({
+      ...base,
+      monthlyContribution: 2_000,
+      yearlyContribution: 15_000,
+      splits: [0, 0.25, 0.5, 0.75, 1],
+    });
+    for (const o of r.outcomes) {
+      expect(o.toPrepayment + o.toMarket).toBeCloseTo(base.surplus, 6);
+      expect(o.monthlyToPrepayment + o.monthlyToMarket).toBeCloseTo(2_000, 6);
+      expect(o.yearlyToPrepayment + o.yearlyToMarket).toBeCloseTo(15_000, 6);
+    }
+  });
+
+  it("finds a break-even from a bonus alone", () => {
+    const be = solveBreakEvenReturn(bonus);
+    expect(be).not.toBeNull();
+    expect(be!).toBeGreaterThan(0.03);
+    expect(be!).toBeLessThan(0.09);
+  });
+
+  it("survives unusable yearly settings", () => {
+    for (const over of [
+      { yearlyContribution: Number.NaN },
+      { yearlyContribution: -5_000 },
+      { yearlyMonth: 99 },
+      { yearlyMonth: Number.NaN },
+      { contributionsUntil: "not-a-date" },
+      { contributionsUntil: "1990-01-01" },
+    ]) {
+      const r = compareSurplusAllocations({ ...bonus, ...over, splits: [0, 1] });
+      for (const o of r.outcomes) {
+        expect(Number.isFinite(o.netWorthAtHorizon)).toBe(true);
+        expect(Number.isFinite(o.monthsShaved)).toBe(true);
+        expect(o.yearlyToPrepayment).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
 });

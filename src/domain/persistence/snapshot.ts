@@ -33,7 +33,7 @@ export interface Snapshot {
   schemaVersion: number;
   /** The primary cashflow application state. */
   app_state: AppState;
-  /** The mortgage UI state (terms, prepayments, scenarios, etc.). */
+  /** The mortgage UI state (terms, prepayments, as-of date). */
   mortgage_ui: MortgageUIState;
   /** ISO8601 timestamp of the last update to this snapshot. */
   updated_at: string;

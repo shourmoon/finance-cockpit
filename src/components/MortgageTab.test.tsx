@@ -5,10 +5,10 @@ import MortgageTab from "./MortgageTab";
 import { colors } from "./ui";
 
 // Every editable control in the app shares one input "chrome": the
-// colors.inputBg fill and colors.inputBorder outline. The scenario and
-// prepayment sections are the densest part of the Mortgage tab, so this
-// is where drift hides — assert they match the shared tokens rather than
-// re-typing their own darker background/border.
+// colors.inputBg fill and colors.inputBorder outline. The prepayment log is
+// the densest part of the Mortgage tab, so this is where drift hides —
+// assert the controls match the shared tokens rather than re-typing their
+// own darker background/border.
 const SHARED_INPUT = {
   backgroundColor: colors.inputBg,
   borderColor: colors.inputBorder,
@@ -16,7 +16,7 @@ const SHARED_INPUT = {
 
 beforeEach(() => {
   window.localStorage.clear();
-  // Deterministic ids for scenarios/patterns/prepayments.
+  // Deterministic ids for prepayment rows.
   let n = 0;
   vi.stubGlobal("crypto", { randomUUID: () => `id-${n++}` });
 });
@@ -94,24 +94,6 @@ describe("MortgageTab", () => {
       expect(persisted().terms.principal).toBe(680000);
       expect(persisted().terms.annualRate).toBe(0.0475);
       expect(persisted().terms.startDate).toBe("2023-06-01");
-    });
-
-    it("survives clearing a biweekly pattern's anchor date", () => {
-      // Regression: with an amount already entered, emptying the anchor
-      // date threw "Invalid ISO date: " out of parseIsoToDate, inside a
-      // render-time useMemo, taking the whole tab down.
-      const { container } = render(<MortgageTab />);
-      fireEvent.click(screen.getByText("+ Add scenario"));
-      fireEvent.click(screen.getByText("Biweekly"));
-      fireEvent.change(screen.getByPlaceholderText("0"), { target: { value: "300" } });
-
-      const dates = Array.from(
-        container.querySelectorAll('input[type="date"]')
-      ) as HTMLInputElement[];
-      // 0 = loan start, 1 = scenario as-of, 2 = the pattern's anchor date.
-      fireEvent.change(dates[2], { target: { value: "" } });
-
-      expect(screen.getByText("Baseline summary")).toBeInTheDocument();
     });
 
     it("recovers once a valid value is typed", () => {
@@ -214,247 +196,8 @@ describe("MortgageTab", () => {
     expect(persisted().prepayments).toHaveLength(0);
   });
 
-  it("adds a scenario and shows its results, then deletes it", () => {
-    render(<MortgageTab />);
-    fireEvent.click(screen.getByText("+ Add scenario"));
 
-    expect(screen.getByDisplayValue("Scenario 1")).toBeInTheDocument();
-    expect(persisted().scenarios).toHaveLength(1);
-
-    // A new scenario starts with no patterns.
-    expect(screen.getByText(/No future prepayment patterns yet/)).toBeInTheDocument();
-    expect(persisted().scenarios[0].patterns).toHaveLength(0);
-
-    // Adding a Monthly pattern and giving it an amount is what creates the
-    // first real pattern and starts showing results.
-    fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
-    fireEvent.change(screen.getAllByPlaceholderText("0")[0], {
-      target: { value: "200" },
-    });
-    expect(persisted().scenarios[0].patterns).toHaveLength(1);
-    expect(screen.getByText(/Scenario comparison/)).toBeInTheDocument();
-
-    // Delete the scenario via its header ✕ (first one on the page).
-    fireEvent.click(screen.getAllByText("✕")[0]);
-    expect(persisted().scenarios).toHaveLength(0);
-  });
-
-  it("renames a scenario and toggles it inactive", () => {
-    render(<MortgageTab />);
-    fireEvent.click(screen.getByText("+ Add scenario"));
-
-    fireEvent.change(screen.getByDisplayValue("Scenario 1"), {
-      target: { value: "Aggressive payoff" },
-    });
-    expect(persisted().scenarios[0].name).toBe("Aggressive payoff");
-
-    const activeToggle = screen.getByRole("checkbox");
-    fireEvent.click(activeToggle);
-    expect(persisted().scenarios[0].active).toBe(false);
-  });
-
-  it("adds each pattern kind to a scenario", () => {
-    render(<MortgageTab />);
-    fireEvent.click(screen.getByText("+ Add scenario"));
-
-    // Add-pattern buttons (only one scenario is present).
-    fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
-    fireEvent.click(screen.getByText("One-time"));
-    fireEvent.click(screen.getByText("Annual"));
-    fireEvent.click(screen.getByText("Biweekly"));
-
-    const patterns = persisted().scenarios[0].patterns;
-    expect(patterns).toHaveLength(4);
-    const kinds = patterns.map((p: any) => p.kind);
-    expect(kinds).toContain("monthly");
-    expect(kinds).toContain("oneTime");
-    expect(kinds).toContain("yearly");
-    expect(kinds).toContain("biweekly");
-  });
-
-  it("clicking a different cadence button adds an additional pattern rather than replacing the current one", () => {
-    // Regression: a scenario used to seed a default monthly pattern, so
-    // clicking a different cadence silently stacked a second pattern
-    // instead of switching — this is the expected, intentional "add
-    // another pattern" behavior now that scenarios start empty.
-    render(<MortgageTab />);
-    fireEvent.click(screen.getByText("+ Add scenario"));
-    expect(persisted().scenarios[0].patterns).toHaveLength(0);
-
-    fireEvent.click(screen.getByText("Biweekly"));
-    expect(persisted().scenarios[0].patterns.map((p: any) => p.kind)).toEqual([
-      "biweekly",
-    ]);
-  });
-
-  it("edits the monthly pattern cadence, revealing conditional fields", () => {
-    render(<MortgageTab />);
-    fireEvent.click(screen.getByText("+ Add scenario"));
-    fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
-
-    // A freshly-added monthly pattern's cadence select starts on "Due date".
-    const cadence = screen.getByDisplayValue("Due date");
-    fireEvent.change(cadence, { target: { value: "specific-day" } });
-    const dayInput = screen.getByPlaceholderText("Day");
-    fireEvent.change(dayInput, { target: { value: "40" } }); // clamps to 28
-    expect(persisted().scenarios[0].patterns[0].specificDayOfMonth).toBe(28);
-
-    fireEvent.change(cadence, { target: { value: "nth-weekday" } });
-    fireEvent.change(screen.getByPlaceholderText("Nth"), { target: { value: "3" } });
-    fireEvent.change(screen.getByDisplayValue("Mon"), { target: { value: "5" } });
-    const monthly = persisted().scenarios[0].patterns[0];
-    expect(monthly.nthWeekday).toBe(3);
-    expect(monthly.weekday).toBe(5);
-  });
-
-  it("edits one-time, annual, and biweekly pattern fields", () => {
-    render(<MortgageTab />);
-    fireEvent.click(screen.getByText("+ Add scenario"));
-
-    // One-time: its amount field is the only "0"-placeholder input at this
-    // point (the quick "Monthly extra" field is still empty/unset too, but
-    // this is the one that belongs to the pattern card).
-    fireEvent.click(screen.getByText("One-time"));
-    const oneTimeAmount = screen.getAllByPlaceholderText("0").at(-1)!;
-    fireEvent.change(oneTimeAmount, { target: { value: "15000" } });
-
-    // Annual
-    fireEvent.click(screen.getByText("Annual"));
-    fireEvent.change(screen.getByPlaceholderText("M"), { target: { value: "13" } }); // clamps to 12
-    fireEvent.change(screen.getByPlaceholderText("D"), { target: { value: "15" } });
-
-    // Biweekly
-    fireEvent.click(screen.getByText("Biweekly"));
-
-    const kinds = persisted().scenarios[0].patterns.map((p: any) => p.kind);
-    expect(kinds).toEqual(
-      expect.arrayContaining(["oneTime", "yearly", "biweekly"])
-    );
-    const annual = persisted().scenarios[0].patterns.find((p: any) => p.kind === "yearly");
-    expect(annual.month).toBe(12);
-    expect(annual.day).toBe(15);
-  });
-
-  it("deletes an individual scenario pattern", () => {
-    render(<MortgageTab />);
-    fireEvent.click(screen.getByText("+ Add scenario"));
-    fireEvent.click(screen.getByText("One-time"));
-    fireEvent.click(screen.getByText("Annual"));
-    expect(persisted().scenarios[0].patterns).toHaveLength(2);
-
-    // Pattern rows each have their own ✕; the scenario header ✕ is first.
-    const deletes = screen.getAllByText("✕");
-    fireEvent.click(deletes[deletes.length - 1]);
-    expect(persisted().scenarios[0].patterns).toHaveLength(1);
-  });
-
-  describe("how far ahead of the original contract", () => {
-    // A biweekly loan is ahead of its own contract before a single
-    // prepayment is made, and the tab used to hide that entirely: its
-    // baseline was the biweekly schedule itself.
-    function setUpBiweeklyLoan() {
-      window.localStorage.setItem(
-        "finance-cockpit-mortgage-v2",
-        JSON.stringify({
-          terms: {
-            principal: 680000,
-            annualRate: 0.0475,
-            termMonths: 360,
-            startDate: "2023-06-01",
-            paymentFrequency: "biweekly",
-          },
-          prepayments: [{ date: "2025-01-01", amount: 150000 }],
-          asOfDate: "2026-08-01",
-          scenarios: [],
-        })
-      );
-    }
-
-    it("credits the biweekly cadence separately from the prepayments", () => {
-      setUpBiweeklyLoan();
-      render(<MortgageTab />);
-
-      expect(screen.getByText("Ahead of the original contract")).toBeInTheDocument();
-      // The contract is 30 years of MONTHLY payments from June 2023.
-      expect(screen.getByText(/May '53/)).toBeInTheDocument();
-      // Cadence alone is worth ~4y 8m and ~$105k here.
-      expect(screen.getByText(/\$105,6\d\d/)).toBeInTheDocument();
-      // Prepayments are credited on their own line, not merged in. (The same
-      // figure also appears in the per-prepayment impact table below.)
-      expect(screen.getAllByText(/\$228,8\d\d/).length).toBeGreaterThan(0);
-      // And the total is the sum, against the contract.
-      expect(screen.getByText(/\$334,5\d\d/)).toBeInTheDocument();
-    });
-
-    it("explains the cadence in plain language", () => {
-      setUpBiweeklyLoan();
-      render(<MortgageTab />);
-      expect(
-        screen.getByText(/one extra monthly payment a year/i)
-      ).toBeInTheDocument();
-    });
-
-    it("omits the cadence line entirely for a monthly loan", () => {
-      // Nothing was bought by cadence, so showing a zero row would be noise.
-      window.localStorage.setItem(
-        "finance-cockpit-mortgage-v2",
-        JSON.stringify({
-          terms: {
-            principal: 680000,
-            annualRate: 0.0475,
-            termMonths: 360,
-            startDate: "2023-06-01",
-            paymentFrequency: "monthly",
-          },
-          prepayments: [{ date: "2025-01-01", amount: 150000 }],
-          asOfDate: "2026-08-01",
-          scenarios: [],
-        })
-      );
-      render(<MortgageTab />);
-      expect(screen.getByText("Ahead of the original contract")).toBeInTheDocument();
-      expect(screen.queryByText("From paying biweekly")).not.toBeInTheDocument();
-    });
-  });
-
-  describe("visual cohesion of scenario & prepayment controls", () => {
-    it("scenario pattern-card inputs use the shared app input chrome", () => {
-      render(<MortgageTab />);
-      fireEvent.click(screen.getByText("+ Add scenario"));
-      fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
-
-      // A monthly pattern card's Label input and Cadence <select> render
-      // through the pattern-card control style, which historically used
-      // the page background (#020617) and card border (#27272a) — nothing
-      // like the rest of the app's inputs.
-      expect(screen.getByDisplayValue("Monthly extra")).toHaveStyle(SHARED_INPUT);
-      expect(screen.getByDisplayValue("Due date")).toHaveStyle(SHARED_INPUT);
-    });
-
-    it("every scenario pattern kind's controls share that chrome", () => {
-      render(<MortgageTab />);
-      fireEvent.click(screen.getByText("+ Add scenario"));
-      fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
-      fireEvent.click(screen.getByText("One-time"));
-      fireEvent.click(screen.getByText("Annual"));
-      fireEvent.click(screen.getByText("Biweekly"));
-
-      // Collect every labelled text/number control across all pattern
-      // kinds plus the cadence select. Date fields already use the
-      // shared ui.input, so they act as the reference the rest must match.
-      const controls = [
-        ...screen.getAllByPlaceholderText("Description"), // labels
-        ...screen.getAllByPlaceholderText("0"), // amounts (+ monthly-extra)
-        ...screen.getAllByPlaceholderText("M"), // annual month
-        ...screen.getAllByPlaceholderText("D"), // annual day
-        ...screen.getAllByPlaceholderText("From"), // annual first year
-        ...screen.getAllByPlaceholderText("To"), // annual last year
-        screen.getByDisplayValue("Due date"), // monthly cadence select
-      ];
-      // Sanity: we actually gathered a representative spread of controls.
-      expect(controls.length).toBeGreaterThan(8);
-      for (const el of controls) expect(el).toHaveStyle(SHARED_INPUT);
-    });
+  describe("visual cohesion of the prepayment controls", () => {
 
     it("prepayment amount and note inputs use the same chrome", () => {
       render(<MortgageTab />);
@@ -512,15 +255,6 @@ describe("MortgageTab", () => {
       expect(dateInput).toHaveStyle({ minWidth: "150px" });
     });
 
-    it("scenario name and pattern amount inputs use the same chrome", () => {
-      render(<MortgageTab />);
-      fireEvent.click(screen.getByText("+ Add scenario"));
-      expect(screen.getByDisplayValue("Scenario 1")).toHaveStyle(SHARED_INPUT);
-      fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
-      for (const el of screen.getAllByPlaceholderText("0")) {
-        expect(el).toHaveStyle(SHARED_INPUT);
-      }
-    });
   });
 
   it("restores persisted mortgage state on remount", () => {

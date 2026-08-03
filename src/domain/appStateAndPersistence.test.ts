@@ -133,6 +133,8 @@ describe("appState & persistence", () => {
 
       expect(upgraded.settings.surplus).toEqual({
         monthlyContribution: 0,
+        yearlyContribution: 0,
+        yearlyMonth: 1,
         reserveMonths: DEFAULT_RESERVE_MONTHS,
         expectedReturn: DEFAULT_EXPECTED_RETURN,
         capitalGainsRate: DEFAULT_CAPITAL_GAINS_RATE,
@@ -150,14 +152,18 @@ describe("appState & persistence", () => {
         settings: {
           startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
           surplus: {
-            parkedCash: 180000, monthlyContribution: 2500, reserveMonths: 9,
+            parkedCash: 180000, monthlyContribution: 2500,
+            yearlyContribution: 15000, yearlyMonth: 3,
+            contributionsUntil: "2031-12-31", reserveMonths: 9,
             expectedReturn: 0.065, capitalGainsRate: 0.238, horizonYears: 25,
           },
         },
         rules: [], adhocTransactions: [], overrides: {},
       });
       expect(upgraded.settings.surplus).toEqual({
-        parkedCash: 180000, monthlyContribution: 2500, reserveMonths: 9,
+        parkedCash: 180000, monthlyContribution: 2500,
+        yearlyContribution: 15000, yearlyMonth: 3,
+        contributionsUntil: "2031-12-31", reserveMonths: 9,
         expectedReturn: 0.065, capitalGainsRate: 0.238, horizonYears: 25,
       });
     });
@@ -173,6 +179,8 @@ describe("appState & persistence", () => {
           startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
           surplus: {
             parkedCash: "loads", monthlyContribution: -400,
+            yearlyContribution: "big", yearlyMonth: 99,
+            contributionsUntil: "whenever",
             reserveMonths: -3, expectedReturn: "7%",
             capitalGainsRate: 2, horizonYears: 0,
           },
@@ -188,6 +196,11 @@ describe("appState & persistence", () => {
       expect(upgraded.settings.surplus.parkedCash).toBeUndefined();
       // A negative stream is nonsense; zero is the safe reading.
       expect(upgraded.settings.surplus.monthlyContribution).toBe(0);
+      expect(upgraded.settings.surplus.yearlyContribution).toBe(0);
+      expect(upgraded.settings.surplus.yearlyMonth).toBe(1);
+      // An unusable end date is dropped, never invented — inventing one would
+      // silently truncate a plan the user believes is open-ended.
+      expect(upgraded.settings.surplus.contributionsUntil).toBeUndefined();
     });
 
     test("accepts a zero parked balance as a real answer", () => {

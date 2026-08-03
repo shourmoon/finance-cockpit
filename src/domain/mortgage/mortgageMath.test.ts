@@ -28,7 +28,6 @@ import {
   compareBaselineWithPrepayments,
   decomposeMortgageSavings,
 } from "./comparison";
-import { runMortgageScenarios } from "./scenarios";
 import type { AmortizationEntry, MortgageOriginalTerms } from "./types";
 
 /** Whole calendar months from `from` to `to`, fractional part included. */
@@ -246,69 +245,6 @@ describe("schedules including prepayments", () => {
     ]);
     // Paying the same money sooner cannot cost more interest.
     expect(lump.totalInterest).toBeLessThanOrEqual(split.totalInterest + 1e-6);
-  });
-});
-
-describe("scenario engine schedule integrity", () => {
-  const terms = LOANS[1];
-
-  function monthsBetween(a: string, b: string): number {
-    const [ay, am] = a.split("-").map(Number);
-    const [by, bm] = b.split("-").map(Number);
-    return (by - ay) * 12 + (bm - am);
-  }
-
-  it("splices past and simulated future into one continuous monthly series", () => {
-    const res = runMortgageScenarios(
-      { terms, pastPrepayments: [], asOfDate: "2026-07-01" },
-      [
-        {
-          id: "s",
-          name: "S",
-          description: "",
-          active: true,
-          patterns: [
-            { id: "p", label: "lump", kind: "oneTime", amount: 25_000, date: "2026-09-15" },
-          ],
-        },
-      ]
-    );
-    const schedule = res.scenarios[0].schedule;
-
-    for (let i = 1; i < schedule.length; i++) {
-      // No duplicated, missing, or out-of-order months across the seam.
-      expect(monthsBetween(schedule[i - 1].date, schedule[i].date)).toBe(1);
-      // The balance falls by exactly the principal applied that month.
-      expect(schedule[i - 1].remaining - schedule[i].remaining).toBeCloseTo(
-        schedule[i].principal,
-        5
-      );
-    }
-    expect(schedule.at(-1)!.remaining).toBeCloseTo(0, 1);
-  });
-
-  it("matches the plain baseline when no scenario and no prepayments exist", () => {
-    const res = runMortgageScenarios(
-      { terms, pastPrepayments: [], asOfDate: "2026-07-01" },
-      []
-    );
-    const baseline = computeBaselineMortgage(terms);
-    expect(res.actual.schedule).toHaveLength(baseline.schedule.length);
-    expect(res.actual.totalInterest).toBeCloseTo(baseline.totalInterest, 2);
-    expect(res.actual.payoffDate).toBe(baseline.payoffDate);
-  });
-
-  it("reports interest-so-far consistent with the spliced schedule", () => {
-    const res = runMortgageScenarios(
-      { terms, pastPrepayments: [], asOfDate: "2026-07-01" },
-      []
-    );
-    const upToAsOf = res.actual.schedule.filter((e) => e.date <= "2026-07-01");
-    expect(res.actualMonthsSoFar).toBe(upToAsOf.length);
-    expect(res.actualInterestSoFar).toBeCloseTo(
-      upToAsOf.reduce((s, e) => s + e.interest, 0),
-      4
-    );
   });
 });
 
@@ -602,10 +538,11 @@ describe("decomposeMortgageSavings with a future plan", () => {
       asOfDate,
       lumpSum: 72_000,
       monthly: 0,
+      yearly: 0,
     });
     expect(d.fromFutureLump.monthsSaved).toBeGreaterThan(0);
     expect(d.fromFutureLump.interestSaved).toBeGreaterThan(0);
-    expect(d.fromFutureRecurring.monthsSaved).toBe(0);
+    expect(d.fromFutureMonthly.monthsSaved).toBe(0);
     expect(d.projected.payoffDate < d.actual.payoffDate).toBe(true);
   });
 
@@ -614,9 +551,10 @@ describe("decomposeMortgageSavings with a future plan", () => {
       asOfDate,
       lumpSum: 0,
       monthly: 2_000,
+      yearly: 0,
     });
-    expect(d.fromFutureRecurring.monthsSaved).toBeGreaterThan(0);
-    expect(d.fromFutureRecurring.interestSaved).toBeGreaterThan(0);
+    expect(d.fromFutureMonthly.monthsSaved).toBeGreaterThan(0);
+    expect(d.fromFutureMonthly.interestSaved).toBeGreaterThan(0);
     expect(d.fromFutureLump.monthsSaved).toBe(0);
   });
 
@@ -625,12 +563,13 @@ describe("decomposeMortgageSavings with a future plan", () => {
       asOfDate,
       lumpSum: 72_000,
       monthly: 2_000,
+      yearly: 0,
     });
     expect(d.fromFutureLump.monthsSaved).toBeGreaterThan(0);
-    expect(d.fromFutureRecurring.monthsSaved).toBeGreaterThan(0);
+    expect(d.fromFutureMonthly.monthsSaved).toBeGreaterThan(0);
     // The two are distinct contributions, not the same number twice.
     expect(d.fromFutureLump.interestSaved).not.toBeCloseTo(
-      d.fromFutureRecurring.interestSaved,
+      d.fromFutureMonthly.interestSaved,
       0
     );
   });
@@ -642,12 +581,14 @@ describe("decomposeMortgageSavings with a future plan", () => {
       asOfDate,
       lumpSum: 72_000,
       monthly: 2_000,
+      yearly: 0,
     });
     const legs = [
       d.fromCadence,
       d.fromPrepayments,
       d.fromFutureLump,
-      d.fromFutureRecurring,
+      d.fromFutureMonthly,
+      d.fromFutureYearly,
     ];
     expect(legs.reduce((s, l) => s + l.monthsSaved, 0)).toBeCloseTo(
       d.total.monthsSaved,
@@ -664,6 +605,7 @@ describe("decomposeMortgageSavings with a future plan", () => {
       asOfDate,
       lumpSum: 72_000,
       monthly: 2_000,
+      yearly: 0,
     });
     const gap =
       (Date.parse(d.contract.payoffDate + "T00:00:00Z") -
@@ -676,7 +618,8 @@ describe("decomposeMortgageSavings with a future plan", () => {
     // The two-argument form is still the "where things stand today" view.
     const withoutPlan = decomposeMortgageSavings(contract, prepayments);
     expect(withoutPlan.fromFutureLump.monthsSaved).toBe(0);
-    expect(withoutPlan.fromFutureRecurring.monthsSaved).toBe(0);
+    expect(withoutPlan.fromFutureMonthly.monthsSaved).toBe(0);
+    expect(withoutPlan.fromFutureYearly.monthsSaved).toBe(0);
     expect(withoutPlan.projected.payoffDate).toBe(withoutPlan.actual.payoffDate);
     expect(withoutPlan.total.monthsSaved).toBeCloseTo(
       withoutPlan.fromCadence.monthsSaved + withoutPlan.fromPrepayments.monthsSaved,
@@ -686,13 +629,13 @@ describe("decomposeMortgageSavings with a future plan", () => {
 
   it("ignores a plan whose amounts are zero or unusable", () => {
     for (const plan of [
-      { asOfDate, lumpSum: 0, monthly: 0 },
-      { asOfDate, lumpSum: Number.NaN, monthly: Number.NaN },
-      { asOfDate, lumpSum: -5_000, monthly: -100 },
+      { asOfDate, lumpSum: 0, monthly: 0, yearly: 0 },
+      { asOfDate, lumpSum: Number.NaN, monthly: Number.NaN, yearly: Number.NaN },
+      { asOfDate, lumpSum: -5_000, monthly: -100, yearly: -1 },
     ]) {
       const d = decomposeMortgageSavings(contract, prepayments, plan);
       expect(d.fromFutureLump.monthsSaved).toBe(0);
-      expect(d.fromFutureRecurring.monthsSaved).toBe(0);
+      expect(d.fromFutureMonthly.monthsSaved).toBe(0);
       expect(d.projected.payoffDate).toBe(d.actual.payoffDate);
     }
   });
@@ -704,6 +647,7 @@ describe("decomposeMortgageSavings with a future plan", () => {
       asOfDate,
       lumpSum: 0,
       monthly: 20_000,
+      yearly: 0,
     });
     expect(d.projected.payoffDate < d.actual.payoffDate).toBe(true);
     expect(d.projected.totalInterest).toBeGreaterThan(0);

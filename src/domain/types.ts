@@ -154,6 +154,15 @@ export interface SurplusSettings {
    * balance and add a stream later.
    */
   monthlyContribution: Money;
+  /** An amount once a year, e.g. a bonus. Zero means none. */
+  yearlyContribution: Money;
+  /** Calendar month (1-12) the yearly amount lands in. */
+  yearlyMonth: number;
+  /**
+   * Both recurring streams stop after this date; the lump is unaffected.
+   * Unset means "for as long as the loan lasts".
+   */
+  contributionsUntil?: ISODate;
   /** Months of expenses held back before anything counts as surplus. */
   reserveMonths: number;
   /** Expected pre-tax annual market return. */

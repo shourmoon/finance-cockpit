@@ -1,23 +1,21 @@
 // src/components/MortgageTab.tsx
 //
-// The mortgage optimisation tab displays the baseline and actual
-// mortgage metrics, allows users to enter past prepayments and
-// compare different future prepayment scenarios.  This version
-// includes several improvements:
-//   • A shared date format helper ensures that all dates on the UI
-//     use the `DD MMM 'YY` format (e.g. "26 Jan '25").
-//   • Each past prepayment row now shows both the cumulative savings
-//     versus the baseline mortgage and the incremental savings from
-//     that prepayment alone.
-//   • Type definitions and UI copy have been clarified.
+// The mortgage tab: the loan as written, how far ahead of it the household
+// already is, the surplus allocation decision, and the log of prepayments
+// already made.
+//
+// The what-if scenario builder that used to live here has been retired. It
+// could only ever optimise the mortgage in isolation, so it never showed what
+// a prepayment cost elsewhere and so quietly argued for prepaying. The
+// surplus card answers the same question with the market in frame, and covers
+// the patterns that mattered — a lump, a monthly amount and a yearly bonus,
+// each with an end date.
 
 import { useEffect, useMemo, useState } from "react";
 import {
   computeBaselineMortgage,
   computeMortgageWithPrepayments,
-  decomposeMortgageSavings,
   computeEffectiveAnnualRateFromSchedule,
-  runMortgageScenarios,
 } from "../domain/mortgage";
 import type {
   MortgageOriginalTerms,
@@ -26,15 +24,6 @@ import type {
   PaymentFrequency,
 } from "../domain/mortgage/types";
 import type { RecurringRule, SurplusSettings } from "../domain/types";
-import type {
-  MortgageScenarioConfig,
-  MonthlyScenarioPattern,
-  ScenarioPattern,
-  ScenarioPatternKind,
-  OneTimeScenarioPattern,
-  YearlyScenarioPattern,
-  BiweeklyScenarioPattern,
-} from "../domain/mortgage";
 import {
   loadMortgageUIState,
   saveMortgageUIState,
@@ -86,7 +75,7 @@ function formatMonthsAsYearsMonths(
   if (totalMonths == null || !Number.isFinite(totalMonths) || totalMonths <= 0) {
     return "—";
   }
-  const months = Math.floor(totalMonths);
+  const months = Math.round(totalMonths);
   const years = Math.floor(months / 12);
   const remainingMonths = months % 12;
 
@@ -226,9 +215,9 @@ type PrepaymentImpactRow = {
   monthsSaved: number;
   /** Effective annual rate after this prepayment and all previous ones. */
   effectiveRate: number | null;
-  /** Interest saved by this prepayment alone compared with the previous scenario. */
+  /** Interest saved by this prepayment alone, over and above the earlier ones. */
   interestSavedIncremental: number;
-  /** Months saved by this prepayment alone compared with the previous scenario. */
+  /** Months saved by this prepayment alone, over and above the earlier ones. */
   monthsSavedIncremental: number;
 };
 
@@ -277,9 +266,6 @@ export default function MortgageTab({
   // A row with an existing note renders expanded regardless; empty notes
   // stay collapsed behind a "+ Add note" affordance to keep the log light.
   const [openNoteRows, setOpenNoteRows] = useState<Set<string>>(new Set());
-  const [scenarios, setScenarios] = useState<MortgageScenarioConfig[]>(
-    initialUI.scenarios ?? []
-  );
 
   // Persist on any relevant change
   useEffect(() => {
@@ -289,10 +275,9 @@ export default function MortgageTab({
         .filter((p) => p.date && p.amount > 0)
         .map((p) => ({ date: p.date, amount: p.amount, note: p.note })),
       asOfDate: asOfDate || terms.startDate,
-      scenarios,
     };
     saveMortgageUIState(uiState);
-  }, [terms, prepayments, asOfDate, scenarios]);
+  }, [terms, prepayments, asOfDate]);
 
   function updateTermsFromInputs(
     overrides?: Partial<{
@@ -365,11 +350,6 @@ export default function MortgageTab({
 
   // The loan document says N years of MONTHLY payments. Paying biweekly is
   // already an acceleration against that, so the two are credited apart.
-  const savings = useMemo(
-    () => decomposeMortgageSavings(terms, prepaymentLog),
-    [terms, prepaymentLog]
-  );
-
   const baselineEffectiveRate = useMemo(
     () =>
       computeEffectiveAnnualRateFromSchedule(
@@ -401,7 +381,7 @@ export default function MortgageTab({
     const sorted = [...prepaymentLog].sort((a, b) =>
       a.date.localeCompare(b.date)
     );
-    // Keep track of the previous scenario to compute incremental savings.
+    // Keep track of the previous state to compute incremental savings.
     let prevActual = baseline;
     return sorted.map((p, index) => {
       // Build the prefix up to and including this prepayment
@@ -415,7 +395,7 @@ export default function MortgageTab({
         baseline.schedule.length - actual.schedule.length,
         terms.paymentFrequency
       );
-      // Incremental savings compared with the previous scenario
+      // Incremental savings compared with the previous prepayment
       const interestSavedIncremental =
         prevActual.totalInterest - actual.totalInterest;
       const monthsSavedIncremental = periodsToMonths(
@@ -443,19 +423,6 @@ export default function MortgageTab({
     });
   }, [prepaymentLog, terms, baseline]);
 
-  // -------- Scenario engine wiring --------
-
-  const scenarioRun = useMemo(() => {
-    return runMortgageScenarios(
-      {
-        terms,
-        pastPrepayments: prepaymentLog,
-        asOfDate: asOfDate || terms.startDate,
-      },
-      scenarios
-    );
-  }, [terms, prepaymentLog, asOfDate, scenarios]);
-
   function addPrepaymentRow() {
     setPrepayments((prev) => [
       ...prev,
@@ -476,551 +443,6 @@ export default function MortgageTab({
 
   function deletePrepaymentRow(id: string) {
     setPrepayments((prev) => prev.filter((row) => row.id !== id));
-  }
-
-  // -------- Scenario editing helpers (patterns: one-time, monthly, yearly, biweekly) --------
-
-  function addScenario() {
-    // Starts with no patterns: the quick "Monthly extra" field creates the
-    // first one on demand, and the "Add pattern" buttons below add whatever
-    // cadence the user actually wants. Seeding a default monthly pattern
-    // here used to mean clicking a different cadence (e.g. "Biweekly")
-    // silently stacked a second pattern alongside it instead of replacing
-    // it, since the user had no reason to expect one was already there.
-    const newScenario: MortgageScenarioConfig = {
-      id: uuid(),
-      name: `Scenario ${scenarios.length + 1}`,
-      description: "",
-      active: true,
-      patterns: [],
-    };
-
-    setScenarios((prev) => [...prev, newScenario]);
-  }
-
-  function updateScenario(
-    id: string,
-    patch: Partial<Pick<MortgageScenarioConfig, "name" | "description" | "active">>
-  ) {
-    setScenarios((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
-    );
-  }
-
-  function deleteScenario(id: string) {
-    setScenarios((prev) => prev.filter((s) => s.id !== id));
-  }
-
-  function addScenarioPattern(
-    scenarioId: string,
-    kind: ScenarioPatternKind
-  ) {
-    const baseDate = asOfDate || terms.startDate;
-
-    setScenarios((prev) =>
-      prev.map((s) => {
-        if (s.id !== scenarioId) return s;
-        const patterns = [...(s.patterns ?? [])];
-
-        let newPattern: ScenarioPattern;
-
-        switch (kind) {
-          case "oneTime": {
-            const p: OneTimeScenarioPattern = {
-              id: uuid(),
-              label: "One-time extra",
-              kind: "oneTime",
-              amount: 0,
-              date: baseDate,
-            };
-            newPattern = p;
-            break;
-          }
-          case "monthly": {
-            const p: MonthlyScenarioPattern = {
-              id: uuid(),
-              label: "Monthly extra",
-              kind: "monthly",
-              amount: 0,
-              startDate: baseDate,
-              dayOfMonthStrategy: "same-as-due-date",
-            };
-            newPattern = p;
-            break;
-          }
-          case "yearly": {
-            const [yStr, mStr, dStr] = baseDate.split("-");
-            const year = Number(yStr) || new Date().getFullYear();
-            const month = Number(mStr) || 1;
-            const day = Number(dStr) || 1;
-            const p: YearlyScenarioPattern = {
-              id: uuid(),
-              label: "Annual extra",
-              kind: "yearly",
-              amount: 0,
-              month,
-              day,
-              firstYear: year,
-            };
-            newPattern = p;
-            break;
-          }
-          case "biweekly": {
-            const p: BiweeklyScenarioPattern = {
-              id: uuid(),
-              label: "Biweekly extra",
-              kind: "biweekly",
-              amount: 0,
-              anchorDate: baseDate,
-              startDate: baseDate,
-            };
-            newPattern = p;
-            break;
-          }
-          default:
-            return s;
-        }
-
-        return {
-          ...s,
-          patterns: [...patterns, newPattern],
-        };
-      })
-    );
-  }
-
-  function updateScenarioPattern(
-    scenarioId: string,
-    patternId: string,
-    patch: Partial<ScenarioPattern>
-  ) {
-    setScenarios((prev) =>
-      prev.map((s) => {
-        if (s.id !== scenarioId) return s;
-        const patterns = (s.patterns ?? []).map((p) =>
-          p.id === patternId ? ({ ...p, ...patch } as ScenarioPattern) : p
-        );
-        return { ...s, patterns };
-      })
-    );
-  }
-
-  function deleteScenarioPattern(scenarioId: string, patternId: string) {
-    setScenarios((prev) =>
-      prev.map((s) => {
-        if (s.id !== scenarioId) return s;
-        const patterns = (s.patterns ?? []).filter((p) => p.id !== patternId);
-        return { ...s, patterns };
-      })
-    );
-  }
-
-
-  function renderScenarioPatternRow(
-    scenarioId: string,
-    pattern: ScenarioPattern
-  ) {
-    const onDelete = () => deleteScenarioPattern(scenarioId, pattern.id);
-
-    // A common header row for each pattern card.  Shows the kind chip
-    // on the left and a delete button on the right.  This header
-    // appears at the top of each pattern card regardless of type.
-    function PatternHeader({ kind }: { kind: string }) {
-      return (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={styles.patternTypeChip}>{kind}</span>
-          <button
-            style={styles.patternDeleteButton}
-            onClick={onDelete}
-          >
-            ✕
-          </button>
-        </div>
-      );
-    }
-
-    // For one‑time patterns, display a card with label, amount and date.
-    if (pattern.kind === "oneTime") {
-      const p = pattern as OneTimeScenarioPattern;
-      return (
-        <div key={pattern.id} style={styles.patternCard}>
-          <PatternHeader kind="One‑time" />
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Label</span>
-            <input
-              style={styles.fieldControl}
-              type="text"
-              value={p.label}
-              placeholder="Description"
-              onChange={(e) =>
-                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Amount</span>
-            <input
-              style={{ ...styles.fieldControl, textAlign: "right" }}
-              type="text"
-              value={p.amount ? p.amount.toString() : ""}
-              placeholder="0"
-              onChange={(e) => {
-                const n = parseNumber(e.target.value) ?? 0;
-                updateScenarioPattern(scenarioId, p.id, { amount: n });
-              }}
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <LabeledDateInput
-              label="Date"
-              value={p.date}
-              onChange={(val) =>
-                // A cleared date input reports "", which is not a date the
-                // engine can place; hold the last good one, matching how
-                // the loan's own start date behaves.
-                updateScenarioPattern(scenarioId, p.id, { date: val || p.date })
-              }
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // Monthly patterns: support start, until and cadence options in a
-    // vertical layout with labelled fields.  Extra fields for
-    // specific day and nth weekday are shown conditionally.
-    if (pattern.kind === "monthly") {
-      const p = pattern as MonthlyScenarioPattern;
-      return (
-        <div key={pattern.id} style={styles.patternCard}>
-          <PatternHeader kind="Monthly" />
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Label</span>
-            <input
-              style={styles.fieldControl}
-              type="text"
-              value={p.label}
-              placeholder="Description"
-              onChange={(e) =>
-                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Amount</span>
-            <input
-              style={{ ...styles.fieldControl, textAlign: "right" }}
-              type="text"
-              value={p.amount ? p.amount.toString() : ""}
-              placeholder="0"
-              onChange={(e) => {
-                const n = parseNumber(e.target.value) ?? 0;
-                updateScenarioPattern(scenarioId, p.id, { amount: n });
-              }}
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <LabeledDateInput
-              label="Start date"
-              value={p.startDate}
-              onChange={(val) =>
-                updateScenarioPattern(scenarioId, p.id, {
-                  startDate: val || p.startDate,
-                })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <LabeledDateInput
-              label="Until (optional)"
-              value={p.untilDate ?? ""}
-              onChange={(val) =>
-                updateScenarioPattern(scenarioId, p.id, {
-                  untilDate: val || undefined,
-                })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Cadence</span>
-            <select
-              style={styles.fieldControl}
-              value={p.dayOfMonthStrategy}
-              onChange={(e) =>
-                updateScenarioPattern(scenarioId, p.id, {
-                  dayOfMonthStrategy: e.target
-                    .value as MonthlyScenarioPattern["dayOfMonthStrategy"],
-                })
-              }
-            >
-              <option value="same-as-due-date">Due date</option>
-              <option value="specific-day">Day of month</option>
-              <option value="nth-weekday">Nth weekday</option>
-            </select>
-          </div>
-          {p.dayOfMonthStrategy === "specific-day" && (
-            <div style={styles.fieldRow}>
-              <span style={styles.fieldLabel}>Day of month</span>
-              <input
-                style={styles.fieldControl}
-                type="number"
-                min={1}
-                max={28}
-                value={p.specificDayOfMonth ?? ""}
-                placeholder="Day"
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (!raw) {
-                    updateScenarioPattern(scenarioId, p.id, {
-                      specificDayOfMonth: undefined,
-                    });
-                    return;
-                  }
-                  let n = Number(raw);
-                  if (!Number.isFinite(n)) n = 1;
-                  n = Math.min(28, Math.max(1, Math.floor(n)));
-                  updateScenarioPattern(scenarioId, p.id, {
-                    specificDayOfMonth: n,
-                  });
-                }}
-              />
-            </div>
-          )}
-          {p.dayOfMonthStrategy === "nth-weekday" && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                <span style={styles.fieldLabel}>Nth</span>
-                <input
-                  style={styles.fieldControl}
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={p.nthWeekday ?? ""}
-                  placeholder="Nth"
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (!raw) {
-                      updateScenarioPattern(scenarioId, p.id, {
-                        nthWeekday: undefined,
-                      });
-                      return;
-                    }
-                    let n = Number(raw);
-                    if (!Number.isFinite(n)) n = 1;
-                    n = Math.min(5, Math.max(1, Math.floor(n)));
-                    updateScenarioPattern(scenarioId, p.id, {
-                      nthWeekday: n,
-                    });
-                  }}
-                />
-              </div>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                <span style={styles.fieldLabel}>Weekday</span>
-                <select
-                  style={styles.fieldControl}
-                  value={p.weekday ?? 1}
-                  onChange={(e) => {
-                    let v = Number(e.target.value);
-                    if (!Number.isFinite(v)) v = 1;
-                    updateScenarioPattern(scenarioId, p.id, {
-                      weekday: v,
-                    });
-                  }}
-                >
-                  <option value={1}>Mon</option>
-                  <option value={2}>Tue</option>
-                  <option value={3}>Wed</option>
-                  <option value={4}>Thu</option>
-                  <option value={5}>Fri</option>
-                  <option value={6}>Sat</option>
-                  <option value={7}>Sun</option>
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // Annual patterns: choose month, day and year range in a vertical layout.
-    if (pattern.kind === "yearly") {
-      const p = pattern as YearlyScenarioPattern;
-      return (
-        <div key={pattern.id} style={styles.patternCard}>
-          <PatternHeader kind="Annual" />
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Label</span>
-            <input
-              style={styles.fieldControl}
-              type="text"
-              value={p.label}
-              placeholder="Description"
-              onChange={(e) =>
-                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Amount</span>
-            <input
-              style={{ ...styles.fieldControl, textAlign: "right" }}
-              type="text"
-              value={p.amount ? p.amount.toString() : ""}
-              placeholder="0"
-              onChange={(e) => {
-                const n = parseNumber(e.target.value) ?? 0;
-                updateScenarioPattern(scenarioId, p.id, { amount: n });
-              }}
-            />
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <span style={styles.fieldLabel}>Month (1‑12)</span>
-              <input
-                style={styles.fieldControl}
-                type="number"
-                min={1}
-                max={12}
-                value={p.month}
-                placeholder="M"
-                onChange={(e) => {
-                  let n = Number(e.target.value);
-                  if (!Number.isFinite(n)) n = 1;
-                  n = Math.min(12, Math.max(1, Math.floor(n)));
-                  updateScenarioPattern(scenarioId, p.id, { month: n });
-                }}
-              />
-            </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <span style={styles.fieldLabel}>Day (1‑31)</span>
-              <input
-                style={styles.fieldControl}
-                type="number"
-                min={1}
-                max={31}
-                value={p.day}
-                placeholder="D"
-                onChange={(e) => {
-                  let n = Number(e.target.value);
-                  if (!Number.isFinite(n)) n = 1;
-                  n = Math.min(31, Math.max(1, Math.floor(n)));
-                  updateScenarioPattern(scenarioId, p.id, { day: n });
-                }}
-              />
-            </div>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <span style={styles.fieldLabel}>From year</span>
-              <input
-                style={styles.fieldControl}
-                type="number"
-                value={p.firstYear}
-                placeholder="From"
-                onChange={(e) => {
-                  let n = Number(e.target.value);
-                  if (!Number.isFinite(n)) n = new Date().getFullYear();
-                  n = Math.floor(n);
-                  updateScenarioPattern(scenarioId, p.id, { firstYear: n });
-                }}
-              />
-            </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <span style={styles.fieldLabel}>To year (optional)</span>
-              <input
-                style={styles.fieldControl}
-                type="number"
-                value={p.lastYear ?? ""}
-                placeholder="To"
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (!raw) {
-                    updateScenarioPattern(scenarioId, p.id, {
-                      lastYear: undefined,
-                    });
-                    return;
-                  }
-                  let n = Number(raw);
-                  if (!Number.isFinite(n)) n = p.firstYear;
-                  n = Math.floor(n);
-                  updateScenarioPattern(scenarioId, p.id, { lastYear: n });
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Biweekly patterns: specify anchor, start and until dates.
-    if (pattern.kind === "biweekly") {
-      const p = pattern as BiweeklyScenarioPattern;
-      return (
-        <div key={pattern.id} style={styles.patternCard}>
-          <PatternHeader kind="Biweekly" />
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Label</span>
-            <input
-              style={styles.fieldControl}
-              type="text"
-              value={p.label}
-              placeholder="Description"
-              onChange={(e) =>
-                updateScenarioPattern(scenarioId, p.id, { label: e.target.value })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>Amount</span>
-            <input
-              style={{ ...styles.fieldControl, textAlign: "right" }}
-              type="text"
-              value={p.amount ? p.amount.toString() : ""}
-              placeholder="0"
-              onChange={(e) => {
-                const n = parseNumber(e.target.value) ?? 0;
-                updateScenarioPattern(scenarioId, p.id, { amount: n });
-              }}
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <LabeledDateInput
-              label="Anchor date"
-              value={p.anchorDate}
-              onChange={(val) =>
-                updateScenarioPattern(scenarioId, p.id, {
-                  anchorDate: val || p.anchorDate,
-                })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <LabeledDateInput
-              label="Start (optional)"
-              value={p.startDate ?? ""}
-              onChange={(val) =>
-                updateScenarioPattern(scenarioId, p.id, {
-                  startDate: val || undefined,
-                })
-              }
-            />
-          </div>
-          <div style={styles.fieldRow}>
-            <LabeledDateInput
-              label="Until (optional)"
-              value={p.untilDate ?? ""}
-              onChange={(val) =>
-                updateScenarioPattern(scenarioId, p.id, {
-                  untilDate: val || undefined,
-                })
-              }
-            />
-          </div>
-        </div>
-      );
-    }
-
-    return null;
   }
 
   return (
@@ -1062,7 +484,7 @@ export default function MortgageTab({
             }}
           />
           <LabeledDateInput
-            label="Scenario as‑of date"
+            label="Planning from"
             value={asOfDate}
             onChange={(val) => {
               const v = val || terms.startDate;
@@ -1247,45 +669,6 @@ export default function MortgageTab({
           </div>
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <div style={styles.subHeading}>Ahead of the original contract</div>
-          <div style={styles.summaryRow}>
-            <span>Contract payoff ({Math.round(terms.termMonths / 12)} yrs, monthly)</span>
-            <span>{formatDateDisplay(savings.contract.payoffDate)}</span>
-          </div>
-          {terms.paymentFrequency === "biweekly" && (
-            <div style={styles.summaryRow}>
-              <span>From paying biweekly</span>
-              <span>
-                {formatMonthsAsYearsMonths(savings.fromCadence.monthsSaved)} ·{" "}
-                {formatCurrency(savings.fromCadence.interestSaved)}
-              </span>
-            </div>
-          )}
-          <div style={styles.summaryRow}>
-            <span>From prepayments</span>
-            <span>
-              {formatMonthsAsYearsMonths(savings.fromPrepayments.monthsSaved)} ·{" "}
-              {formatCurrency(savings.fromPrepayments.interestSaved)}
-            </span>
-          </div>
-          <div style={styles.summaryRow}>
-            <span>Total ahead</span>
-            <span>
-              {formatMonthsAsYearsMonths(savings.total.monthsSaved)} ·{" "}
-              {formatCurrency(savings.total.interestSaved)}
-            </span>
-          </div>
-          {terms.paymentFrequency === "biweekly" && (
-            <div style={styles.detailsHint}>
-              26 half-payments is 13 months' worth, so the biweekly schedule
-              already puts one extra monthly payment a year (
-              {formatCurrency(savings.cadenceExtraPerYear)}) straight onto
-              principal.
-            </div>
-          )}
-        </div>
-
         {perPrepaymentImpacts.length > 0 && (
           <details style={styles.details}>
             <summary style={styles.detailsSummary}>
@@ -1360,109 +743,6 @@ export default function MortgageTab({
         )}
       </SectionCard>
 
-      {/* Scenarios */}
-      <SectionCard title="What‑if Scenarios" subtitle="Create scenarios to test future extra payments">
-        <div style={{ marginBottom: 8 }}>
-          <button style={styles.addButton} onClick={addScenario}>
-            + Add scenario
-          </button>
-        </div>
-        {scenarios.length === 0 ? (
-          <div style={styles.emptyState}>
-            No scenarios yet. Add scenarios to test different monthly extra payment strategies from the as‑of date.
-          </div>
-        ) : (
-          <>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {scenarios.map((s) => {
-                return (
-                  <div key={s.id} style={styles.scenarioCard}>
-                    <div style={styles.scenarioHeaderRow}>
-                      <input
-                        style={styles.scenarioNameInput}
-                        type="text"
-                        value={s.name}
-                        onChange={(e) => updateScenario(s.id, { name: e.target.value })}
-                      />
-                      <label style={styles.scenarioToggleLabel}>
-                        <input
-                          type="checkbox"
-                          checked={s.active}
-                          onChange={(e) => updateScenario(s.id, { active: e.target.checked })}
-                        />
-                        <span style={{ marginLeft: 4 }}>Active</span>
-                      </label>
-                      <button
-                        style={styles.deleteButton}
-                        onClick={() => deleteScenario(s.id)}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <div style={styles.scenarioPatternsSection}>
-                      <div style={styles.scenarioPatternsHeaderRow}>
-                        <span style={styles.patternHeaderKind}>Type</span>
-                        <span style={styles.patternHeaderLabel}>Label</span>
-                        <span style={styles.patternHeaderAmount}>Amount</span>
-                        <span style={styles.patternHeaderDates}>Dates / cadence</span>
-                        <span style={styles.patternHeaderActions}></span>
-                      </div>
-                      {(s.patterns ?? []).length === 0 ? (
-                        <div style={styles.scenarioPatternsEmpty}>
-                          No future prepayment patterns yet. Add one below.
-                        </div>
-                      ) : (
-                        (s.patterns ?? []).map((p) => renderScenarioPatternRow(s.id, p))
-                      )}
-                      <div style={styles.scenarioPatternAddRow}>
-                        <span style={styles.scenarioPatternAddLabel}>Add pattern:</span>
-                        <button
-                          style={styles.scenarioPatternAddButton}
-                          onClick={() => addScenarioPattern(s.id, "oneTime")}
-                        >
-                          One-time
-                        </button>
-                        <button
-                          style={styles.scenarioPatternAddButton}
-                          onClick={() => addScenarioPattern(s.id, "monthly")}
-                        >
-                          Monthly
-                        </button>
-                        <button
-                          style={styles.scenarioPatternAddButton}
-                          onClick={() => addScenarioPattern(s.id, "yearly")}
-                        >
-                          Annual
-                        </button>
-                        <button
-                          style={styles.scenarioPatternAddButton}
-                          onClick={() => addScenarioPattern(s.id, "biweekly")}
-                        >
-                          Biweekly
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {scenarioRun.scenarios.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div style={styles.subHeading}>Scenario comparison</div>
-                {scenarioRun.scenarios.map((s) => (
-                  <div key={s.scenarioId} style={styles.summaryRow}>
-                    <span>{s.scenarioName}</span>
-                    <span>
-                      Payoff {formatDateDisplay(s.payoffDate)} · Interest {formatCurrency(s.totalInterest)} · Saved vs actual {formatCurrency(s.interestSavedVsActual)} {formatMonthsAsYearsMonths(s.monthsSavedVsActual) !== "—" ? `· ${formatMonthsAsYearsMonths(s.monthsSavedVsActual)} sooner` : ""}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </SectionCard>
     </div>
   );
 }
@@ -1501,14 +781,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     fontWeight: 400,
     color: colors.muted,
-  },
-  inputRow: {
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    marginBottom: 8,
   },
   summaryRow: {
     display: "flex",
@@ -1557,130 +829,9 @@ const styles: Record<string, React.CSSProperties> = {
     color: colors.muted,
     cursor: "pointer",
   },
-  scenarioCard: {
-    borderRadius: 10,
-    border: `1px solid ${colors.cardBorder}`,
-    padding: 10,
-    backgroundColor: colors.surfaceInset,
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  scenarioHeaderRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  },
-  scenarioNameInput: {
-    flex: 1,
-    borderRadius: 8,
-    border: `1px solid ${colors.inputBorder}`,
-    padding: "4px 8px",
-    backgroundColor: colors.inputBg,
-    color: colors.text,
-    fontSize: 13,
-  },
-  scenarioToggleLabel: {
-    display: "flex",
-    alignItems: "center",
-    fontSize: 12,
-    color: colors.muted,
-  },
-  scenarioPatternsSection: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTop: `1px solid ${colors.cardBorder}`,
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  scenarioPatternsHeaderRow: {
-    // Hide the old header row for patterns now that each pattern card
-    // contains its own labels.  Keeping this entry in place avoids
-    // removing the markup but ensures it takes up no space.
-    display: "none",
-  },
-  patternHeaderKind: {},
-  patternHeaderLabel: {},
-  patternHeaderAmount: {
-    textAlign: "right",
-  },
-  patternHeaderDates: {
-    textAlign: "left",
-  },
-  patternHeaderActions: {
-    textAlign: "center",
-  },
-  scenarioPatternsEmpty: {
-    fontSize: 12,
-    color: colors.muted,
-    padding: "4px 0 6px",
-  },
-  scenarioPatternAddRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 6,
-  },
-  scenarioPatternAddLabel: {
-    fontSize: 11,
-    color: colors.muted,
-  },
-  scenarioPatternAddButton: ui.chip,
-  // New styles for the redesigned scenario pattern cards.
-  // Each pattern card is its own vertical container with a small
-  // header and labelled field rows.  This layout scales nicely on
-  // mobile because the rows stack naturally and there are no
-  // wide grid columns.  Labels use a smaller font to distinguish
-  // them from the input values.
-  patternCard: {
-    borderRadius: 8,
-    border: `1px solid ${colors.cardBorder}`,
-    backgroundColor: colors.surfaceInset,
-    padding: 8,
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-  },
-  patternTypeChip: {
-    fontSize: 11,
-    borderRadius: 999,
-    padding: "2px 6px",
-    border: `1px solid ${colors.inputBorder}`,
-    backgroundColor: colors.inputBg,
-    color: colors.text,
-  },
-  patternDeleteButton: {
-    borderRadius: 999,
-    border: `1px solid ${colors.inputBorder}`,
-    backgroundColor: colors.inputBg,
-    color: colors.muted,
-    width: 26,
-    height: 26,
-    fontSize: 13,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-  },
-  fieldRow: {
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  fieldLabel: {
-    fontSize: 11,
-    color: colors.muted,
-    minWidth: 80,
-  },
-  // Dense control for the pattern cards. It shares the app-wide input
-  // chrome (colors.inputBg fill, colors.inputBorder outline) so scenario
-  // fields read like every other input; only the padding/font are
-  // tightened for the compact cards. Previously this used the page
-  // background (#020617) and card border, which made these inputs look
-  // like a different control set from the rest of the app.
+  // Dense control for the compact rows. It shares the app-wide input chrome
+  // (colors.inputBg fill, colors.inputBorder outline) so these fields read
+  // like every other input; only the padding/font are tightened.
   fieldControl: {
     flex: 1,
     minWidth: 0,

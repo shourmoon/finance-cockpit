@@ -5,13 +5,17 @@ import type {
   PaymentFrequency,
   ISODate,
 } from "./types";
-import type {
-  MortgageScenarioConfig,
-} from "./scenarios";
 // Dates here are the same "YYYY-MM-DD denoting a real calendar day"
 // contract the cashflow side uses, so the check lives in one place.
 import { isValidISODate } from "../dateUtils";
 
+/**
+ * Note on stored payloads: earlier versions carried a `scenarios` array for
+ * the what-if feature, which the surplus card replaced. Parsing simply
+ * ignores the field — it is neither read nor written — so an old localStorage
+ * value or an incoming sync snapshot still loads without complaint, and the
+ * dead data falls away the next time state is saved.
+ */
 export interface MortgageUIState {
   terms: MortgageOriginalTerms;
   prepayments: PastPrepaymentLog;
@@ -21,10 +25,6 @@ export interface MortgageUIState {
    * (e.g. latest actual payment date or today).
    */
   asOfDate: ISODate | null;
-  /**
-   * Saved scenario configurations (labels, patterns, etc.).
-   */
-  scenarios: MortgageScenarioConfig[];
 }
 
 const STORAGE_KEY_V2 = "finance-cockpit-mortgage-v2";
@@ -43,7 +43,6 @@ export function createDefaultMortgageUIState(): MortgageUIState {
     terms: defaultTerms,
     prepayments: [],
     asOfDate: defaultTerms.startDate,
-    scenarios: [],
   };
 }
 
@@ -108,71 +107,6 @@ function isValidPrepayments(value: any): value is PastPrepaymentLog {
   });
 }
 
-const SCENARIO_PATTERN_KINDS = new Set(["oneTime", "monthly", "yearly", "biweekly"]);
-
-/**
- * A pattern missing a field its own kind depends on (or carrying a
- * non-finite amount) would otherwise silently inject NaN into the
- * simulated schedule, or throw outright (a biweekly pattern with no
- * anchorDate). Rather than let corrupted data (a bad sync payload, a
- * hand-edited localStorage value) reach the domain layer, drop only the
- * offending pattern here and keep the rest of the scenario intact.
- */
-function isValidScenarioPattern(value: any): boolean {
-  if (!value || typeof value !== "object") return false;
-  if (typeof value.id !== "string" || typeof value.kind !== "string") return false;
-  if (!SCENARIO_PATTERN_KINDS.has(value.kind)) return false;
-  if (!Number.isFinite(value.amount)) return false;
-
-  // Optional date bounds still have to be real days when present: they are
-  // compared against schedule dates as strings, and a biweekly anchorDate
-  // additionally reaches parseIsoToDate, which throws — from inside a
-  // render-time useMemo, taking the whole tab down.
-  const optionalDateOk = (d: unknown) => d === undefined || isValidISODate(d);
-
-  switch (value.kind) {
-    case "oneTime":
-      return isValidISODate(value.date);
-    case "monthly":
-      return isValidISODate(value.startDate) && optionalDateOk(value.untilDate);
-    case "yearly":
-      return (
-        Number.isFinite(value.month) &&
-        Number.isFinite(value.day) &&
-        Number.isFinite(value.firstYear)
-      );
-    case "biweekly":
-      return (
-        isValidISODate(value.anchorDate) &&
-        optionalDateOk(value.startDate) &&
-        optionalDateOk(value.untilDate)
-      );
-    // Unreachable: SCENARIO_PATTERN_KINDS.has(value.kind) above already
-    // narrows to exactly these four cases.
-    /* v8 ignore next 2 */
-    default:
-      return false;
-  }
-}
-
-function sanitizeScenarios(value: any): MortgageScenarioConfig[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(
-      (s): s is any =>
-        !!s &&
-        typeof s === "object" &&
-        typeof s.id === "string" &&
-        typeof s.name === "string"
-    )
-    .map((s) => ({
-      ...s,
-      patterns: Array.isArray(s.patterns)
-        ? s.patterns.filter(isValidScenarioPattern)
-        : [],
-    }));
-}
-
 /**
  * Field-by-field validation of an untrusted MortgageUIState-shaped value
  * (from localStorage or a sync snapshot). Returns a clean state, or null
@@ -180,8 +114,7 @@ function sanitizeScenarios(value: any): MortgageScenarioConfig[] {
  */
 export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null {
   if (!value || typeof value !== "object") return null;
-  const { terms, prepayments, asOfDate, scenarios } =
-    value as Partial<MortgageUIState>;
+  const { terms, prepayments, asOfDate } = value as Partial<MortgageUIState>;
 
   if (!isValidTerms(terms)) return null;
   const safePrepayments = isValidPrepayments(prepayments) ? prepayments! : [];
@@ -191,13 +124,10 @@ export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null 
   const safeAsOfDate = isValidISODate(asOfDate)
     ? (asOfDate as ISODate)
     : terms.startDate;
-  const safeScenarios = sanitizeScenarios(scenarios);
-
   return {
     terms: { ...terms, paymentFrequency: normalizeFrequency(terms.paymentFrequency) },
     prepayments: safePrepayments,
     asOfDate: safeAsOfDate,
-    scenarios: safeScenarios,
   };
 }
 
@@ -232,7 +162,6 @@ function loadAndMigrateV1(): MortgageUIState | null {
     terms,
     prepayments: safePrepayments,
     asOfDate: terms.startDate,
-    scenarios: [],
   };
 
   // Persist as v2 so next loads hit the new key.
@@ -273,8 +202,12 @@ export function saveMortgageUIState(state: MortgageUIState): void {
       ? state.terms
       : loadV2FromStorage()?.terms ?? createDefaultMortgageUIState().terms;
 
+    // Built field by field rather than by spreading `state`: a spread carries
+    // through anything the caller happens to be holding, so retired fields
+    // (the old `scenarios` array) would be written back forever, and any
+    // future stray property would silently reach storage and the sync
+    // payload. Only what this module knows about gets persisted.
     const payload: MortgageUIState = {
-      ...state,
       terms: { ...safeTerms, paymentFrequency: normalizeFrequency(safeTerms.paymentFrequency) },
       prepayments: isValidPrepayments(state.prepayments)
         ? state.prepayments
@@ -282,7 +215,6 @@ export function saveMortgageUIState(state: MortgageUIState): void {
       asOfDate: isValidISODate(state.asOfDate)
         ? (state.asOfDate as ISODate)
         : safeTerms.startDate,
-      scenarios: sanitizeScenarios(state.scenarios),
     };
 
     window.localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(payload));

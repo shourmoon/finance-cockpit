@@ -32,15 +32,6 @@ describe("sanitizeMortgageUIState (validator branches)", () => {
     expect(s!.prepayments).toEqual([]);
   });
 
-  it("drops a non-array scenarios value and falsy scenario entries", () => {
-    expect(
-      sanitizeMortgageUIState({ terms: validTerms, scenarios: "nope" })!.scenarios
-    ).toEqual([]);
-    expect(
-      sanitizeMortgageUIState({ terms: validTerms, scenarios: [null, { id: 1 }] })!
-        .scenarios
-    ).toEqual([]);
-  });
 
   it("keeps a biweekly payment frequency", () => {
     const s = sanitizeMortgageUIState({
@@ -66,208 +57,13 @@ describe("sanitizeMortgageUIState (validator branches)", () => {
     expect(loadMortgageUIState().terms.paymentFrequency).toBe("biweekly");
   });
 
-  it("keeps valid prepayments and scenarios", () => {
-    const s = sanitizeMortgageUIState({
-      terms: validTerms,
-      prepayments: [{ date: "2025-02-01", amount: 500 }],
-      scenarios: [{ id: "a", name: "A", active: true, patterns: [] }],
-    });
-    expect(s!.prepayments).toHaveLength(1);
-    expect(s!.scenarios).toHaveLength(1);
-  });
 
-  it("treats a scenario with a missing/non-array patterns field as having none", () => {
-    const s = sanitizeMortgageUIState({
-      terms: validTerms,
-      scenarios: [
-        { id: "a", name: "A", active: true }, // patterns omitted entirely
-        { id: "b", name: "B", active: true, patterns: "nope" },
-      ],
-    });
-    expect(s!.scenarios).toHaveLength(2);
-    expect(s!.scenarios[0].patterns).toEqual([]);
-    expect(s!.scenarios[1].patterns).toEqual([]);
-  });
 
-  it("drops a pattern with a missing/non-finite amount instead of letting it through", () => {
-    const s = sanitizeMortgageUIState({
-      terms: validTerms,
-      scenarios: [
-        {
-          id: "a",
-          name: "A",
-          active: true,
-          patterns: [
-            { id: "p1", kind: "oneTime", date: "2025-06-01" }, // amount missing
-            { id: "p2", kind: "oneTime", date: "2025-06-01", amount: NaN },
-            { id: "p3", kind: "oneTime", date: "2025-06-01", amount: 500 }, // valid
-          ],
-        },
-      ],
-    });
-    expect(s!.scenarios[0].patterns).toHaveLength(1);
-    expect(s!.scenarios[0].patterns[0].id).toBe("p3");
-  });
 
-  describe("dates must denote real calendar days, not just be strings", () => {
-    it("rejects terms whose startDate is not a real date", () => {
-      expect(
-        sanitizeMortgageUIState({ terms: { ...validTerms, startDate: "hello" } })
-      ).toBeNull();
-      expect(
-        sanitizeMortgageUIState({ terms: { ...validTerms, startDate: "2025-02-30" } })
-      ).toBeNull();
-    });
 
-    it("falls back to startDate when asOfDate is not a real date", () => {
-      // Left verbatim, this sorts above every real ISO date and the scenario
-      // engine reports the whole loan as already paid off.
-      const s = sanitizeMortgageUIState({ terms: validTerms, asOfDate: "not-a-date" });
-      expect(s!.asOfDate).toBe(validTerms.startDate);
-    });
 
-    it("drops a prepayment whose date is not a real date", () => {
-      const s = sanitizeMortgageUIState({
-        terms: validTerms,
-        prepayments: [{ date: "garbage", amount: 5_000 }],
-      });
-      expect(s!.prepayments).toEqual([]);
-    });
 
-    it("drops patterns carrying an unparseable date in any slot", () => {
-      const s = sanitizeMortgageUIState({
-        terms: validTerms,
-        scenarios: [
-          {
-            id: "a",
-            name: "A",
-            active: true,
-            patterns: [
-              // Would throw out of parseIsoToDate and take down the tab.
-              { id: "p1", kind: "biweekly", amount: 200, anchorDate: "garbage" },
-              { id: "p2", kind: "oneTime", amount: 200, date: "2025-02-30" },
-              {
-                id: "p3",
-                kind: "monthly",
-                amount: 200,
-                startDate: "2025-06-01",
-                untilDate: "nonsense",
-              },
-              {
-                id: "p4",
-                kind: "biweekly",
-                amount: 200,
-                anchorDate: "2025-06-01",
-                untilDate: "nonsense",
-              },
-            ],
-          },
-        ],
-      });
-      expect(s!.scenarios[0].patterns).toEqual([]);
-    });
 
-    it("keeps patterns whose optional date bounds are absent or valid", () => {
-      const s = sanitizeMortgageUIState({
-        terms: validTerms,
-        scenarios: [
-          {
-            id: "a",
-            name: "A",
-            active: true,
-            patterns: [
-              { id: "p1", kind: "monthly", amount: 200, startDate: "2025-06-01" },
-              {
-                id: "p2",
-                kind: "biweekly",
-                amount: 200,
-                anchorDate: "2025-06-01",
-                startDate: "2025-07-01",
-                untilDate: "2026-01-01",
-              },
-            ],
-          },
-        ],
-      });
-      expect(s!.scenarios[0].patterns).toHaveLength(2);
-    });
-  });
-
-  it("drops a null/non-object pattern entry, and one missing id or kind", () => {
-    const s = sanitizeMortgageUIState({
-      terms: validTerms,
-      scenarios: [
-        {
-          id: "a",
-          name: "A",
-          active: true,
-          patterns: [
-            null,
-            "not an object",
-            { kind: "oneTime", amount: 100, date: "2025-06-01" }, // id missing
-            { id: "p1", amount: 100, date: "2025-06-01" }, // kind missing
-          ],
-        },
-      ],
-    });
-    expect(s!.scenarios[0].patterns).toHaveLength(0);
-  });
-
-  it("drops a pattern with an unrecognised kind", () => {
-    const s = sanitizeMortgageUIState({
-      terms: validTerms,
-      scenarios: [
-        {
-          id: "a",
-          name: "A",
-          active: true,
-          patterns: [{ id: "p1", kind: "quarterly", amount: 500 }],
-        },
-      ],
-    });
-    expect(s!.scenarios[0].patterns).toHaveLength(0);
-  });
-
-  it("drops a biweekly pattern missing its anchorDate rather than letting it crash the scenario engine later", () => {
-    const s = sanitizeMortgageUIState({
-      terms: validTerms,
-      scenarios: [
-        {
-          id: "a",
-          name: "A",
-          active: true,
-          patterns: [{ id: "p1", kind: "biweekly", amount: 200 }], // anchorDate missing
-        },
-      ],
-    });
-    expect(s!.scenarios[0].patterns).toHaveLength(0);
-  });
-
-  it("keeps a well-formed pattern of every kind", () => {
-    const s = sanitizeMortgageUIState({
-      terms: validTerms,
-      scenarios: [
-        {
-          id: "a",
-          name: "A",
-          active: true,
-          patterns: [
-            { id: "p1", kind: "oneTime", amount: 100, date: "2025-06-01" },
-            {
-              id: "p2",
-              kind: "monthly",
-              amount: 100,
-              startDate: "2025-06-01",
-              dayOfMonthStrategy: "same-as-due-date",
-            },
-            { id: "p3", kind: "yearly", amount: 100, month: 4, day: 1, firstYear: 2026 },
-            { id: "p4", kind: "biweekly", amount: 100, anchorDate: "2025-06-01" },
-          ],
-        },
-      ],
-    });
-    expect(s!.scenarios[0].patterns).toHaveLength(4);
-  });
 });
 
 describe("mortgage persistence v2", () => {
@@ -285,53 +81,8 @@ describe("mortgage persistence v2", () => {
     expect(state.terms.termMonths).toBe(defaults.terms.termMonths);
     expect(state.prepayments.length).toBe(0);
     expect(state.asOfDate).toBe(defaults.asOfDate);
-    expect(Array.isArray(state.scenarios)).toBe(true);
   });
 
-  it("round-trips a customised state through save/load", () => {
-    const custom: MortgageUIState = {
-      terms: {
-        principal: 450_000,
-        annualRate: 0.0475,
-        termMonths: 300,
-        startDate: "2023-04-01",
-        paymentFrequency: "monthly",
-      },
-      prepayments: [
-        { date: "2024-01-01", amount: 1_000, note: "New year extra" },
-        { date: "2024-06-01", amount: 2_500, note: "Bonus" },
-      ],
-      asOfDate: "2024-07-01",
-      scenarios: [
-        {
-          id: "s1",
-          name: "Extra 200 monthly",
-          description: "",
-          active: true,
-          patterns: [
-            {
-              id: "p1",
-              label: "200 every month",
-              kind: "monthly",
-              amount: 200,
-              startDate: "2024-07-01",
-              dayOfMonthStrategy: "same-as-due-date",
-            },
-          ],
-        },
-      ],
-    };
-
-    saveMortgageUIState(custom);
-    const reloaded = loadMortgageUIState();
-
-    expect(reloaded.terms).toEqual(custom.terms);
-    expect(reloaded.prepayments).toEqual(custom.prepayments);
-    expect(reloaded.asOfDate).toBe(custom.asOfDate);
-    expect(reloaded.scenarios.length).toBe(1);
-    expect(reloaded.scenarios[0].name).toBe("Extra 200 monthly");
-    expect(reloaded.scenarios[0].patterns[0].kind).toBe("monthly");
-  });
 
   it("treats malformed JSON as missing and falls back to defaults", () => {
     // Simulate corrupted storage for v2
@@ -354,14 +105,12 @@ describe("mortgage persistence v2", () => {
         terms: { principal: 400_000, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
         prepayments: [{ date: "2025-06-01", amount: -50 }], // invalid amount => dropped
         asOfDate: "   ", // blank => falls back to startDate
-        scenarios: [{ id: 1, name: "bad" }], // invalid id type => empty
       })
     );
     const state = loadMortgageUIState();
     expect(state.terms.principal).toBe(400_000);
     expect(state.prepayments).toEqual([]);
     expect(state.asOfDate).toBe("2025-01-01");
-    expect(state.scenarios).toEqual([]);
   });
 
   it("treats a literal 'null' payload as empty and returns defaults", () => {
@@ -390,7 +139,6 @@ describe("mortgage persistence v2", () => {
       },
       prepayments: [{ date: "2024-01-15", amount: 10_000, note: "bonus" }],
       asOfDate: "2025-06-01",
-      scenarios: [],
     };
     saveMortgageUIState(real);
 
@@ -412,7 +160,6 @@ describe("mortgage persistence v2", () => {
       terms: { principal: -1, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
       prepayments: [],
       asOfDate: "2025-01-01",
-      scenarios: [],
     } as MortgageUIState);
     expect(loadMortgageUIState().terms).toEqual(createDefaultMortgageUIState().terms);
   });
@@ -422,7 +169,6 @@ describe("mortgage persistence v2", () => {
       terms: { principal: -1, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
       prepayments: "nope",
       asOfDate: "",
-      scenarios: "nope",
     } as any;
     saveMortgageUIState(dirty);
 
@@ -432,7 +178,6 @@ describe("mortgage persistence v2", () => {
     // Invalid terms are replaced with the default terms.
     expect(raw.terms).toEqual(createDefaultMortgageUIState().terms);
     expect(raw.prepayments).toEqual([]);
-    expect(raw.scenarios).toEqual([]);
     // asOfDate falls back to the (dirty) state's terms.startDate.
     expect(raw.asOfDate).toBe("2025-01-01");
   });
@@ -493,6 +238,49 @@ describe("mortgage persistence v2", () => {
     spy.mockRestore();
   });
 
+  it("still loads a payload carrying the retired scenarios field", () => {
+    // What-if scenarios were removed, but stored localStorage values and
+    // in-flight sync snapshots still carry the field. Parsing must ignore it
+    // rather than reject the payload — otherwise retiring the feature would
+    // wipe a user's real loan on their next load.
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v2",
+      JSON.stringify({
+        terms: {
+          principal: 680000, annualRate: 0.0475, termMonths: 360,
+          startDate: "2023-06-01",
+        },
+        prepayments: [{ date: "2025-01-01", amount: 150000 }],
+        asOfDate: "2026-08-01",
+        scenarios: [
+          { id: "s1", name: "Aggressive", patterns: [{ id: "p1", kind: "monthly", amount: 1000 }] },
+        ],
+      })
+    );
+
+    const state = loadMortgageUIState();
+    expect(state.terms.principal).toBe(680000);
+    expect(state.prepayments).toHaveLength(1);
+    expect(state.asOfDate).toBe("2026-08-01");
+    expect((state as Record<string, unknown>).scenarios).toBeUndefined();
+  });
+
+  it("drops the retired scenarios field on the next save", () => {
+    saveMortgageUIState({
+      terms: {
+        principal: 680000, annualRate: 0.0475, termMonths: 360,
+        startDate: "2023-06-01",
+      },
+      prepayments: [],
+      asOfDate: "2026-08-01",
+      ...({ scenarios: [{ id: "s1", name: "stale" }] } as object),
+    });
+    const raw = JSON.parse(
+      window.localStorage.getItem("finance-cockpit-mortgage-v2")!
+    );
+    expect(raw.scenarios).toBeUndefined();
+  });
+
   it("migrates legacy v1 shape if present", () => {
     const legacyPayload = {
       terms: {
@@ -517,8 +305,5 @@ describe("mortgage persistence v2", () => {
     expect(state.prepayments).toEqual(legacyPayload.prepayments);
     // asOfDate should default to startDate on migration
     expect(state.asOfDate).toBe(legacyPayload.terms.startDate);
-    // legacy didn't have scenarios; we should get an empty array
-    expect(Array.isArray(state.scenarios)).toBe(true);
-    expect(state.scenarios.length).toBe(0);
   });
 });

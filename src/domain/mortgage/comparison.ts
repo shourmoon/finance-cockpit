@@ -9,7 +9,6 @@ import type {
   ISODate,
 } from "./types";
 import {
-  addMonths,
   computeBaselineMortgage,
   computeMonthlyPayment,
   computePeriodPayment,
@@ -17,6 +16,13 @@ import {
   periodsToMonths,
 } from "./baseline";
 import { computeMortgageWithPrepayments } from "./history";
+import {
+  expandContributionPlan,
+  type ContributionPlan,
+  type DatedContribution,
+} from "../contributionPlan";
+
+export type { ContributionPlan };
 
 /**
  * Compare a baseline (no-prepayment) path with an actual path that includes past prepayments.
@@ -61,48 +67,10 @@ export function monthsBetween(from: ISODate, to: ISODate): number {
   return ms / (86_400_000 * DAYS_PER_MONTH);
 }
 
-/** A plan amount is only real if it is a positive, finite number. */
-function usableAmount(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
-    : 0;
-}
-
-/**
- * One extra payment a month from `from`, enough of them to outlast any
- * schedule. Entries falling after payoff are simply never applied — the
- * amortization loop stops once the balance is cleared — so over-generating
- * is safe and avoids having to know the payoff date in advance.
- */
-function monthlyContributions(
-  from: ISODate,
-  amount: Money,
-  termMonths: number
-): PastPrepaymentLog {
-  const out: PastPrepaymentLog = [];
-  for (let i = 0; i < termMonths; i++) {
-    out.push({ date: addMonths(from, i), amount });
-  }
-  return out;
-}
-
 /** One leg of the decomposition. */
 export interface SavingsLeg {
   monthsSaved: number;
   interestSaved: Money;
-}
-
-/**
- * Money the household is considering putting toward the loan from `asOfDate`
- * onward, as opposed to prepayments already made.
- */
-export interface FuturePrepaymentPlan {
-  /** The date from which the plan starts. */
-  asOfDate: ISODate;
-  /** A single extra payment made at asOfDate. */
-  lumpSum: Money;
-  /** Extra principal every month from asOfDate until the loan is retired. */
-  monthly: Money;
 }
 
 export interface MortgageSavingsBreakdown {
@@ -120,7 +88,9 @@ export interface MortgageSavingsBreakdown {
   /** Bought by a planned future lump sum. Zero without a plan. */
   fromFutureLump: SavingsLeg;
   /** Bought by planned future monthly contributions. Zero without a plan. */
-  fromFutureRecurring: SavingsLeg;
+  fromFutureMonthly: SavingsLeg;
+  /** Bought by a planned future yearly contribution. Zero without a plan. */
+  fromFutureYearly: SavingsLeg;
   /** Where the loan lands once the whole plan is applied. */
   projected: { payoffDate: ISODate; totalInterest: Money };
   /** Every leg together, against the original contract. */
@@ -161,7 +131,7 @@ export interface MortgageSavingsBreakdown {
 export function decomposeMortgageSavings(
   terms: MortgageOriginalTerms,
   prepayments: PastPrepaymentLog,
-  plan?: FuturePrepaymentPlan
+  plan?: ContributionPlan
 ): MortgageSavingsBreakdown {
   // The contract is monthly by definition, whatever cadence is being paid.
   const contract = computeBaselineMortgage({
@@ -181,37 +151,44 @@ export function decomposeMortgageSavings(
     interestSaved: cadence.totalInterest - actual.totalInterest,
   };
 
-  // Layer the plan on one piece at a time so each gets its own leg. The order
-  // — lump first, then recurring — is a presentational choice: the two are
-  // simultaneous in reality, so the split between them is an attribution
-  // convention, not a fact. What matters is that the legs reconcile.
-  const lump = usableAmount(plan?.lumpSum);
-  const monthly = usableAmount(plan?.monthly);
+  // Layer the plan on one piece at a time so each gets its own leg. The
+  // order — lump, then monthly, then yearly — is a presentational choice:
+  // the three are simultaneous in reality, so how the joint effect is split
+  // between them is an attribution convention rather than a fact. What has
+  // to be true is that the legs reconcile to the total, which they do by
+  // construction, since each is the gap between two successive stages.
+  const expand = (over: Partial<ContributionPlan>) =>
+    plan
+      ? expandContributionPlan(
+          { ...plan, lumpSum: 0, monthly: 0, yearly: 0, ...over },
+          terms.termMonths
+        )
+      : [];
 
-  const withLump =
-    plan && lump > 0
-      ? computeMortgageWithPrepayments(terms, [
-          ...prepayments,
-          { date: plan.asOfDate, amount: lump },
-        ])
-      : actual;
+  const lumpOnly = expand({ lumpSum: plan?.lumpSum ?? 0 });
+  const plusMonthly = [...lumpOnly, ...expand({ monthly: plan?.monthly ?? 0 })];
+  const plusYearly = [...plusMonthly, ...expand({ yearly: plan?.yearly ?? 0 })];
 
-  const withAll =
-    plan && monthly > 0
-      ? computeMortgageWithPrepayments(terms, [
-          ...prepayments,
-          ...(lump > 0 ? [{ date: plan.asOfDate, amount: lump }] : []),
-          ...monthlyContributions(plan.asOfDate, monthly, terms.termMonths),
-        ])
-      : withLump;
+  // Only ever called with a non-empty `extra`; the callers below fall back to
+  // the previous stage when a plan component contributes nothing.
+  const stage = (extra: DatedContribution[]) =>
+    computeMortgageWithPrepayments(terms, [...prepayments, ...extra]);
+
+  const withLump = lumpOnly.length ? stage(lumpOnly) : actual;
+  const withMonthly = plusMonthly.length > lumpOnly.length ? stage(plusMonthly) : withLump;
+  const withAll = plusYearly.length > plusMonthly.length ? stage(plusYearly) : withMonthly;
 
   const fromFutureLump: SavingsLeg = {
     monthsSaved: monthsBetween(withLump.payoffDate, actual.payoffDate),
     interestSaved: actual.totalInterest - withLump.totalInterest,
   };
-  const fromFutureRecurring: SavingsLeg = {
-    monthsSaved: monthsBetween(withAll.payoffDate, withLump.payoffDate),
-    interestSaved: withLump.totalInterest - withAll.totalInterest,
+  const fromFutureMonthly: SavingsLeg = {
+    monthsSaved: monthsBetween(withMonthly.payoffDate, withLump.payoffDate),
+    interestSaved: withLump.totalInterest - withMonthly.totalInterest,
+  };
+  const fromFutureYearly: SavingsLeg = {
+    monthsSaved: monthsBetween(withAll.payoffDate, withMonthly.payoffDate),
+    interestSaved: withMonthly.totalInterest - withAll.totalInterest,
   };
 
   // Paid per year on the real cadence, less twelve monthly payments.
@@ -235,7 +212,8 @@ export function decomposeMortgageSavings(
     fromCadence,
     fromPrepayments,
     fromFutureLump,
-    fromFutureRecurring,
+    fromFutureMonthly,
+    fromFutureYearly,
     projected: {
       payoffDate: withAll.payoffDate,
       totalInterest: withAll.totalInterest,

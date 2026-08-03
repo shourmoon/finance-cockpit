@@ -55,6 +55,11 @@ function yearsMonths(totalMonths: number | null | undefined): string {
   return parts.join(" ") || "—";
 }
 
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
 /** The splits offered, as fractions of the surplus sent to the mortgage. */
 const SPLITS = [0, 0.5, 1];
 const SPLIT_LABELS = ["All to market", "Half and half", "All to mortgage"];
@@ -261,6 +266,11 @@ export default function SurplusAllocationCard({
 
   const free = breakdown.surplus;
   const monthly = surplus.monthlyContribution > 0 ? surplus.monthlyContribution : 0;
+  const yearly = surplus.yearlyContribution > 0 ? surplus.yearlyContribution : 0;
+  // Whether any new money is actually being committed. The first two legs are
+  // history and are worth showing either way; the wording changes so the
+  // section never implies a plan that does not exist.
+  const hasPlan = breakdown.surplus > 0 || surplus.monthlyContribution > 0 || surplus.yearlyContribution > 0;
 
   // Where things stand today: no future plan, so the two forward legs are
   // zero and `total` is what has already been achieved.
@@ -278,8 +288,11 @@ export default function SurplusAllocationCard({
         asOfDate,
         lumpSum: free,
         monthly,
+        yearly,
+        yearlyMonth: surplus.yearlyMonth,
+        until: surplus.contributionsUntil,
       }),
-    [terms, prepayments, asOfDate, free, monthly]
+    [terms, prepayments, asOfDate, free, monthly, yearly, surplus]
   );
 
   const comparison = useMemo(
@@ -290,12 +303,15 @@ export default function SurplusAllocationCard({
         asOfDate,
         surplus: free,
         monthlyContribution: monthly,
+        yearlyContribution: yearly,
+        yearlyMonth: surplus.yearlyMonth,
+        contributionsUntil: surplus.contributionsUntil,
         annualReturn: surplus.expectedReturn,
         capitalGainsRate: surplus.capitalGainsRate,
         horizonYears: surplus.horizonYears,
         splits: SPLITS,
       }),
-    [terms, prepayments, asOfDate, free, monthly, surplus]
+    [terms, prepayments, asOfDate, free, monthly, yearly, surplus]
   );
 
   const breakEven = useMemo(
@@ -306,10 +322,13 @@ export default function SurplusAllocationCard({
         asOfDate,
         surplus: free,
         monthlyContribution: monthly,
+        yearlyContribution: yearly,
+        yearlyMonth: surplus.yearlyMonth,
+        contributionsUntil: surplus.contributionsUntil,
         capitalGainsRate: surplus.capitalGainsRate,
         horizonYears: surplus.horizonYears,
       }),
-    [terms, prepayments, asOfDate, free, monthly, surplus]
+    [terms, prepayments, asOfDate, free, monthly, yearly, surplus]
   );
 
   // Display values are apportioned so the four legs add up to the total
@@ -319,7 +338,8 @@ export default function SurplusAllocationCard({
       projected.fromCadence,
       projected.fromPrepayments,
       projected.fromFutureLump,
-      projected.fromFutureRecurring,
+      projected.fromFutureMonthly,
+      projected.fromFutureYearly,
     ];
     const months = apportion(
       parts.map((l) => l.monthsSaved),
@@ -329,7 +349,13 @@ export default function SurplusAllocationCard({
       parts.map((l) => l.interestSaved),
       projected.total.interestSaved
     );
-    const keys = ["cadence", "prepayments", "futureLump", "futureRecurring"] as const;
+    const keys = [
+      "cadence",
+      "prepayments",
+      "futureLump",
+      "futureMonthly",
+      "futureYearly",
+    ] as const;
     return Object.fromEntries(
       keys.map((k, i) => [k, { months: months[i], interest: interest[i] }])
     ) as Record<(typeof keys)[number], { months: number; interest: number }>;
@@ -387,7 +413,49 @@ export default function SurplusAllocationCard({
             placeholder="e.g. 2,000"
           />
         </div>
+        <div style={{ ...styles.field, flex: 1 }}>
+          <NumberField
+            label="Plus per year"
+            value={surplus.yearlyContribution || undefined}
+            onChange={(v) => set({ yearlyContribution: v ?? 0 })}
+            placeholder="bonus"
+          />
+        </div>
       </div>
+
+      {(monthly > 0 || yearly > 0) && (
+        <div style={styles.fieldRow}>
+          {yearly > 0 && (
+            <div style={{ ...styles.field, flex: 1 }}>
+              <span style={ui.fieldLabel}>Bonus month</span>
+              <select
+                aria-label="Bonus month"
+                value={surplus.yearlyMonth}
+                onChange={(e) => set({ yearlyMonth: Number(e.target.value) })}
+                style={ui.input}
+              >
+                {MONTH_NAMES.map((name, i) => (
+                  <option key={name} value={i + 1}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div style={{ ...styles.field, flex: 1 }}>
+            <span style={ui.fieldLabel}>Keep it up until</span>
+            <input
+              type="date"
+              aria-label="Keep it up until"
+              value={surplus.contributionsUntil ?? ""}
+              onChange={(e) =>
+                set({ contributionsUntil: e.target.value || undefined })
+              }
+              style={ui.input}
+            />
+          </div>
+        </div>
+      )}
 
       {!knowsBalance ? (
         <div style={{ ...styles.emptyState, marginTop: 10 }}>
@@ -442,7 +510,9 @@ export default function SurplusAllocationCard({
                 >
                   <div style={styles.splitName}>
                     {SPLIT_LABELS[i]}
-                    {(o.toPrepayment > 0 || o.monthlyToPrepayment > 0) && (
+                    {(o.toPrepayment > 0 ||
+                      o.monthlyToPrepayment > 0 ||
+                      o.yearlyToPrepayment > 0) && (
                       <span style={{ color: colors.faint, fontWeight: 400 }}>
                         {" "}
                         ·{" "}
@@ -450,6 +520,9 @@ export default function SurplusAllocationCard({
                           o.toPrepayment > 0 ? money(o.toPrepayment) : null,
                           o.monthlyToPrepayment > 0
                             ? `${money(o.monthlyToPrepayment)}/mo`
+                            : null,
+                          o.yearlyToPrepayment > 0
+                            ? `${money(o.yearlyToPrepayment)}/yr`
                             : null,
                         ]
                           .filter(Boolean)
@@ -506,74 +579,95 @@ export default function SurplusAllocationCard({
                   </>
                 )}
               </div>
-
-              <div style={{ ...ui.miniLabel, marginTop: 16, marginBottom: 2 }}>
-                Where the time comes from
-              </div>
-              <div style={styles.note}>
-                If every dollar went to the mortgage, each cause would be worth:
-              </div>
-              <div data-testid="attribution" style={{ marginTop: 6 }}>
-                {terms.paymentFrequency === "biweekly" && (
-                  <div style={styles.legRow} data-testid="leg-cadence">
-                    <span>Paying biweekly</span>
-                    <span style={styles.legValue} data-testid="leg-cadence-value">
-                      {yearsMonths(legDisplay.cadence.months)} ·{" "}
-                      {money(legDisplay.cadence.interest)}
-                    </span>
-                  </div>
-                )}
-                <div style={styles.legRow} data-testid="leg-prepayments">
-                  <span>Prepayments already made</span>
-                  <span style={styles.legValue} data-testid="leg-prepayments-value">
-                    {yearsMonths(legDisplay.prepayments.months)} ·{" "}
-                    {money(legDisplay.prepayments.interest)}
-                  </span>
-                </div>
-                {free > 0 && (
-                  <div style={styles.legRow} data-testid="leg-futureLump">
-                    <span>This lump ({money(free)})</span>
-                    <span style={styles.legValue} data-testid="leg-futureLump-value">
-                      {yearsMonths(legDisplay.futureLump.months)} ·{" "}
-                      {money(legDisplay.futureLump.interest)}
-                    </span>
-                  </div>
-                )}
-                {monthly > 0 && (
-                  <div style={styles.legRow} data-testid="leg-futureRecurring">
-                    <span>{money(monthly)} a month</span>
-                    <span
-                      style={styles.legValue}
-                      data-testid="leg-futureRecurring-value"
-                    >
-                      {yearsMonths(legDisplay.futureRecurring.months)} ·{" "}
-                      {money(legDisplay.futureRecurring.interest)}
-                    </span>
-                  </div>
-                )}
-                <div style={styles.legTotal} data-testid="leg-total">
-                  <span>
-                    Debt-free {formatDate(projected.projected.payoffDate)}
-                  </span>
-                  <span style={styles.legValue} data-testid="leg-total-value">
-                    {yearsMonths(totalDisplay.months)} ·{" "}
-                    {money(totalDisplay.interest)}
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ ...styles.note, marginTop: 10 }}>
-                Time saved is measured against your original{" "}
-                {Math.round(terms.termMonths / 12)}-year monthly contract, and
-                the legs are stacked in that order, so they add up to the total.
-                Wealth is measured {surplus.horizonYears} years out, after{" "}
-                {percent(surplus.capitalGainsRate)} capital gains tax, with
-                everything freed at payoff reinvested in every case.
-              </div>
             </>
           )}
         </>
       )}
+
+      <div style={{ ...ui.miniLabel, marginTop: 16, marginBottom: 2 }}>
+        Where the time comes from
+      </div>
+      <div style={styles.note}>
+        {hasPlan
+          ? "If every dollar went to the mortgage, each cause would be worth:"
+          : "What has shortened your loan so far:"}
+      </div>
+      <div data-testid="attribution" style={{ marginTop: 6 }}>
+        {terms.paymentFrequency === "biweekly" && (
+          <div style={styles.legRow} data-testid="leg-cadence">
+            <span>Paying biweekly</span>
+            <span style={styles.legValue} data-testid="leg-cadence-value">
+              {yearsMonths(legDisplay.cadence.months)} ·{" "}
+              {money(legDisplay.cadence.interest)}
+            </span>
+          </div>
+        )}
+        <div style={styles.legRow} data-testid="leg-prepayments">
+          <span>Prepayments already made</span>
+          <span style={styles.legValue} data-testid="leg-prepayments-value">
+            {yearsMonths(legDisplay.prepayments.months)} ·{" "}
+            {money(legDisplay.prepayments.interest)}
+          </span>
+        </div>
+        {free > 0 && (
+          <div style={styles.legRow} data-testid="leg-futureLump">
+            <span>This lump ({money(free)})</span>
+            <span style={styles.legValue} data-testid="leg-futureLump-value">
+              {yearsMonths(legDisplay.futureLump.months)} ·{" "}
+              {money(legDisplay.futureLump.interest)}
+            </span>
+          </div>
+        )}
+        {monthly > 0 && (
+          <div style={styles.legRow} data-testid="leg-futureMonthly">
+            <span>{money(monthly)} a month</span>
+            <span
+              style={styles.legValue}
+              data-testid="leg-futureMonthly-value"
+            >
+              {yearsMonths(legDisplay.futureMonthly.months)} ·{" "}
+              {money(legDisplay.futureMonthly.interest)}
+            </span>
+          </div>
+        )}
+        {yearly > 0 && (
+          <div style={styles.legRow} data-testid="leg-futureYearly">
+            <span>
+              {money(yearly)} each {MONTH_NAMES[surplus.yearlyMonth - 1]}
+            </span>
+            <span
+              style={styles.legValue}
+              data-testid="leg-futureYearly-value"
+            >
+              {yearsMonths(legDisplay.futureYearly.months)} ·{" "}
+              {money(legDisplay.futureYearly.interest)}
+            </span>
+          </div>
+        )}
+        <div style={styles.legTotal} data-testid="leg-total">
+          <span>
+            Debt-free {formatDate(projected.projected.payoffDate)}
+          </span>
+          <span style={styles.legValue} data-testid="leg-total-value">
+            {yearsMonths(totalDisplay.months)} ·{" "}
+            {money(totalDisplay.interest)}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ ...styles.note, marginTop: 10 }}>
+        Time saved is measured against your original{" "}
+        {Math.round(terms.termMonths / 12)}-year monthly contract, and the legs
+        are stacked in that order, so they add up to the total.
+        {hasPlan && (
+          <>
+            {" "}
+            Wealth is measured {surplus.horizonYears} years out, after{" "}
+            {percent(surplus.capitalGainsRate)} capital gains tax, with
+            everything freed at payoff reinvested in every case.
+          </>
+        )}
+      </div>
     </div>
   );
 }

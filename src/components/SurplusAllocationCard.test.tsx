@@ -8,7 +8,7 @@
 // which only makes sense as a comparison unit between splits.
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, cleanup } from "@testing-library/react";
 import SurplusAllocationCard from "./SurplusAllocationCard";
 import { colors } from "./ui";
 import type { MortgageOriginalTerms } from "../domain/mortgage/types";
@@ -40,6 +40,8 @@ const rules: RecurringRule[] = [
 const surplus: SurplusSettings = {
   parkedCash: 120_000,
   monthlyContribution: 0,
+  yearlyContribution: 0,
+  yearlyMonth: 3,
   reserveMonths: 6,
   expectedReturn: 0.07,
   capitalGainsRate: 0.2517,
@@ -193,7 +195,7 @@ describe("SurplusAllocationCard", () => {
     expect(within(legs).getByTestId("leg-cadence")).toHaveTextContent(/biweekly/i);
     expect(within(legs).getByTestId("leg-prepayments")).toBeInTheDocument();
     expect(within(legs).getByTestId("leg-futureLump")).toBeInTheDocument();
-    expect(within(legs).getByTestId("leg-futureRecurring")).toBeInTheDocument();
+    expect(within(legs).getByTestId("leg-futureMonthly")).toBeInTheDocument();
     expect(within(legs).getByTestId("leg-total")).toBeInTheDocument();
   });
 
@@ -202,7 +204,7 @@ describe("SurplusAllocationCard", () => {
     // month — 55+98+34+54 = 241 displayed against a displayed total of 242.
     // On a page about money, figures that visibly fail to reconcile destroy
     // trust in every other number on it.
-    setup({ monthlyContribution: 2_000 });
+    setup({ monthlyContribution: 2_000, yearlyContribution: 15_000 });
     const legs = screen.getByTestId("attribution");
 
     const monthsOf = (testId: string) => {
@@ -221,7 +223,8 @@ describe("SurplusAllocationCard", () => {
       "leg-cadence",
       "leg-prepayments",
       "leg-futureLump",
-      "leg-futureRecurring",
+      "leg-futureMonthly",
+      "leg-futureYearly",
     ];
     expect(parts.reduce((s, id) => s + monthsOf(id), 0)).toBe(
       monthsOf("leg-total")
@@ -272,6 +275,106 @@ describe("SurplusAllocationCard", () => {
     expect(onSurplusChange).toHaveBeenCalledWith(
       expect.objectContaining({ parkedCash: undefined })
     );
+  });
+
+  it("shows what shortened the loan even with nothing to allocate", () => {
+    // The first two legs are history. They were previously duplicated in the
+    // Mortgage tab, where independent rounding put "8 yrs 2 mos" beside this
+    // card's "8 yrs 3 mos". There is now one place, always visible, and the
+    // wording drops any suggestion of a plan when there is none.
+    setup({ parkedCash: 0, monthlyContribution: 0, yearlyContribution: 0 });
+    const legs = screen.getByTestId("attribution");
+    expect(within(legs).getByTestId("leg-cadence")).toBeInTheDocument();
+    expect(within(legs).getByTestId("leg-prepayments")).toBeInTheDocument();
+    expect(within(legs).queryByTestId("leg-futureLump")).not.toBeInTheDocument();
+    expect(screen.getByText(/what has shortened your loan so far/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/if every dollar went to the mortgage/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not describe a wealth comparison it is not showing", () => {
+    setup({ parkedCash: 0, monthlyContribution: 0, yearlyContribution: 0 });
+    expect(screen.queryByText(/capital gains tax/i)).not.toBeInTheDocument();
+  });
+
+  it("switches to plan wording once money is committed", () => {
+    setup({ monthlyContribution: 2_000 });
+    expect(
+      screen.getByText(/if every dollar went to the mortgage/i)
+    ).toBeInTheDocument();
+  });
+
+  it("credits a yearly bonus on its own line, naming the month", () => {
+    setup({ monthlyContribution: 2_000, yearlyContribution: 15_000 });
+    const legs = screen.getByTestId("attribution");
+    const row = within(legs).getByTestId("leg-futureYearly");
+    expect(row).toHaveTextContent(/\$15,000 each Mar/);
+    expect(within(legs).getByTestId("leg-futureMonthly")).toHaveTextContent(
+      /\$2,000 a month/
+    );
+  });
+
+  it("names every stream it is committing on the split row", () => {
+    // The row is the commitment: if it lists the lump and the monthly but
+    // silently omits the bonus, the reader is agreeing to more than it says.
+    setup({ monthlyContribution: 2_000, yearlyContribution: 15_000 });
+    const row = screen.getByTestId("split-row-2");
+    expect(row).toHaveTextContent(/\$72,000/);
+    expect(row).toHaveTextContent(/\$2,000\/mo/);
+    expect(row).toHaveTextContent(/\$15,000\/yr/);
+  });
+
+  it("persists a bonus, its month, and an end date", () => {
+    const { onSurplusChange } = setup({ yearlyContribution: 15_000 });
+
+    fireEvent.change(screen.getByLabelText(/plus per year/i), {
+      target: { value: "20000" },
+    });
+    expect(onSurplusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ yearlyContribution: 20_000 })
+    );
+
+    fireEvent.change(screen.getByLabelText(/bonus month/i), {
+      target: { value: "9" },
+    });
+    expect(onSurplusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ yearlyMonth: 9 })
+    );
+
+    fireEvent.change(screen.getByLabelText(/keep it up until/i), {
+      target: { value: "2031-12-31" },
+    });
+    expect(onSurplusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ contributionsUntil: "2031-12-31" })
+    );
+  });
+
+  it("hides the stream controls until there is a stream to bound", () => {
+    // An end date and a bonus month mean nothing without a recurring amount.
+    setup();
+    expect(screen.queryByLabelText(/keep it up until/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/bonus month/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("leg-futureYearly")).not.toBeInTheDocument();
+  });
+
+  it("buys less time when the stream is bounded", () => {
+    const read = () =>
+      within(screen.getByTestId("split-row-2"))
+        .getByTestId("months-sooner")
+        .textContent ?? "";
+
+    const { unmount } = render(<div />);
+    unmount();
+
+    setup({ monthlyContribution: 2_000 });
+    const openEnded = read();
+    cleanup();
+
+    setup({ monthlyContribution: 2_000, contributionsUntil: "2029-12-31" });
+    const bounded = read();
+
+    expect(bounded).not.toBe(openEnded);
   });
 
   it("uses the shared input chrome", () => {

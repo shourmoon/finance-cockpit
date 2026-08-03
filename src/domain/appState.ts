@@ -69,6 +69,20 @@ export function sanitizeSurplusSettings(raw: any): SurplusSettings {
       raw.monthlyContribution > 0
         ? raw.monthlyContribution
         : 0,
+    yearlyContribution:
+      typeof raw?.yearlyContribution === "number" &&
+      Number.isFinite(raw.yearlyContribution) &&
+      raw.yearlyContribution > 0
+        ? raw.yearlyContribution
+        : 0,
+    // A month outside 1-12 is meaningless; January is the neutral fallback.
+    yearlyMonth:
+      typeof raw?.yearlyMonth === "number" &&
+      Number.isInteger(raw.yearlyMonth) &&
+      raw.yearlyMonth >= 1 &&
+      raw.yearlyMonth <= 12
+        ? raw.yearlyMonth
+        : 1,
     reserveMonths: sanitizeSurplusNumber(raw?.reserveMonths, DEFAULT_RESERVE_MONTHS, 120),
     expectedReturn: sanitizeSurplusNumber(raw?.expectedReturn, DEFAULT_EXPECTED_RETURN, 1),
     capitalGainsRate: sanitizeSurplusNumber(
@@ -78,6 +92,13 @@ export function sanitizeSurplusSettings(raw: any): SurplusSettings {
     ),
     horizonYears: sanitizeSurplusNumber(raw?.horizonYears, DEFAULT_COMPARISON_YEARS, 100),
   };
+
+  // An unusable end date is dropped rather than defaulted: "no end date"
+  // is the safe reading, since inventing one would silently truncate a plan
+  // the user believes is open-ended.
+  if (isValidISODate(raw?.contributionsUntil)) {
+    surplus.contributionsUntil = raw.contributionsUntil;
+  }
 
   // Zero is a real answer here ("nothing parked"), so it is accepted where
   // the others clamp it away. Only a non-number leaves the field unset.
