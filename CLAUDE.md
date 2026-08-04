@@ -53,10 +53,31 @@ right properties were ever considered.
 
 So for any new computation over money or time, **write the laws before the
 code**. Put them in a `*Invariants.test.ts` file, phrased against the problem
-rather than the implementation, and run them over generated inputs — see
-`src/domain/allocationInvariants.test.ts`, whose first run found two defects
-that every existing test passed over. Its generator is a seeded PRNG so any
-failure is reproducible.
+rather than the implementation, and run them over generated inputs. There are
+three, one per money-adjacent surface, and each found real defects on its
+first run:
+
+- `allocationInvariants.test.ts` — money was being destroyed when a plan
+  overshot a nearly-retired loan, and cashflow equalisation was incomplete.
+- `cashflowInvariants.test.ts` — the reported minimum balance was seeded from
+  a moment the chart never plots.
+- `persistenceInvariants.test.ts` — NaN passed straight from storage into the
+  projection, so the dashboard reported "ok" over a broken chart.
+
+Two rules for writing them, both learned by getting them wrong:
+
+1. **Read the contract, do not assume it.** Three of eleven cashflow laws
+   failed first time because they were written from memory — `outflow` is
+   signed negative, safe-to-spend is legitimately zero when already under the
+   floor. Those were test bugs, and the tests were fixed, not the engine.
+2. **Compare against the raw input, never against the function under test.**
+   Generating the expected value by running the same code makes both sides
+   move together, and a mutation that drops a field drops it from the
+   expectation too. Two mutations survived the persistence suite for exactly
+   that reason until its generator kept the raw stored shape alongside the
+   parsed one.
+
+Generators use a seeded PRNG so any failure is reproducible.
 
 #### The checklist for money code
 

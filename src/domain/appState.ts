@@ -136,6 +136,20 @@ export function sanitizeHorizonDays(raw: unknown): number {
   return Math.min(MAX_HORIZON_DAYS, Math.max(MIN_HORIZON_DAYS, Math.floor(raw)));
 }
 
+/**
+ * A money amount from untrusted storage.
+ *
+ * `typeof x === "number"` is not enough: NaN and Infinity are numbers, and
+ * JSON.parse will hand them straight through from a hand-edited value or a
+ * corrupt sync payload. One NaN poisons the whole projection — the balance
+ * becomes NaN from that day on, every comparison against it is false, and the
+ * dashboard reports status "ok" over a chart that cannot be drawn. Coerce to
+ * the fallback so a broken field degrades one number instead of all of them.
+ */
+function money(raw: unknown, fallback: number): number {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
+}
+
 function createDefaultAccount(): CashAccount {
   return {
     startingBalance: 0,
@@ -278,7 +292,7 @@ export function sanitizeAdhocTransaction(raw: any): AdhocTransaction | null {
   const txn: AdhocTransaction = {
     id: raw.id,
     name: typeof raw.name === "string" ? raw.name : "Transaction",
-    amount: typeof raw.amount === "number" ? raw.amount : 0,
+    amount: money(raw.amount, 0),
     date: raw.date,
   };
 
@@ -330,17 +344,14 @@ export function upgradeAppState(raw: any): AppState {
   // path below — never discard a user's rules on a version bump.
   if (version < 1) {
     const fresh = createInitialAppState();
-    if (raw.account && typeof raw.account.startingBalance === "number") {
+    if (raw.account && Number.isFinite(raw.account.startingBalance)) {
       fresh.account.startingBalance = raw.account.startingBalance;
     }
     return fresh;
   }
 
   const account: CashAccount = {
-    startingBalance:
-      raw.account && typeof raw.account.startingBalance === "number"
-        ? raw.account.startingBalance
-        : 0,
+    startingBalance: money(raw.account?.startingBalance, 0),
   };
 
   const settings: CashflowSettings = {
@@ -349,10 +360,7 @@ export function upgradeAppState(raw: any): AppState {
         ? raw.settings.startDate
         : toISODate(new Date()),
     horizonDays: sanitizeHorizonDays(raw.settings?.horizonDays),
-    minSafeBalance:
-      raw.settings && typeof raw.settings.minSafeBalance === "number"
-        ? raw.settings.minSafeBalance
-        : 0,
+    minSafeBalance: money(raw.settings?.minSafeBalance, 0),
     // Stamped once, on the first load that upgrades to v3. Keeping any
     // existing value matters: re-stamping would silently reset the clock
     // and discard however many months of coverage history had accrued.
@@ -369,7 +377,6 @@ export function upgradeAppState(raw: any): AppState {
   // "second salary kept" metric rather than showing a placeholder.
   if (
     raw.settings &&
-    typeof raw.settings.secondSalaryMonthly === "number" &&
     Number.isFinite(raw.settings.secondSalaryMonthly)
   ) {
     settings.secondSalaryMonthly = raw.settings.secondSalaryMonthly;
@@ -385,7 +392,10 @@ export function upgradeAppState(raw: any): AppState {
             {
               id: r.id,
               name: typeof r.name === "string" ? r.name : "Rule",
-              amount: typeof r.amount === "number" ? r.amount : 0,
+              // A rule is kept rather than dropped so the user can see and
+              // fix it; a silently missing rule is harder to notice than a
+              // zero one.
+              amount: money(r.amount, 0),
               isVariable: !!r.isVariable,
               schedule,
             },
