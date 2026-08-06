@@ -46,12 +46,19 @@ import { ui, colors } from "./components/ui";
 function DateInputWithDisplay({
   value,
   onChange,
+  ariaLabel,
 }: {
   value: string;
   onChange: (val: string) => void;
+  ariaLabel?: string;
 }) {
   return (
-    <SharedDateInput value={value} onChange={onChange} inputStyle={ui.input} />
+    <SharedDateInput
+      value={value}
+      onChange={onChange}
+      inputStyle={ui.input}
+      ariaLabel={ariaLabel}
+    />
   );
 }
 
@@ -354,6 +361,7 @@ export default function App() {
                 <DateInputWithDisplay
                   value={state.settings.startDate}
                   onChange={(val) => updateStartDate(val)}
+                  ariaLabel="Start date"
                 />
               </label>
 

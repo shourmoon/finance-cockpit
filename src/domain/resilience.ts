@@ -99,7 +99,20 @@ export function computeCoverageMetrics(
   options: CoverageOptions
 ): CoverageMetrics {
   const { lens, asOf, trackingSince, secondSalaryMonthly } = options;
-  const windowMonths = options.windowMonths ?? 12;
+
+  // A window we cannot place on the calendar describes no months at all.
+  // `asOf` is settings.startDate, which the UI lets the user clear, and a
+  // window built from an unparseable date used to collapse into one
+  // fabricated "NaN-NaN" bucket that read as a clean month — the card
+  // claiming one salary covered a month that was never measured. Zero
+  // months says nothing, which is the honest answer; a whole number of
+  // months is the only kind that exists, so a fractional or infinite
+  // request is refused rather than rounded into something plausible.
+  const requested = options.windowMonths ?? 12;
+  const windowMonths =
+    isValidISODate(asOf) && Number.isFinite(requested)
+      ? Math.max(0, Math.floor(requested))
+      : 0;
 
   // The window ends at asOf's own month — included, not held back.
   const currentMonthKey = monthKey(asOf);
@@ -122,11 +135,18 @@ export function computeCoverageMetrics(
   }
 
   for (const txn of transactions) {
+    // Nothing here trusts its input's shape: this reads the same array the
+    // projection does, and a single malformed entry taking down the
+    // dashboard would hide every metric on it.
+    if (!txn || typeof txn !== "object") continue;
     // Only explicitly-marked top-ups count. `name` is user-editable, so it
     // is never used to identify one.
     if (txn.kind !== "topUp") continue;
     if (!isValidISODate(txn.date)) continue;
-    if (!(txn.amount > 0)) continue; // a zero or negative "top-up" isn't one
+    // A zero or negative "top-up" isn't one, and a non-finite amount would
+    // poison the month, the total, the average and the salary-kept share in
+    // one go — all four rendered as "NaN".
+    if (!Number.isFinite(txn.amount) || txn.amount <= 0) continue;
 
     const bucket = buckets.get(monthKey(txn.date));
     if (!bucket || !bucket.known) continue;
@@ -166,8 +186,14 @@ export function computeCoverageMetrics(
     streakCurrent += 1;
   }
 
+  // Needs a real salary and real exposure to divide by; anything else has
+  // no percentage to report, and showing "NaN%" would be worse than the
+  // metric simply not appearing.
   const secondSalaryKept =
-    secondSalaryMonthly !== undefined && secondSalaryMonthly > 0 && knownMonths > 0
+    secondSalaryMonthly !== undefined &&
+    Number.isFinite(secondSalaryMonthly) &&
+    secondSalaryMonthly > 0 &&
+    knownMonths > 0
       ? ((secondSalaryMonthly * knownMonths - totalToppedUp) /
           (secondSalaryMonthly * knownMonths)) *
         100

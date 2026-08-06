@@ -170,6 +170,15 @@ try {
       fail(`${tab}: page scrolls horizontally (${layout.scrollWidth}px > ${layout.clientWidth}px)`);
     }
     for (const c of layout.clipped) fail(`${tab}: control is clipped — ${c}`);
+
+    // --- 2b. no arithmetic wreckage rendered as a figure ---
+    // A single non-finite amount reaching a metric renders as "NaN" or
+    // "$Infinity" — a number the user may act on. Cheap to scan for, and
+    // no legitimate copy in this app contains any of these.
+    const body = await page.locator("body").innerText();
+    for (const bad of ["NaN", "Infinity", "undefined", "[object Object]"]) {
+      if (body.includes(bad)) fail(`${tab}: rendered "${bad}" as text`);
+    }
   }
 
   // --- 3. the loan survived a migration from the older stored shape ---
@@ -221,6 +230,29 @@ try {
   }
   if (sumDollars !== dollars(totalText)) {
     fail(`attribution interest does not add up: parts ${sumDollars}, total ${dollars(totalText)}`);
+  }
+
+  // --- 5. with no "today", the app claims nothing rather than something ---
+  // Clearing the Start date is one keystroke away in Settings, and it leaves
+  // settings.startDate as "". Coverage used to build its window from that and
+  // collapse into a single fabricated month that read as clean, so the card
+  // announced "1 of 1 months on one salary" — evidence of coverage for a
+  // month that was never measured. Nothing may be claimed from no date.
+  await page.getByText("Settings & Rules", { exact: false }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByLabel("Start date").fill("");
+  await page.waitForTimeout(300);
+  await page.getByText("Dashboard", { exact: false }).first().click();
+  await page.waitForTimeout(500);
+
+  const blankDateBody = await page.locator("body").innerText();
+  if (/months on one salary/.test(blankDateBody)) {
+    fail("coverage claims tracked months with no start date set");
+  }
+  for (const bad of ["NaN", "Infinity", "undefined"]) {
+    if (blankDateBody.includes(bad)) {
+      fail(`blank start date: rendered "${bad}" as text`);
+    }
   }
 
   for (const n of noise) fail(n);
