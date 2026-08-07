@@ -8,6 +8,10 @@ import type {
 // Dates here are the same "YYYY-MM-DD denoting a real calendar day"
 // contract the cashflow side uses, so the check lives in one place.
 import { isValidISODate } from "../dateUtils";
+// Checkpoints share one definition of validity with the module that reads
+// them, so storage and the drift summary can never disagree.
+import { sanitizeCheckpoints } from "../reconciliation";
+import type { Checkpoint } from "../types";
 
 /**
  * Note on stored payloads: earlier versions carried a `scenarios` array for
@@ -25,6 +29,12 @@ export interface MortgageUIState {
    * (e.g. latest actual payment date or today).
    */
   asOfDate: ISODate | null;
+  /**
+   * Times the outstanding principal was checked against an actual servicer
+   * statement. Absent in stored payloads written before the feature; those
+   * load with an empty log and read as never confirmed, which is true.
+   */
+  checkpoints: Checkpoint[];
 }
 
 const STORAGE_KEY_V2 = "finance-cockpit-mortgage-v2";
@@ -43,6 +53,7 @@ export function createDefaultMortgageUIState(): MortgageUIState {
     terms: defaultTerms,
     prepayments: [],
     asOfDate: defaultTerms.startDate,
+    checkpoints: [],
   };
 }
 
@@ -115,6 +126,9 @@ function isValidPrepayments(value: any): value is PastPrepaymentLog {
 export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null {
   if (!value || typeof value !== "object") return null;
   const { terms, prepayments, asOfDate } = value as Partial<MortgageUIState>;
+  const checkpoints = sanitizeCheckpoints(
+    (value as { checkpoints?: unknown }).checkpoints
+  );
 
   if (!isValidTerms(terms)) return null;
   const safePrepayments = isValidPrepayments(prepayments) ? prepayments! : [];
@@ -128,6 +142,7 @@ export function sanitizeMortgageUIState(value: unknown): MortgageUIState | null 
     terms: { ...terms, paymentFrequency: normalizeFrequency(terms.paymentFrequency) },
     prepayments: safePrepayments,
     asOfDate: safeAsOfDate,
+    checkpoints,
   };
 }
 
@@ -162,6 +177,7 @@ function loadAndMigrateV1(): MortgageUIState | null {
     terms,
     prepayments: safePrepayments,
     asOfDate: terms.startDate,
+    checkpoints: [],
   };
 
   // Persist as v2 so next loads hit the new key.
@@ -215,6 +231,7 @@ export function saveMortgageUIState(state: MortgageUIState): void {
       asOfDate: isValidISODate(state.asOfDate)
         ? (state.asOfDate as ISODate)
         : safeTerms.startDate,
+      checkpoints: sanitizeCheckpoints(state.checkpoints),
     };
 
     window.localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(payload));

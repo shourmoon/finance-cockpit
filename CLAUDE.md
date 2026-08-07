@@ -53,9 +53,9 @@ right properties were ever considered.
 
 So for any new computation over money or time, **write the laws before the
 code**. Put them in a `*Invariants.test.ts` file, phrased against the problem
-rather than the implementation, and run them over generated inputs. There are
-three, one per money-adjacent surface, and each found real defects on its
-first run:
+rather than the implementation, and run them over generated inputs. There is
+one per money-adjacent surface, and **every one of them found real defects on
+its first run**:
 
 - `allocationInvariants.test.ts` — money was being destroyed when a plan
   overshot a nearly-retired loan, and cashflow equalisation was incomplete.
@@ -63,6 +63,15 @@ first run:
   a moment the chart never plots.
 - `persistenceInvariants.test.ts` — NaN passed straight from storage into the
   projection, so the dashboard reported "ok" over a broken chart.
+- `resilienceInvariants.test.ts` — clearing the Start date collapsed the
+  coverage window into one fabricated month that read as clean, so the card
+  claimed "1 of 1 months on one salary" from no data at all. Four more in the
+  same class: a non-finite amount turned four metrics into "NaN", a
+  fractional window produced month keys like `2026-8.599999999998545`, an
+  infinite one hung, and a malformed transaction took down the dashboard.
+- `reconciliationInvariants.test.ts` — the summary counted checkpoints that
+  storage discards, so the same log read differently before and after a
+  reload.
 
 Two rules for writing them, both learned by getting them wrong:
 
@@ -155,7 +164,9 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
    - Has its own `Money`/`ISODate` aliases in `mortgage/types.ts` and its own persisted state (`MortgageUIState` in `mortgage/persistence.ts`), separate from `AppState`.
    - `src/components/MortgageTab.tsx` (~1,800 lines) is the UI over all of this.
 
-3. **Sync** (`src/domain/persistence/`, `workers/sync-worker/`):
+3. **Reality checks** (`src/domain/reconciliation.ts`, rendered by `src/components/RealityCheckRow.tsx` + `RealityCheckModal.tsx`): the only part of the app that looks *outside* itself. Everything else — the invariant suites, `verify:ui` — proves the app is self-consistent, never that it matches the user's actual bank. Two figures are maintained by hand and nothing corrects them (`account.startingBalance`, and the loan principal implied by the mortgage terms), so a *checkpoint* records "on this date, the statement said this". Recording one is a single act that does two jobs, which is why freshness and reconciliation are one feature: it resets the staleness clock **and** captures how far the model had drifted. `modelled` is **stored, not recomputed** — for cash it is the only option, since correcting the balance destroys the counterfactual moments later. `assessDrift()` resolves direction into terms the two targets share (`modelOptimistic` always means *reality is worse than the model said*, whichever way the raw sign points), `assessFreshness()` ages from the **statement date** and not from when it was typed, and `summarizeCheckpoints()` flags a run of same-direction misses as `systematic` — three misses the same way is a missing rule, not bad luck, and re-entering the balance would only hide it. Cash checkpoints live on `AppState.checkpoints`, mortgage ones on `MortgageUIState.checkpoints`. **The cash check is deliberately locked to today and compared against `account.startingBalance`**, not against the timeline's first point: that point already has today's events applied, and comparing against it would put two different numbers for one quantity inside the same card.
+
+4. **Sync** (`src/domain/persistence/`, `workers/sync-worker/`):
    - `snapshot.ts` defines the canonical envelope: `{ schemaVersion, app_state, mortgage_ui, updated_at, device_id }` — both `AppState` and `MortgageUIState` sync together as one unit.
    - `sync.ts` `syncNow()` decides push vs. pull: no remote → push (init); never synced locally → pull; remote `updated_at` changed since last sync → pull (remote always wins, no merge); otherwise push with `prev_updated_at` for optimistic concurrency. Before any pull overwrites local state, the current local snapshot is saved to a one-slot backup (`finance-cockpit:backup-before-pull`, readable via `loadPrePullBackup()`).
    - The app talks only to the `RemotePersistenceAdapter` interface (`remote.ts`); `remoteCloudflare.ts` is the fetch-based implementation. Adapter failures are thrown as `RemoteSyncError` with a `kind` (`unauthorized`/`conflict`/`notFound`/`network`/`server`) — branch on `kind`, never string-match error messages. The Worker (`workers/sync-worker/index.ts`) stores snapshots in KV, is PIN-gated (client sends `X-Sync-Pin: sha256(pin)`; first-seen hash is bound to the shared key), and returns `409` on `prev_updated_at` mismatch.
@@ -163,7 +174,7 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
 
 ### Persistence and migrations
 
-Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapshot()`, and mortgage persistence all validate field-by-field and fall back to defaults rather than throwing. Rule schedules are validated by `sanitizeSchedule()` (rules with unusable schedules are dropped), ad-hoc transactions by `sanitizeAdhocTransaction()`, snapshot payloads via `upgradeAppState()`/`sanitizeMortgageUIState()`, and `parseISODate()` throws on malformed input (check with `isValidISODate()` first when the value is untrusted — the engine tolerates a transiently-invalid `startDate` by returning an empty projection). `AppState` carries `version` (`APP_STATE_VERSION`, currently 3). v1→v2 added `adhocTransactions`; v2→v3 added top-up tracking (`kind`/`reason` on `AdhocTransaction`, plus `trackingSince`/`coverageLens`/`secondSalaryMonthly` in settings). Both are additive — v1 and v2 states migrate through the field-by-field path without losing rules, and only pre-v1 states are reset. **v3 deliberately does not backfill**: older transactions named "Top Up"/"Transfer from savings" are left unmarked, because past top-ups were never recorded reliably and name-matching them would invent untrustworthy history. `trackingSince` is stamped once on the first v3 load and preserved thereafter — re-stamping it would silently reset the coverage clock. Snapshots carry `schemaVersion` (`CURRENT_SCHEMA_VERSION`). When changing persisted shapes, bump the relevant version and extend the corresponding upgrade/parse function additively — never assume stored JSON is well-formed, and never let a version bump discard user data.
+Every load path is defensive: `upgradeAppState()` (`appState.ts`), `parseSnapshot()`, and mortgage persistence all validate field-by-field and fall back to defaults rather than throwing. Rule schedules are validated by `sanitizeSchedule()` (rules with unusable schedules are dropped), ad-hoc transactions by `sanitizeAdhocTransaction()`, snapshot payloads via `upgradeAppState()`/`sanitizeMortgageUIState()`, and `parseISODate()` throws on malformed input (check with `isValidISODate()` first when the value is untrusted — the engine tolerates a transiently-invalid `startDate` by returning an empty projection). `AppState` carries `version` (`APP_STATE_VERSION`, currently 5). v1→v2 added `adhocTransactions`; v2→v3 added top-up tracking (`kind`/`reason` on `AdhocTransaction`, plus `trackingSince`/`coverageLens`/`secondSalaryMonthly` in settings); v3→v4 added `settings.surplus`; v4→v5 added `checkpoints`. All are additive — older states migrate through the field-by-field path without losing rules, and only pre-v1 states are reset. **v3 deliberately does not backfill**: older transactions named "Top Up"/"Transfer from savings" are left unmarked, because past top-ups were never recorded reliably and name-matching them would invent untrustworthy history. `trackingSince` is stamped once on the first v3 load and preserved thereafter — re-stamping it would silently reset the coverage clock. **v5 does not backfill either**: there is no honest way to invent a date on which a figure was last confirmed, so an upgraded state arrives with an empty checkpoint log and reads as never confirmed, which is what it is. Snapshots carry `schemaVersion` (`CURRENT_SCHEMA_VERSION`). When changing persisted shapes, bump the relevant version and extend the corresponding upgrade/parse function additively — never assume stored JSON is well-formed, and never let a version bump discard user data.
 
 ### Date formatting in UI
 

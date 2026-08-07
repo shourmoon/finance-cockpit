@@ -95,6 +95,25 @@ export interface AdhocTransaction {
 /** Which top-ups the coverage metrics count. */
 export type CoverageLens = "all" | "recurring";
 
+/**
+ * One recorded comparison between a figure this app maintains by hand and
+ * what the bank or servicer actually said. See `domain/reconciliation.ts`
+ * for what is done with these; the shape lives here because it is persisted
+ * alongside the rest of the state.
+ */
+export interface Checkpoint {
+  id: UUID;
+  /**
+   * The statement date: what the figure was true *of*, never when it was
+   * typed in.
+   */
+  date: ISODate;
+  /** What the bank or servicer actually said. */
+  actual: Money;
+  /** What the model said for that date, captured when the check was made. */
+  modelled: Money;
+}
+
 // ------------------------
 // Expanded future events
 // ------------------------
@@ -209,4 +228,10 @@ export interface AppState {
   rules: RecurringRule[];
   adhocTransactions: AdhocTransaction[];
   overrides: EventOverridesMap;
+  /**
+   * Times the starting balance was checked against an actual bank
+   * statement. Always present from v5 onward; an empty list means the
+   * figure has never been confirmed, which is itself worth saying.
+   */
+  checkpoints: Checkpoint[];
 }

@@ -232,7 +232,65 @@ try {
     fail(`attribution interest does not add up: parts ${sumDollars}, total ${dollars(totalText)}`);
   }
 
-  // --- 5. with no "today", the app claims nothing rather than something ---
+  // --- 5. a reality check goes in and comes back out ---
+  // The one feature that reaches outside the app, driven the way a user
+  // drives it: open it, type what the bank says, record, and confirm that
+  // the balance was corrected, the drift was kept, and the freshness note
+  // now says so. Unit tests cover each half; only this covers the loop.
+  await page.getByText("Dashboard", { exact: false }).first().click();
+  await page.waitForTimeout(400);
+
+  const cashRow = page.getByTestId("reality-check-cash");
+  if ((await cashRow.count()) === 0) {
+    fail("dashboard: no reality-check row");
+  } else {
+    const before = await page.getByTestId("reality-age-cash").innerText();
+    if (!/never checked/i.test(before)) {
+      fail(`reality check: fresh state should read as unchecked, got "${before}"`);
+    }
+
+    await cashRow.getByRole("button").click();
+    await page.waitForTimeout(300);
+    // Seeded startingBalance is 12000; tell it the bank says 11,250.
+    await page.getByLabel("Statement amount").fill("11250");
+    await page.waitForTimeout(200);
+    const shown = await page.getByTestId("reality-difference").innerText();
+    if (!shown.includes("750")) {
+      fail(`reality check: expected a $750 difference, showed "${shown}"`);
+    }
+    await page.getByRole("button", { name: "Record check" }).click();
+    await page.waitForTimeout(400);
+
+    const after = await page.getByTestId("reality-age-cash").innerText();
+    if (!/confirmed today/i.test(after)) {
+      fail(`reality check: should read as confirmed today, got "${after}"`);
+    }
+    const drift = await page.getByTestId("reality-drift-cash").innerText();
+    if (!/less in the account/.test(drift) || !drift.includes("750")) {
+      fail(`reality check: drift line did not survive, got "${drift}"`);
+    }
+
+    // The correction and the record are one action; both must have landed.
+    const saved = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("finance-cockpit-app-state-v1"))
+    );
+    if (saved.account.startingBalance !== 11250) {
+      fail(
+        `reality check: balance not corrected (${saved.account.startingBalance})`
+      );
+    }
+    if (saved.checkpoints?.length !== 1 || saved.checkpoints[0].modelled !== 12000) {
+      fail("reality check: the checkpoint did not persist what the model said");
+    }
+    // And the corrected balance is what the card now shows, so the page does
+    // not hold two numbers for one quantity.
+    const dash = await page.locator("body").innerText();
+    if (!dash.includes("$11,250")) {
+      fail("reality check: dashboard still shows the pre-correction balance");
+    }
+  }
+
+  // --- 6. with no "today", the app claims nothing rather than something ---
   // Clearing the Start date is one keystroke away in Settings, and it leaves
   // settings.startDate as "". Coverage used to build its window from that and
   // collapse into a single fabricated month that read as clean, so the card

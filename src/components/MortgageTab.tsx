@@ -39,6 +39,13 @@ import { formatDate } from "../utils/dates";
 import { isValidISODate } from "../domain/dateUtils";
 import { DateInputWithDisplay, NumberInput } from "./shared";
 import SurplusAllocationCard from "./SurplusAllocationCard";
+import RealityCheckRow from "./RealityCheckRow";
+import RealityCheckModal from "./RealityCheckModal";
+import {
+  summarizeCheckpoints,
+  modelledMortgageOn,
+} from "../domain/reconciliation";
+import type { Checkpoint } from "../domain/types";
 import { ui, colors } from "./ui";
 
 // Format a currency value (number) into a US dollar string with no
@@ -262,6 +269,11 @@ export default function MortgageTab({
   const [asOfDate, setAsOfDate] = useState<string>(
     initialUI.asOfDate ?? initialUI.terms.startDate
   );
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>(
+    initialUI.checkpoints
+  );
+  const [realityCheckOpen, setRealityCheckOpen] = useState(false);
+
   // Row ids whose optional note editor the user has opened this session.
   // A row with an existing note renders expanded regardless; empty notes
   // stay collapsed behind a "+ Add note" affordance to keep the log light.
@@ -275,9 +287,10 @@ export default function MortgageTab({
         .filter((p) => p.date && p.amount > 0)
         .map((p) => ({ date: p.date, amount: p.amount, note: p.note })),
       asOfDate: asOfDate || terms.startDate,
+      checkpoints,
     };
     saveMortgageUIState(uiState);
-  }, [terms, prepayments, asOfDate]);
+  }, [terms, prepayments, asOfDate, checkpoints]);
 
   function updateTermsFromInputs(
     overrides?: Partial<{
@@ -346,6 +359,19 @@ export default function MortgageTab({
   const withPrepayments = useMemo(
     () => computeMortgageWithPrepayments(terms, prepaymentLog),
     [terms, prepaymentLog]
+  );
+
+  // How long since the outstanding principal was checked against a servicer
+  // statement, measured against the same "planning from" date the rest of
+  // this tab reasons from.
+  const mortgageChecks = useMemo(
+    () =>
+      summarizeCheckpoints(
+        checkpoints,
+        "mortgage",
+        asOfDate || terms.startDate
+      ),
+    [checkpoints, asOfDate, terms.startDate]
   );
 
   // The loan document says N years of MONTHLY payments. Paying biweekly is
@@ -557,6 +583,14 @@ export default function MortgageTab({
             <span>{formatPercent(baselineEffectiveRate)}</span>
           </div>
         </div>
+        {/* The loan terms are the model's inputs; this is where the model
+            gets held against what the servicer actually says. */}
+        <RealityCheckRow
+          summary={mortgageChecks}
+          target="mortgage"
+          formatMoney={formatCurrency}
+          onCheck={() => setRealityCheckOpen(true)}
+        />
       </SectionCard>
 
       {surplus && onSurplusChange && (
@@ -747,6 +781,30 @@ export default function MortgageTab({
         )}
       </SectionCard>
 
+      {/* REALITY CHECK: what the servicer actually says is still owed */}
+      <RealityCheckModal
+        open={realityCheckOpen}
+        target="mortgage"
+        defaultDate={asOfDate || terms.startDate}
+        // A servicer statement is genuinely dated, and the schedule can
+        // answer for any day of the loan, so the date stays the user's.
+        dateEditable
+        // The schedule with real prepayments applied — the model's own claim
+        // about what is outstanding, which is exactly what the statement is
+        // being held against.
+        modelledOn={(date) =>
+          modelledMortgageOn(withPrepayments.schedule, terms.principal, date)
+        }
+        formatMoney={formatCurrency}
+        onSave={({ date, actual, modelled }) => {
+          setCheckpoints((prev) => [
+            ...prev,
+            { id: uuid(), date, actual, modelled },
+          ]);
+          setRealityCheckOpen(false);
+        }}
+        onClose={() => setRealityCheckOpen(false)}
+      />
     </div>
   );
 }

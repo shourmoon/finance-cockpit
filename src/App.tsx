@@ -40,6 +40,9 @@ import QuickAddTransactionModal from "./components/QuickAddTransactionModal";
 import TopUpReasonModal from "./components/TopUpReasonModal";
 import CoverageCard from "./components/CoverageCard";
 import { computeCoverageMetrics } from "./domain/resilience";
+import RealityCheckRow from "./components/RealityCheckRow";
+import RealityCheckModal from "./components/RealityCheckModal";
+import { summarizeCheckpoints } from "./domain/reconciliation";
 import { ui, colors } from "./components/ui";
 
 // Shared date input bound to this screen's input styling.
@@ -151,6 +154,22 @@ export default function App() {
       state.settings.secondSalaryMonthly,
     ]
   );
+
+  // How long since the starting balance was last checked against a real
+  // statement, and what the model got wrong that time. Measured against the
+  // app's notion of "now" (settings.startDate), the same reference the
+  // projection and the coverage card use, so nothing on the page disagrees
+  // with anything else about what day it is.
+  const cashChecks = useMemo(
+    () =>
+      summarizeCheckpoints(
+        state.checkpoints,
+        "cash",
+        state.settings.startDate
+      ),
+    [state.checkpoints, state.settings.startDate]
+  );
+  const [realityCheckOpen, setRealityCheckOpen] = useState(false);
 
   useEffect(() => {
     saveAppState(state);
@@ -704,6 +723,16 @@ export default function App() {
                 </span>
               </div>
             </div>
+
+            {/* Every figure above is computed from the balance, so how long
+                ago that balance was true belongs with them, not buried in
+                settings. */}
+            <RealityCheckRow
+              summary={cashChecks}
+              target="cash"
+              formatMoney={formatMoney}
+              onCheck={() => setRealityCheckOpen(true)}
+            />
           </div>
 
           {timeline.length > 0 && (
@@ -850,6 +879,37 @@ export default function App() {
           formatMoney={formatMoney}
         />
       )}
+
+      {/* REALITY CHECK: what the bank actually says */}
+      <RealityCheckModal
+        open={realityCheckOpen}
+        target="cash"
+        defaultDate={state.settings.startDate}
+        // "Balance today" is the one hand-maintained cash figure, and the
+        // one the whole projection is anchored on, so it is what a statement
+        // is held against — not the timeline's first point, which already has
+        // today's scheduled events applied and would put a second, different
+        // number for one quantity inside the same card.
+        dateEditable={false}
+        modelledOn={() => state.account.startingBalance}
+        formatMoney={formatMoney}
+        onSave={({ date, actual, modelled }) => {
+          setState((s) => ({
+            ...s,
+            // Recording the check and correcting the balance are one action:
+            // confirming a figure and then still projecting from the old one
+            // would leave the freshness note claiming a balance was checked
+            // while the app carried on using a number the bank disagrees with.
+            account: { startingBalance: actual },
+            checkpoints: [
+              ...s.checkpoints,
+              { id: makeId("chk"), date, actual, modelled },
+            ],
+          }));
+          setRealityCheckOpen(false);
+        }}
+        onClose={() => setRealityCheckOpen(false)}
+      />
 
       {/* TOP-UP REASON PROMPT (before a top-up is recorded) */}
       <TopUpReasonModal

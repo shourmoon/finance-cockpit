@@ -11,6 +11,9 @@ EventOverridesMap,
 UUID,
 } from "./types";
 import { toISODate, isValidISODate } from "./dateUtils";
+// One definition of a valid checkpoint, shared with the module that reads
+// them, so storage and the summary can never disagree about what counts.
+import { sanitizeCheckpoints } from "./reconciliation";
 // Re-exported so the reserve default has exactly one definition; the
 // surplus module owns it because that is where it is applied.
 import { DEFAULT_RESERVE_MONTHS } from "./surplusAllocation";
@@ -28,7 +31,13 @@ export { DEFAULT_RESERVE_MONTHS };
 // market-vs-mortgage comparison runs on. Additive: v3 states keep everything
 // and simply gain defaults, and parkedCash stays unset so the card is dormant
 // until the user supplies a real balance.
-export const APP_STATE_VERSION = 4;
+// v4 -> v5: added `checkpoints` — the log of times the starting balance was
+// checked against an actual statement. Additive, and deliberately NOT
+// backfilled: there is no honest way to invent a date on which a figure was
+// last confirmed, and stamping one would report a balance as fresh that
+// nobody has looked at. An older state arrives with an empty log and reads
+// as never confirmed, which is exactly what it is.
+export const APP_STATE_VERSION = 5;
 
 /** Long-run pre-tax equity return. Conservative relative to historical. */
 export const DEFAULT_EXPECTED_RETURN = 0.07;
@@ -231,6 +240,7 @@ export function createInitialAppState(): AppState {
     rules: createDefaultRules(),
     adhocTransactions: [],
     overrides: createDefaultOverrides(),
+    checkpoints: [],
   };
 }
 
@@ -421,5 +431,8 @@ export function upgradeAppState(raw: any): AppState {
     rules,
     adhocTransactions,
     overrides,
+    // Absent before v5, and never invented: an empty log reads as "never
+    // confirmed", which is the truth about a state that predates the log.
+    checkpoints: sanitizeCheckpoints(raw.checkpoints),
   };
 }

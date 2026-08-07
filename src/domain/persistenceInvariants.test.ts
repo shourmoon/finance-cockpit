@@ -269,7 +269,7 @@ describe("persistence invariants (property-based)", () => {
         window.localStorage.getItem("finance-cockpit-mortgage-v2")!
       );
       expect(Object.keys(raw).sort()).toEqual(
-        ["asOfDate", "prepayments", "terms"].sort()
+        ["asOfDate", "checkpoints", "prepayments", "terms"].sort()
       );
     }
   });
