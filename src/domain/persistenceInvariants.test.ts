@@ -231,9 +231,64 @@ describe("persistence invariants (property-based)", () => {
       expect(state.settings.startDate).toBe(raw.settings.startDate);
       expect(state.settings.horizonDays).toBe(raw.settings.horizonDays);
       expect(state.settings.minSafeBalance).toBe(raw.settings.minSafeBalance);
-      expect(state.settings.coverageLens).toBe(raw.settings.coverageLens);
       expect(state.settings.surplus).toEqual(raw.settings.surplus);
+      // The generator still writes the retired coverage lens, as old stored
+      // states do. A retired field is the one thing that must NOT survive:
+      // carried forward, the app would keep writing it back forever.
+      expect("coverageLens" in state.settings).toBe(false);
     }
+  });
+
+  it("carries an old top-up forward as a top-up, whatever reason it recorded", () => {
+    // There is one kind of top-up now. States written before that carry a
+    // `reason` of "oneOff" or "shortfall" on each one, and the risk on the
+    // way through is the usual one for this layer: dropping the distinction
+    // by dropping the transaction. The draw itself is real money the
+    // household actually moved, so it must survive intact and still be
+    // recognisable as a top-up; only the label goes. Compared against the
+    // RAW stored shape, never against another upgrade's output.
+    const stored = {
+      version: 5,
+      account: { startingBalance: 4210.55 },
+      settings: {
+        startDate: "2026-09-02",
+        horizonDays: 90,
+        minSafeBalance: 1500,
+        trackingSince: "2026-01-01",
+        coverageLens: "recurring",
+        surplus: {},
+      },
+      rules: [],
+      adhocTransactions: [
+        { id: "a", name: "Top Up", amount: 1800, date: "2026-03-10", kind: "topUp", reason: "oneOff" },
+        { id: "b", name: "Top Up", amount: 420.5, date: "2026-04-12", kind: "topUp", reason: "shortfall" },
+        { id: "c", name: "Top Up", amount: 300, date: "2026-05-01", kind: "topUp" },
+        { id: "d", name: "Car repair", amount: -640, date: "2026-05-04" },
+      ],
+      overrides: {},
+      checkpoints: [],
+    };
+
+    const up = upgradeAppState(stored);
+
+    expect(up.adhocTransactions).toHaveLength(stored.adhocTransactions.length);
+    for (let i = 0; i < stored.adhocTransactions.length; i++) {
+      const raw = stored.adhocTransactions[i] as Record<string, unknown>;
+      const txn = up.adhocTransactions[i];
+      expect(txn.id).toBe(raw.id);
+      expect(txn.name).toBe(raw.name);
+      expect(txn.amount).toBe(raw.amount);
+      expect(txn.date).toBe(raw.date);
+      // A top-up stays a top-up; an ordinary transaction stays ordinary.
+      expect(txn.kind).toBe(raw.kind);
+      // ...but no transaction carries a reason any more, whatever storage
+      // said. A retired field left in place is one the app would keep
+      // writing back forever.
+      expect("reason" in txn).toBe(false);
+    }
+    // The lens the card used to offer goes the same way: one kind of
+    // top-up leaves nothing to switch between.
+    expect("coverageLens" in up.settings).toBe(false);
   });
 
   it("never replaces real mortgage terms with defaults", () => {

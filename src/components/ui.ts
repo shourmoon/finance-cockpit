@@ -37,7 +37,7 @@ export const colors = {
   blueInk: "#f9fafb",
   blueStrong: "#1d4ed8", // active tab fill / banner
   blueEdge: "#2563eb", // active tab border
-  link: "#93c5fd", // text links (show-more, sync, chart cursor)
+  link: "#93c5fd", // text links (show-more, sync)
   tabBorder: "#374151", // inactive tab border
 
   // Money / status
@@ -55,13 +55,6 @@ export const colors = {
   error: "#f87171", // sync error text
   amber: "#fbbf24",
   amberEdge: "#92400e", // warning surface border
-};
-
-// Balance chart lines that aren't part of the core UI palette.
-export const chart = {
-  floor: "#f59e0b", // min-safe-balance dashed line
-  trend: "#818cf8", // smoothed trend line
-  daily: "#60a5fa", // daily balance line
 };
 
 export const ui = {

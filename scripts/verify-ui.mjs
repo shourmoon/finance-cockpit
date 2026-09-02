@@ -195,6 +195,20 @@ try {
   if (stored.app.settings.trackingSince !== "2025-09-01") {
     fail("migration reset the coverage clock");
   }
+  // The seeded payload is a v3 state, so it still carries the two things v6
+  // retired: the per-top-up reason and the coverage lens. The draw itself
+  // must survive as a top-up while both labels are dropped — a retired field
+  // carried forward is one the app keeps writing back forever.
+  const topUp = stored.app.adhocTransactions[0];
+  if (topUp?.kind !== "topUp" || topUp.amount !== 1200) {
+    fail("migration lost the recorded top-up");
+  }
+  if (topUp && "reason" in topUp) {
+    fail("migration carried the retired top-up reason forward");
+  }
+  if ("coverageLens" in stored.app.settings) {
+    fail("migration carried the retired coverage lens forward");
+  }
 
   // --- 4. figures shown together reconcile, as rendered ---
   const months = (t) => {

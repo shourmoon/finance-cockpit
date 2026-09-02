@@ -5,7 +5,7 @@
 // backdrop/modal styling and reuses the shared inputs.
 
 import { useState } from "react";
-import { DateInputWithDisplay, NumberInput, TopUpClassSelect } from "./shared";
+import { DateInputWithDisplay, NumberInput, TopUpToggle } from "./shared";
 import { ui, colors } from "./ui";
 import Modal from "./Modal";
 
@@ -14,7 +14,6 @@ export interface QuickAddValues {
   amount: number;
   date: string;
   kind?: "topUp";
-  reason?: "oneOff" | "shortfall";
 }
 
 export default function QuickAddTransactionModal({
@@ -32,8 +31,8 @@ export default function QuickAddTransactionModal({
   const [amount, setAmount] = useState(0);
   const [date, setDate] = useState(defaultDate);
   // Money moved from savings is often recorded here rather than through the
-  // dashboard's Apply button, so it has to be classifiable at entry.
-  const [topUpClass, setTopUpClass] = useState<"none" | "oneOff" | "shortfall">("none");
+  // dashboard's Apply button, so it has to be markable at entry.
+  const [isTopUp, setIsTopUp] = useState(false);
 
   // Reset the form whenever the modal transitions closed -> open, using
   // the render-time adjustment pattern (no effect, no cascading render).
@@ -44,7 +43,7 @@ export default function QuickAddTransactionModal({
       setName("");
       setAmount(0);
       setDate(defaultDate);
-      setTopUpClass("none");
+      setIsTopUp(false);
     }
   }
 
@@ -55,9 +54,7 @@ export default function QuickAddTransactionModal({
       name: name.trim() === "" ? "One-time transaction" : name.trim(),
       amount,
       date,
-      ...(topUpClass === "none"
-        ? {}
-        : { kind: "topUp" as const, reason: topUpClass }),
+      ...(isTopUp ? { kind: "topUp" as const } : {}),
     });
   }
 
@@ -100,16 +97,11 @@ export default function QuickAddTransactionModal({
         />
       </label>
 
-      <label style={styles.label}>
-        Record as
-        <TopUpClassSelect
-          value={topUpClass}
-          onChange={setTopUpClass}
-          inputStyle={styles.input}
-        />
-      </label>
+      <div style={styles.toggleRow}>
+        <TopUpToggle checked={isTopUp} onChange={setIsTopUp} />
+      </div>
 
-      {topUpClass !== "none" && amount <= 0 && (
+      {isTopUp && amount <= 0 && (
         <div style={styles.warning}>
           A top-up must be a positive inflow — coverage ignores this amount.
         </div>
@@ -137,6 +129,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: colors.muted,
   },
   input: ui.input,
+  toggleRow: { marginBottom: 12 },
   warning: {
     fontSize: 11.5,
     lineHeight: 1.45,

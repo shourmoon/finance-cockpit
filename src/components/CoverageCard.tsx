@@ -13,14 +13,11 @@
 // useful from the very first day.
 
 import type { CoverageMetrics, MonthBucket } from "../domain/resilience";
-import type { CoverageLens } from "../domain/types";
 import { formatDate, monthYearLabel } from "../utils/dates";
 import { ui, colors } from "./ui";
 
 export default function CoverageCard({
   metrics,
-  lens,
-  onLensChange,
   trackingSince,
   needsTopUp,
   slack,
@@ -28,8 +25,6 @@ export default function CoverageCard({
   formatMoney,
 }: {
   metrics: CoverageMetrics;
-  lens: CoverageLens;
-  onLensChange: (lens: CoverageLens) => void;
   trackingSince?: string;
   /** True when the projection expects a shortfall inside the horizon. */
   needsTopUp: boolean;
@@ -44,28 +39,11 @@ export default function CoverageCard({
   const latest = months[months.length - 1];
   const latestInProgress = latest?.known && !latest.complete;
 
-  // Bars rescale to the active lens: a $350 shortfall is invisible on a
-  // scale set by a $2,400 shock, which would defeat the point of the lens.
   const peak = Math.max(...months.map((m) => m.total), 1);
 
   return (
     <div style={ui.card}>
-      <div style={styles.headerRow}>
-        <h3 style={{ ...ui.cardTitle, marginBottom: 0 }}>One-Salary Coverage</h3>
-        <div style={styles.seg} role="group" aria-label="Coverage lens">
-          {(["all", "recurring"] as const).map((l) => (
-            <button
-              key={l}
-              type="button"
-              aria-pressed={lens === l}
-              onClick={() => onLensChange(l)}
-              style={lens === l ? styles.segOn : styles.segOff}
-            >
-              {l === "all" ? "All draws" : "Recurring only"}
-            </button>
-          ))}
-        </div>
-      </div>
+      <h3 style={{ ...ui.cardTitle, marginBottom: 3 }}>One-Salary Coverage</h3>
 
       <div style={styles.caption}>
         {trackingSince
@@ -113,7 +91,6 @@ export default function CoverageCard({
                 key={m.monthKey}
                 bucket={m}
                 peak={peak}
-                lens={lens}
                 formatMoney={formatMoney}
               />
             ))}
@@ -155,12 +132,10 @@ export default function CoverageCard({
 function MonthBar({
   bucket,
   peak,
-  lens,
   formatMoney,
 }: {
   bucket: MonthBucket;
   peak: number;
-  lens: CoverageLens;
   formatMoney: (amount: number) => string;
 }) {
   const openSuffix = bucket.known && !bucket.complete ? ", still open" : "";
@@ -181,19 +156,12 @@ function MonthBar({
   if (bucket.total === 0) {
     return <span style={{ ...styles.colClean, ...openStyle }} title={label} />;
   }
-  // Stacked so a month holding both a shock and a shortfall reads as both —
-  // but only the portions this lens actually counts are drawn. Under
-  // "recurring only" the shock is not part of the view, and drawing it would
-  // both misrepresent the month and blow past the rescaled axis.
-  const showOneOff = lens === "all" && bucket.oneOff > 0;
-  const oneOffPct = (bucket.oneOff / peak) * 100;
-  const shortfallPct = (bucket.shortfall / peak) * 100;
+  // One bar per assisted month, height proportional to what was drawn.
   return (
     <span style={{ ...styles.col, ...openStyle }} title={label}>
-      {showOneOff && <span style={{ ...styles.segOneOff, height: `${oneOffPct}%` }} />}
-      {bucket.shortfall > 0 && (
-        <span style={{ ...styles.segShortfall, height: `${shortfallPct}%` }} />
-      )}
+      <span
+        style={{ ...styles.segDrawn, height: `${(bucket.total / peak) * 100}%` }}
+      />
     </span>
   );
 }
@@ -230,40 +198,6 @@ function verdict(m: CoverageMetrics): string {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  headerRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-    marginBottom: 3,
-  },
-  seg: {
-    display: "flex",
-    border: `1px solid ${colors.cardBorder}`,
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  segOff: {
-    background: "transparent",
-    border: "none",
-    padding: "4px 9px",
-    fontSize: 11,
-    fontWeight: 600,
-    color: colors.muted,
-    cursor: "pointer",
-    fontFamily: "inherit",
-  },
-  segOn: {
-    background: colors.blue,
-    border: "none",
-    padding: "4px 9px",
-    fontSize: 11,
-    fontWeight: 600,
-    color: colors.blueInk,
-    cursor: "pointer",
-    fontFamily: "inherit",
-  },
   caption: { fontSize: 11, color: colors.faint, marginBottom: 9 },
   hero: { display: "flex", alignItems: "baseline", gap: 7, marginBottom: 2 },
   heroBig: { fontSize: 24, fontWeight: 700, lineHeight: 1.05 },
@@ -294,17 +228,11 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 2,
     background: colors.cardBorder,
   },
-  segOneOff: {
+  segDrawn: {
     display: "block",
     borderRadius: "2px 2px 0 0",
     background: "rgba(251, 191, 36, 0.22)",
     borderTop: `2px solid ${colors.amber}`,
-  },
-  segShortfall: {
-    display: "block",
-    borderRadius: "2px 2px 0 0",
-    background: "rgba(249, 115, 115, 0.22)",
-    borderTop: `2px solid ${colors.danger}`,
   },
   axis: { display: "flex", gap: 3, marginTop: 4 },
   axisTick: {

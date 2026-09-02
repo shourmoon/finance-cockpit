@@ -28,11 +28,11 @@ function makeBaseState(): AppState {
   };
 }
 
-describe("the reported minimum describes the curve that is drawn", () => {
+describe("the reported minimum describes the curve the timeline traces", () => {
   // Found by cashflowInvariants.test.ts on its first run, in code that had
   // shipped long before. The minimum was seeded with the balance BEFORE the
-  // first day's events — a moment the chart never plots — so the dashboard
-  // could name a lowest point that contradicted the chart beside it.
+  // first day's events — a moment the timeline never holds — so the dashboard
+  // could name a lowest point that contradicted the ledger beside it.
   const state = upgradeAppState({
     version: 4,
     account: { startingBalance: 4090 },
@@ -49,8 +49,8 @@ describe("the reported minimum describes the curve that is drawn", () => {
 
   test("names a low point that exists on the timeline", () => {
     const { timeline, metrics } = runCashflowProjection(state);
-    const charted = Math.min(...timeline.map((p) => p.balance));
-    expect(metrics.minBalance).toBe(charted);
+    const lowestOnTimeline = Math.min(...timeline.map((p) => p.balance));
+    expect(metrics.minBalance).toBe(lowestOnTimeline);
     expect(timeline.find((p) => p.date === metrics.minBalanceDate)?.balance).toBe(
       metrics.minBalance
     );
