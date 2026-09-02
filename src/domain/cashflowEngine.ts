@@ -361,16 +361,16 @@ export function buildTimelineAndMetrics(
   // Seeded from the timeline, not from the pre-timeline balance.
   //
   // The first timeline point is startDate WITH that day's events applied, so
-  // the balance before them is a moment the chart never plots. Offering it as
-  // a candidate minimum made the dashboard read "lowest $4,090 on 1 Mar"
-  // beside a chart showing $9,330 on 1 Mar — one quantity, two numbers, on
-  // one screen.
+  // the balance before them is a moment the timeline never holds. Offering it
+  // as a candidate minimum made the dashboard read "lowest $4,090 on 1 Mar"
+  // beside a ledger whose running balance for 1 Mar was $9,330 — one
+  // quantity, two numbers, on one screen.
   //
   // Note this is deliberately NOT the same question computeSafeToSpend asks.
   // That one keeps the pre-event balance as a candidate on purpose: you
   // cannot spend a salary that has not landed yet, so the conservative
   // reading is the correct one there. Here the job is to describe the curve
-  // that is drawn, and it must describe it accurately.
+  // the timeline actually traces, and it must describe it accurately.
   let minBalance = Number.POSITIVE_INFINITY;
   let minBalanceDate: ISODate | null = null;
   let firstNegativeDate: ISODate | null = null;

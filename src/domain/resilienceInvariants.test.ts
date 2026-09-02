@@ -16,7 +16,7 @@
 import { describe, it, expect } from "vitest";
 import { computeCoverageMetrics } from "./resilience";
 import type { CoverageOptions } from "./resilience";
-import type { AdhocTransaction, CoverageLens } from "./types";
+import type { AdhocTransaction } from "./types";
 
 /** Deterministic PRNG so any failure is reproducible from the seed. */
 function rng(seed: number) {
@@ -50,24 +50,22 @@ function windowKeys(asOf: string, windowMonths: number): string[] {
 }
 
 /** Sum the raw transactions that belong to a month, straight from the input. */
-function rawSum(
-  txns: readonly AdhocTransaction[],
-  key: string,
-  which: "oneOff" | "shortfall"
-): number {
+function rawSum(txns: readonly AdhocTransaction[], key: string): number {
   let sum = 0;
   for (const t of txns) {
     if (t.kind !== "topUp") continue;
     if (typeof t.date !== "string" || t.date.slice(0, 7) !== key) continue;
     if (!Number.isFinite(t.amount) || t.amount <= 0) continue;
-    const bucket = t.reason === "shortfall" ? "shortfall" : "oneOff";
-    if (bucket === which) sum += t.amount;
+    sum += t.amount;
   }
   return sum;
 }
 
+/** A stored transaction, possibly still carrying a retired `reason`. */
+type StoredTransaction = AdhocTransaction & { reason?: string };
+
 interface Case {
-  txns: AdhocTransaction[];
+  txns: StoredTransaction[];
   options: CoverageOptions;
   /** windowMonths with the default applied — the raw intent, not an output. */
   window: number;
@@ -98,7 +96,7 @@ function generateCase(r: () => number): Case {
     );
   }
 
-  const txns: AdhocTransaction[] = [];
+  const txns: StoredTransaction[] = [];
   const count = Math.floor(r() * 14);
   for (let i = 0; i < count; i++) {
     // Dates spread well past the window in both directions, so the law that
@@ -123,15 +121,18 @@ function generateCase(r: () => number): Case {
         1 + Math.floor(r() * 28)
       ),
       // A quarter carry no top-up marker at all: ordinary spending that
-      // happens to be named like a transfer.
+      // happens to be named like a transfer. Of the rest, most carry a
+      // retired `reason` from a state written before the two kinds were
+      // merged — exactly what upgraded data looks like, and none of it may
+      // move a figure.
       ...(kindRoll < 0.25
         ? {}
         : {
             kind: "topUp" as const,
             ...(kindRoll < 0.6
-              ? { reason: "shortfall" as const }
+              ? { reason: "shortfall" }
               : kindRoll < 0.85
-                ? { reason: "oneOff" as const }
+                ? { reason: "oneOff" }
                 : {}),
           }),
     });
@@ -139,7 +140,6 @@ function generateCase(r: () => number): Case {
 
   const salaryRoll = r();
   const options: CoverageOptions = {
-    lens: (r() < 0.5 ? "all" : "recurring") as CoverageLens,
     asOf,
     trackingSince,
     windowMonths: window,
@@ -208,14 +208,8 @@ describe("coverage invariants (property-based)", () => {
     for (const c of CASES) {
       const { months } = computeCoverageMetrics(c.txns, c.options);
       for (const b of months) {
-        const oneOff = b.known ? rawSum(c.txns, b.monthKey, "oneOff") : 0;
-        const shortfall = b.known ? rawSum(c.txns, b.monthKey, "shortfall") : 0;
-        expect(b.oneOff, `${b.monthKey} oneOff`).toBeCloseTo(oneOff, 6);
-        expect(b.shortfall, `${b.monthKey} shortfall`).toBeCloseTo(shortfall, 6);
-        expect(b.total).toBeCloseTo(
-          c.options.lens === "recurring" ? shortfall : oneOff + shortfall,
-          6
-        );
+        const drawn = b.known ? rawSum(c.txns, b.monthKey) : 0;
+        expect(b.total, `${b.monthKey} total`).toBeCloseTo(drawn, 6);
       }
     }
   });
@@ -231,11 +225,7 @@ describe("coverage invariants (property-based)", () => {
           c.trackingMonth === null || b.monthKey >= c.trackingMonth;
         expect(b.known, `${b.monthKey} known`).toBe(shouldKnow);
         if (shouldKnow) known += 1;
-        else {
-          expect(b.oneOff).toBe(0);
-          expect(b.shortfall).toBe(0);
-          expect(b.total).toBe(0);
-        }
+        else expect(b.total).toBe(0);
       }
       expect(knownMonths).toBe(known);
     }
@@ -284,7 +274,6 @@ describe("coverage invariants (property-based)", () => {
         amount,
         date: `${key}-10`,
         kind: "topUp" as const,
-        reason: "shortfall" as const,
       }));
       expect(
         JSON.stringify(computeCoverageMetrics([...c.txns, ...junk], c.options))
@@ -292,7 +281,7 @@ describe("coverage invariants (property-based)", () => {
     }
   });
 
-  it("adds a new top-up to exactly one month, and only under its lens", () => {
+  it("adds a new top-up to exactly one month, and nowhere else", () => {
     for (const c of CASES) {
       const keys = windowKeys(c.options.asOf, c.window);
       const key = keys[Math.floor(keys.length / 2)];
@@ -303,7 +292,6 @@ describe("coverage invariants (property-based)", () => {
         amount: 1234.56,
         date: `${key}-12`,
         kind: "topUp",
-        reason: "shortfall",
       };
       const after = computeCoverageMetrics([...c.txns, extra], c.options);
 
@@ -314,32 +302,10 @@ describe("coverage invariants (property-based)", () => {
       );
       expect(after.months).toHaveLength(before.months.length);
       for (let i = 0; i < after.months.length; i++) {
-        const delta = after.months[i].shortfall - before.months[i].shortfall;
+        const delta = after.months[i].total - before.months[i].total;
         expect(delta).toBeCloseTo(
           lands && after.months[i].monthKey === key ? 1234.56 : 0,
           6
-        );
-      }
-    }
-  });
-
-  it("sees at most as much through the recurring lens as through all", () => {
-    // Agreement between the two lenses: "recurring only" is a subset of
-    // "all draws", so it can never report more money or fewer clean months.
-    for (const c of CASES) {
-      const all = computeCoverageMetrics(c.txns, { ...c.options, lens: "all" });
-      const rec = computeCoverageMetrics(c.txns, {
-        ...c.options,
-        lens: "recurring",
-      });
-      expect(rec.totalToppedUp).toBeLessThanOrEqual(all.totalToppedUp + 1e-9);
-      expect(rec.cleanMonths).toBeGreaterThanOrEqual(all.cleanMonths);
-      expect(rec.streakBest).toBeGreaterThanOrEqual(all.streakBest);
-      expect(rec.streakCurrent).toBeGreaterThanOrEqual(all.streakCurrent);
-      expect(rec.knownMonths).toBe(all.knownMonths);
-      for (let i = 0; i < all.months.length; i++) {
-        expect(rec.months[i].total).toBeLessThanOrEqual(
-          all.months[i].total + 1e-9
         );
       }
     }
@@ -452,10 +418,8 @@ describe("coverage invariants (property-based)", () => {
           amount,
           date: `2026-${String(i + 1).padStart(2, "0")}-15`,
           kind: "topUp" as const,
-          reason: "shortfall" as const,
-        }));
+          }));
       const options: CoverageOptions = {
-        lens: "all",
         asOf: `2026-${String(n).padStart(2, "0")}-20`,
         windowMonths: n,
         trackingSince: "2026-01-01",
@@ -506,10 +470,8 @@ describe("coverage invariants (property-based)", () => {
     for (const c of CASES) {
       const m = computeCoverageMetrics(c.txns, c.options);
       for (const b of m.months) {
-        for (const v of [b.oneOff, b.shortfall, b.total]) {
-          expect(Number.isFinite(v)).toBe(true);
-          expect(v).toBeGreaterThanOrEqual(0);
-        }
+        expect(Number.isFinite(b.total)).toBe(true);
+        expect(b.total).toBeGreaterThanOrEqual(0);
       }
       for (const v of [
         m.knownMonths,
@@ -550,7 +512,6 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
       amount: 900,
       date: "2026-07-02",
       kind: "topUp",
-      reason: "shortfall",
     },
   ];
 
@@ -578,7 +539,6 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
     for (const asOf of ["", "garbage", "2026-13-01", "2026-02-30", "not-a-date"]) {
       expectEmpty(
         computeCoverageMetrics(REAL, {
-          lens: "all",
           asOf,
           trackingSince: "2025-09-01",
           secondSalaryMonthly: 4000,
@@ -591,7 +551,6 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
     for (const windowMonths of [0, -3, NaN, 0.4, Infinity]) {
       expectEmpty(
         computeCoverageMetrics(REAL, {
-          lens: "all",
           asOf: "2026-08-06",
           windowMonths,
           secondSalaryMonthly: 4000,
@@ -601,16 +560,12 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
   });
 
   it("treats an unusable tracking date as no tracking date", () => {
-    const withNone = computeCoverageMetrics(REAL, {
-      lens: "all",
-      asOf: "2026-08-06",
-    });
+    const withNone = computeCoverageMetrics(REAL, { asOf: "2026-08-06" });
     for (const trackingSince of ["", "garbage", "2026-02-30"]) {
       expect(
         JSON.stringify(
           computeCoverageMetrics(REAL, {
-            lens: "all",
-            asOf: "2026-08-06",
+              asOf: "2026-08-06",
             trackingSince,
           })
         )
@@ -620,7 +575,6 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
 
   it("knows nothing when tracking has not started yet", () => {
     const m = computeCoverageMetrics(REAL, {
-      lens: "all",
       asOf: "2026-08-06",
       trackingSince: "2027-01-01",
       secondSalaryMonthly: 4000,
@@ -656,7 +610,6 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
     ] as unknown as AdhocTransaction[];
 
     const m = computeCoverageMetrics(GARBAGE, {
-      lens: "all",
       asOf: "2026-08-06",
       trackingSince: "2025-09-01",
       secondSalaryMonthly: 4000,
@@ -674,7 +627,6 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
   it("ignores a second salary that is not a real amount", () => {
     for (const secondSalaryMonthly of [0, -100, NaN, Infinity]) {
       const m = computeCoverageMetrics(REAL, {
-        lens: "all",
         asOf: "2026-08-06",
         trackingSince: "2025-09-01",
         secondSalaryMonthly,
@@ -689,7 +641,7 @@ describe("coverage invariants — degenerate and hostile inputs", () => {
         { id: "a", name: "Top Up", amount: 500, date: "2025-12-20", kind: "topUp" },
         { id: "b", name: "Top Up", amount: 700, date: "2026-01-03", kind: "topUp" },
       ],
-      { lens: "all", asOf: "2026-02-10", windowMonths: 4, trackingSince: "2025-01-01" }
+      { asOf: "2026-02-10", windowMonths: 4, trackingSince: "2025-01-01" }
     );
     expect(m.months.map((b) => b.monthKey)).toEqual([
       "2025-11",

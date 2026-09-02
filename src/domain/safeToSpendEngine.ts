@@ -1,5 +1,5 @@
 // src/domain/safeToSpendEngine.ts
-import type { AppState, AdhocTransaction, ISODate, Money, FutureEvent, TimelinePoint, TopUpReason } from "./types";
+import type { AppState, AdhocTransaction, ISODate, Money, FutureEvent, TimelinePoint } from "./types";
 import { runCashflowProjection } from "./cashflowEngine";
 
 export interface TopUpHint {
@@ -143,19 +143,15 @@ export function computeTopUpSchedule(
  * leftover stretch in the recomputed schedule.
  */
 export function transferDepositToTransaction(
-  deposit: TopUpDeposit,
-  reason: TopUpReason = "oneOff"
+  deposit: TopUpDeposit
 ): Omit<AdhocTransaction, "id"> {
   return {
     name: "Top Up",
     amount: Math.round(deposit.amount * 100) / 100,
     date: deposit.date,
     // Marked explicitly so coverage metrics can find real top-ups without
-    // matching on `name`, which the user can edit. Reason defaults to a
-    // one-off so a hurried Apply never silently indicts the one-salary
-    // thesis; it can be changed afterwards from the transaction list.
+    // matching on `name`, which the user can edit.
     kind: "topUp",
-    reason,
   };
 }
 

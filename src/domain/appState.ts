@@ -22,7 +22,8 @@ export { DEFAULT_RESERVE_MONTHS };
 // v1 -> v2: added adhocTransactions (additive; v1 states migrate
 // field-by-field with an empty list, nothing is discarded).
 // v2 -> v3: added top-up tracking — `kind`/`reason` on ad-hoc transactions
-// and `trackingSince`/`coverageLens`/`secondSalaryMonthly` in settings.
+// and `trackingSince`/`coverageLens`/`secondSalaryMonthly` in settings
+// (`reason` and `coverageLens` since retired; see v5 -> v6).
 // Purely additive: existing transactions are left unmarked on purpose.
 // Past top-ups were never recorded reliably (they were entered as edits to
 // other rows), so name-matching "Top Up" would invent untrustworthy history.
@@ -37,7 +38,15 @@ export { DEFAULT_RESERVE_MONTHS };
 // last confirmed, and stamping one would report a balance as fresh that
 // nobody has looked at. An older state arrives with an empty log and reads
 // as never confirmed, which is exactly what it is.
-export const APP_STATE_VERSION = 5;
+// v5 -> v6: retired the two kinds of top-up. `reason` on an ad-hoc
+// transaction and `settings.coverageLens` are dropped on read — the only
+// subtractive migration here so far, and deliberately narrow: the top-up
+// itself is money the household really moved, so `kind: "topUp"` and the
+// amount, date and name all survive untouched. Only the label saying *why*
+// goes, along with the lens that existed to filter on it. Nothing is
+// backfilled in the other direction: a draw recorded as a one-off shock is
+// still a draw, and coverage now counts it as one.
+export const APP_STATE_VERSION = 6;
 
 /** Long-run pre-tax equity return. Conservative relative to historical. */
 export const DEFAULT_EXPECTED_RETURN = 0.07;
@@ -124,9 +133,9 @@ export function sanitizeSurplusSettings(raw: any): SurplusSettings {
 
 /**
  * Bounds for the projection horizon. The engine walks one timeline point
- * per day and the chart holds them all in memory, so an unbounded value
- * is a real hazard rather than a theoretical one: 200,000 days builds a
- * 200,001-point timeline. Ten years is far beyond any useful forecast
+ * per day and the top-up plan walks every one of them, so an unbounded
+ * value is a real hazard rather than a theoretical one: 200,000 days builds
+ * a 200,001-point timeline. Ten years is far beyond any useful forecast
  * while keeping the work trivially small.
  */
 export const MIN_HORIZON_DAYS = 1;
@@ -152,8 +161,8 @@ export function sanitizeHorizonDays(raw: unknown): number {
  * JSON.parse will hand them straight through from a hand-edited value or a
  * corrupt sync payload. One NaN poisons the whole projection — the balance
  * becomes NaN from that day on, every comparison against it is false, and the
- * dashboard reports status "ok" over a chart that cannot be drawn. Coerce to
- * the fallback so a broken field degrades one number instead of all of them.
+ * dashboard reports status "ok" over figures that are all NaN. Coerce to the
+ * fallback so a broken field degrades one number instead of all of them.
  */
 function money(raw: unknown, fallback: number): number {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
@@ -173,7 +182,6 @@ function createDefaultSettings(): CashflowSettings {
     minSafeBalance: 0,
     // Coverage tracking begins now — there is no earlier history to claim.
     trackingSince: today,
-    coverageLens: "all",
     surplus: sanitizeSurplusSettings(undefined),
   };
 }
@@ -306,13 +314,13 @@ export function sanitizeAdhocTransaction(raw: any): AdhocTransaction | null {
     date: raw.date,
   };
 
-  // Top-up markers are only carried through when they're exactly the values
+  // The top-up marker is only carried through when it is exactly the value
   // we write; anything else in stored JSON is dropped rather than trusted.
+  // A `reason` from v5 or earlier is not read at all — there is one kind of
+  // top-up now, so the transaction comes through as a top-up and the label
+  // stops being written back.
   if (raw.kind === "topUp") {
     txn.kind = "topUp";
-    if (raw.reason === "oneOff" || raw.reason === "shortfall") {
-      txn.reason = raw.reason;
-    }
   }
 
   return txn;
@@ -378,8 +386,6 @@ export function upgradeAppState(raw: any): AppState {
       raw.settings && isValidISODate(raw.settings.trackingSince)
         ? raw.settings.trackingSince
         : toISODate(new Date()),
-    coverageLens:
-      raw.settings && raw.settings.coverageLens === "recurring" ? "recurring" : "all",
     surplus: sanitizeSurplusSettings(raw.settings?.surplus),
   };
 

@@ -192,17 +192,19 @@ describe("transferDepositToTransaction", () => {
       amount: 250,
       date: "2025-03-10",
       kind: "topUp",
-      reason: "oneOff",
     });
   });
 
-  it("records the reason when one is given, for coverage tracking", () => {
-    const txn = transferDepositToTransaction(
-      { date: "2025-03-10", amount: 250, balanceBefore: -50 },
-      "shortfall"
-    );
+  it("marks the transaction so coverage can find it without matching on name", () => {
+    // `name` is user-editable, so the marker is the only reliable handle.
+    // There is one kind of top-up, so nothing else is recorded alongside it.
+    const txn = transferDepositToTransaction({
+      date: "2025-03-10",
+      amount: 250,
+      balanceBefore: -50,
+    });
     expect(txn.kind).toBe("topUp");
-    expect(txn.reason).toBe("shortfall");
+    expect(Object.keys(txn).sort()).toEqual(["amount", "date", "kind", "name"]);
   });
 
   it("rounds sub-cent amounts to the nearest cent", () => {

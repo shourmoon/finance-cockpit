@@ -66,34 +66,25 @@ export type EventOverridesMap = Record<string, EventOverride>;
 // Ad-hoc one-time transactions
 // ------------------------
 
-/**
- * Why a top-up was needed. Recorded at Apply time so coverage metrics can
- * separate the two by measurement rather than inference:
- * - "oneOff":    a shock (car repair, medical bill). Savings doing its job;
- *                does not indicate the household is short on income.
- * - "shortfall": the month simply did not cover. This is the one-salary
- *                thesis failing, and it's what the recurring-only lens isolates.
- * Defaults to "oneOff" so a hurried Apply never silently indicts the thesis.
- */
-export type TopUpReason = "oneOff" | "shortfall";
-
 export interface AdhocTransaction {
   id: UUID;
   name: string;
   amount: Money; // positive for inflow, negative for outflow
   date: ISODate;
   /**
-   * Marks a transaction created by applying a suggested top-up. Set
-   * explicitly (never inferred from `name`, which the user can edit) so
+   * Marks money moved in from savings to keep this account above its floor.
+   * Set explicitly (never inferred from `name`, which the user can edit) so
    * coverage metrics only ever count real top-ups.
+   *
+   * There is one kind. Earlier versions also recorded *why* — a one-off
+   * shock against a recurring shortfall — and offered a lens to view each
+   * alone. Splitting them asked the user to classify every draw at the
+   * moment they were moving money, and every draw is a draw: what coverage
+   * measures is whether one salary covered the month unaided, and it did
+   * not either way.
    */
   kind?: "topUp";
-  /** Only meaningful when `kind === "topUp"`. */
-  reason?: TopUpReason;
 }
-
-/** Which top-ups the coverage metrics count. */
-export type CoverageLens = "all" | "recurring";
 
 /**
  * One recorded comparison between a figure this app maintains by hand and
@@ -202,8 +193,6 @@ export interface CashflowSettings {
    * as clean.
    */
   trackingSince?: ISODate;
-  /** Persisted coverage-card lens, so the choice survives reloads and sync. */
-  coverageLens?: CoverageLens;
   /**
    * Optional net monthly income of the second earner, used only for the
    * "second salary kept" metric. Unset means that metric is hidden.

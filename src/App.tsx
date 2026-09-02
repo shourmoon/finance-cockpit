@@ -15,14 +15,11 @@ import type {
   AppState,
   FutureEvent,
   RecurringRule,
-  CoverageLens,
-  TopUpReason,
 } from "./domain/types";
 import OverrideModal from "./components/OverrideModal";
 import RuleEditorModal from "./components/RuleEditorModal";
 import MortgageTab from "./components/MortgageTab";
 import ErrorBoundary from "./components/ErrorBoundary";
-import BalanceChart from "./components/BalanceChart";
 // Import the SyncSection UI for cross-device synchronisation. This
 // component exposes a form to enter a sync key and trigger sync
 // operations. See src/components/SyncSection.tsx for details.
@@ -33,11 +30,9 @@ import { formatDate, monthYearLabel, monthKey } from "./utils/dates";
 import {
   DateInputWithDisplay as SharedDateInput,
   NumberInput,
-  TopUpClassSelect,
+  TopUpToggle,
 } from "./components/shared";
-import { topUpClassOf, type TopUpClass } from "./utils/topUpClass";
 import QuickAddTransactionModal from "./components/QuickAddTransactionModal";
-import TopUpReasonModal from "./components/TopUpReasonModal";
 import CoverageCard from "./components/CoverageCard";
 import { computeCoverageMetrics } from "./domain/resilience";
 import RealityCheckRow from "./components/RealityCheckRow";
@@ -83,10 +78,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "config" | "mortgage"
   >("dashboard");
-
-  // A deposit whose Apply was tapped but whose reason has not been chosen
-  // yet — the transaction is only created once the user answers.
-  const [pendingDeposit, setPendingDeposit] = useState<TopUpDeposit | null>(null);
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [showAllEvents, setShowAllEvents] = useState(false);
@@ -134,21 +125,17 @@ export default function App() {
   }, [events, state.account.startingBalance]);
 
 
-  const coverageLens: CoverageLens = state.settings.coverageLens ?? "all";
-
   // Coverage is measured against the app's notion of "now" (settings.startDate),
   // the same reference the projection uses, so both halves of the card agree.
   const coverage = useMemo(
     () =>
       computeCoverageMetrics(state.adhocTransactions, {
-        lens: coverageLens,
         asOf: state.settings.startDate,
         trackingSince: state.settings.trackingSince,
         secondSalaryMonthly: state.settings.secondSalaryMonthly,
       }),
     [
       state.adhocTransactions,
-      coverageLens,
       state.settings.startDate,
       state.settings.trackingSince,
       state.settings.secondSalaryMonthly,
@@ -238,28 +225,15 @@ export default function App() {
     });
   }
 
-  // Fallback id generator, always invoked from event handlers (see call
-  // sites below), never during render.
-  function makeId(prefix: string): string {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      return crypto.randomUUID();
-    }
-    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  function applyTransfer(deposit: TopUpDeposit, reason: TopUpReason) {
+  function applyTransfer(deposit: TopUpDeposit) {
     const txn: AdhocTransaction = {
       id: makeId("txn"),
-      ...transferDepositToTransaction(deposit, reason),
+      ...transferDepositToTransaction(deposit),
     };
     setState((s) => ({
       ...s,
       adhocTransactions: [...s.adhocTransactions, txn],
     }));
-  }
-
-  function updateCoverageLens(lens: CoverageLens) {
-    setState((s) => ({ ...s, settings: { ...s.settings, coverageLens: lens } }));
   }
 
   function addAdhocTransaction() {
@@ -287,23 +261,20 @@ export default function App() {
     }));
   }
 
-  // Classifying a transaction as a top-up (or back to ordinary) is what
-  // lets coverage count transfers the app never predicted — money moved
-  // before the shortfall showed up, which is the common real-world case.
-  function classifyAdhocTransaction(id: string, value: TopUpClass) {
+  // Marking a transaction as a top-up (or back to ordinary) is what lets
+  // coverage count transfers the app never predicted — money moved before
+  // the shortfall showed up, which is the common real-world case.
+  function markAsTopUp(id: string, isTopUp: boolean) {
     setState((s) => ({
       ...s,
       adhocTransactions: s.adhocTransactions.map((t) => {
         if (t.id !== id) return t;
-        if (value === "none") {
-          // Drop the markers entirely rather than storing a falsy kind, so
-          // the persisted shape stays exactly as it was before tagging.
-          const next = { ...t };
-          delete next.kind;
-          delete next.reason;
-          return next;
-        }
-        return { ...t, kind: "topUp" as const, reason: value };
+        if (isTopUp) return { ...t, kind: "topUp" as const };
+        // Drop the marker entirely rather than storing a falsy kind, so the
+        // persisted shape stays exactly as it was before tagging.
+        const next = { ...t };
+        delete next.kind;
+        return next;
       }),
     }));
   }
@@ -551,10 +522,9 @@ export default function App() {
                         />
                       </div>
                       <div style={{ marginTop: 6 }}>
-                        <TopUpClassSelect
-                          value={topUpClassOf(txn)}
-                          onChange={(v) => classifyAdhocTransaction(txn.id, v)}
-                          inputStyle={{ ...ui.input, fontSize: 12, padding: "5px 6px" }}
+                        <TopUpToggle
+                          checked={txn.kind === "topUp"}
+                          onChange={(v) => markAsTopUp(txn.id, v)}
                         />
                         {txn.kind === "topUp" && txn.amount <= 0 && (
                           <div style={styles.topUpWarning}>
@@ -643,7 +613,7 @@ export default function App() {
                     </span>
                     <button
                       style={{ ...ui.primaryButton, padding: "3px 10px", fontSize: 12 }}
-                      onClick={() => setPendingDeposit(d)}
+                      onClick={() => applyTransfer(d)}
                       aria-label={`Apply transfer of ${formatMoney(d.amount)} on ${formatDate(d.date)}`}
                     >
                       Apply
@@ -670,7 +640,7 @@ export default function App() {
                   {topUpSchedule[0] && (
                     <button
                       style={{ ...ui.primaryButton, alignSelf: "flex-start", marginTop: 6 }}
-                      onClick={() => setPendingDeposit(topUpSchedule[0])}
+                      onClick={() => applyTransfer(topUpSchedule[0])}
                       aria-label={`Apply transfer of ${formatMoney(topUp.amountNeeded)} on ${formatDate(topUp.neededBy)}`}
                     >
                       Apply
@@ -734,20 +704,6 @@ export default function App() {
               onCheck={() => setRealityCheckOpen(true)}
             />
           </div>
-
-          {timeline.length > 0 && (
-            <div style={styles.card}>
-              <h3 style={styles.cardTitle}>Balance Over Horizon</h3>
-              <BalanceChart
-                timeline={timeline}
-                minSafeBalance={state.settings.minSafeBalance}
-              />
-              <div style={styles.chartCaption}>
-                Soft line = trend · thin line = daily balance · amber dashed =
-                your floor · red = below $0. Drag to inspect any day.
-              </div>
-            </div>
-          )}
 
           <div style={styles.card}>
             <div style={styles.cardHeaderRow}>
@@ -870,8 +826,6 @@ export default function App() {
       {activeTab === "dashboard" && (
         <CoverageCard
           metrics={coverage}
-          lens={coverageLens}
-          onLensChange={updateCoverageLens}
           trackingSince={state.settings.trackingSince}
           needsTopUp={topUpSchedule.length > 0 || topUp !== null}
           slack={metrics.minBalance - (state.settings.minSafeBalance ?? 0)}
@@ -909,17 +863,6 @@ export default function App() {
           setRealityCheckOpen(false);
         }}
         onClose={() => setRealityCheckOpen(false)}
-      />
-
-      {/* TOP-UP REASON PROMPT (before a top-up is recorded) */}
-      <TopUpReasonModal
-        deposit={pendingDeposit}
-        formatMoney={formatMoney}
-        onChoose={(reason) => {
-          if (pendingDeposit) applyTransfer(pendingDeposit, reason);
-          setPendingDeposit(null);
-        }}
-        onClose={() => setPendingDeposit(null)}
       />
 
       {/* QUICK-ADD ONE-TIME TRANSACTION (from Dashboard) */}
@@ -996,6 +939,16 @@ export default function App() {
       />
     </div>
   );
+}
+
+// Fallback id generator. Lives outside the component because it reads the
+// clock and the RNG: called during render those would be unstable, and only
+// event handlers ever call it.
+function makeId(prefix: string): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 // Just the day-of-month for the inline ledger column — the month banner
@@ -1273,11 +1226,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 11,
     color: colors.faint,
     marginBottom: 8,
-  },
-  chartCaption: {
-    marginTop: 8,
-    fontSize: 11,
-    color: colors.muted,
   },
   // Bolder, full-width month band so months are obvious at a glance —
   // filled and heavier than the old faint small-caps label.

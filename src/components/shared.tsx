@@ -5,7 +5,6 @@
 import { useState } from "react";
 import { formatDate } from "../utils/dates";
 import { colors } from "./ui";
-import type { TopUpClass } from "../utils/topUpClass";
 
 /**
  * Numeric input that tolerates in-progress typing. A controlled
@@ -60,38 +59,49 @@ export function NumberInput({
 }
 
 /**
- * Classifies a one-time transaction as an ordinary entry or as a top-up
- * from savings (with its reason).
+ * Marks a one-time transaction as money moved in from savings.
  *
  * Needed because not every top-up starts from the dashboard's Apply
  * button: money often moves before the app ever predicted the shortfall,
  * and that transfer still has to be recorded as a top-up or the coverage
  * metrics would count the month as clean when it wasn't.
+ *
+ * One checkbox, because there is one kind of top-up. It used to be a
+ * three-way select carrying the reason as well, which made recording a
+ * transfer a small act of self-assessment at the least convenient moment.
  */
-export function TopUpClassSelect({
-  value,
+export function TopUpToggle({
+  checked,
   onChange,
-  inputStyle,
-  ariaLabel = "Classify transaction",
+  label = "Top-up from savings",
 }: {
-  value: TopUpClass;
-  onChange: (value: TopUpClass) => void;
-  inputStyle?: React.CSSProperties;
-  ariaLabel?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label?: string;
 }) {
   return (
-    <select
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(e) => onChange(e.target.value as TopUpClass)}
-      style={inputStyle}
-    >
-      <option value="none">Ordinary transaction</option>
-      <option value="oneOff">Top-up · one-off</option>
-      <option value="shortfall">Top-up · recurring shortfall</option>
-    </select>
+    <label style={topUpToggleStyles.row}>
+      <input
+        type="checkbox"
+        checked={checked}
+        aria-label={label}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>{label}</span>
+    </label>
   );
 }
+
+const topUpToggleStyles: Record<string, React.CSSProperties> = {
+  row: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 12,
+    color: colors.muted,
+    cursor: "pointer",
+  },
+};
 
 
 /**

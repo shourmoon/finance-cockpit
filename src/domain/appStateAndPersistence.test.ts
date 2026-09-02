@@ -35,12 +35,14 @@ describe("appState & persistence", () => {
   });
 
   describe("v2 -> v3 migration (top-up tracking)", () => {
-    test("preserves kind and reason on ad-hoc transactions", () => {
+    test("preserves the top-up marker on ad-hoc transactions", () => {
       const txn = sanitizeAdhocTransaction({
         id: "t1", name: "Top Up", amount: 500, date: "2026-03-10",
         kind: "topUp", reason: "shortfall",
       });
-      expect(txn).toMatchObject({ kind: "topUp", reason: "shortfall" });
+      // The draw survives; the retired reason does not (v5 -> v6).
+      expect(txn).toMatchObject({ kind: "topUp", amount: 500 });
+      expect("reason" in txn!).toBe(false);
     });
 
     test("leaves an ordinary transaction unmarked", () => {
@@ -48,16 +50,15 @@ describe("appState & persistence", () => {
         id: "t2", name: "Groceries", amount: -80, date: "2026-03-10",
       });
       expect(txn!.kind).toBeUndefined();
-      expect(txn!.reason).toBeUndefined();
     });
 
-    test("drops a bogus kind or reason rather than trusting stored JSON", () => {
+    test("drops a bogus kind rather than trusting stored JSON", () => {
       const txn = sanitizeAdhocTransaction({
         id: "t3", name: "X", amount: 10, date: "2026-03-10",
         kind: "nonsense", reason: "alsoNonsense",
       });
       expect(txn!.kind).toBeUndefined();
-      expect(txn!.reason).toBeUndefined();
+      expect("reason" in txn!).toBe(false);
     });
 
     test("does NOT backfill old transactions named 'Top Up'", () => {
@@ -128,7 +129,6 @@ describe("appState & persistence", () => {
       expect(upgraded.rules).toHaveLength(1);
       expect(upgraded.adhocTransactions).toHaveLength(1);
       expect(upgraded.settings.trackingSince).toBe("2025-09-01");
-      expect(upgraded.settings.coverageLens).toBe("recurring");
       expect(upgraded.account.startingBalance).toBe(4200);
 
       expect(upgraded.settings.surplus).toEqual({
@@ -225,7 +225,7 @@ describe("appState & persistence", () => {
       expect(upgraded.settings.surplus.reserveMonths).toBe(DEFAULT_RESERVE_MONTHS);
     });
 
-    test("round-trips the persisted lens and second salary", () => {
+    test("round-trips the second salary and drops the retired lens", () => {
       const upgraded = upgradeAppState({
         version: 3,
         account: { startingBalance: 0 },
@@ -235,21 +235,20 @@ describe("appState & persistence", () => {
         },
         rules: [], adhocTransactions: [], overrides: {},
       });
-      expect(upgraded.settings.coverageLens).toBe("recurring");
       expect(upgraded.settings.secondSalaryMonthly).toBe(6000);
+      expect("coverageLens" in upgraded.settings).toBe(false);
     });
 
-    test("falls back to the default lens when the stored value is bogus", () => {
+    test("ignores a second salary that is not a number", () => {
       const upgraded = upgradeAppState({
         version: 3,
         account: { startingBalance: 0 },
         settings: {
           startDate: "2026-01-01", horizonDays: 90, minSafeBalance: 0,
-          coverageLens: "sideways", secondSalaryMonthly: "lots",
+          secondSalaryMonthly: "lots",
         },
         rules: [], adhocTransactions: [], overrides: {},
       });
-      expect(upgraded.settings.coverageLens).toBe("all");
       expect(upgraded.settings.secondSalaryMonthly).toBeUndefined();
     });
   });
@@ -418,8 +417,8 @@ describe("upgradeAppState - defaults for a current-version state with missing fi
 });
 
 describe("sanitizeHorizonDays", () => {
-  // The engine builds one timeline point per day and the chart holds them
-  // all, so an unbounded horizon is a hang/crash, not just a big number.
+  // The engine builds one timeline point per day and the top-up plan walks
+  // them all, so an unbounded horizon is a hang, not just a big number.
   test("falls back to the default for values that are not usable numbers", () => {
     for (const bad of [NaN, Infinity, -Infinity, undefined, null, "90", {}]) {
       expect(sanitizeHorizonDays(bad)).toBe(DEFAULT_HORIZON_DAYS);

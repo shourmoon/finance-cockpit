@@ -178,10 +178,9 @@ describe("App shell", () => {
     fireEvent.click(screen.getByText("Dashboard"));
     expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
 
+    // One kind of top-up, so Apply records the transfer outright rather
+    // than stopping to ask why.
     fireEvent.click(screen.getByRole("button", { name: /Apply transfer of/i }));
-    // Applying now asks why, so coverage tracking can tell a shock from a
-    // genuine shortfall. Default path: a one-off.
-    fireEvent.click(screen.getByRole("button", { name: /One-off/i }));
 
     // The hint is gone because the applied transfer covers the whole horizon.
     expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
@@ -220,7 +219,6 @@ describe("App shell", () => {
 
     const applyButtons = screen.getAllByRole("button", { name: /Apply transfer of/i });
     fireEvent.click(applyButtons[0]);
-    fireEvent.click(screen.getByRole("button", { name: /One-off/i }));
 
     // Applying the first stretch's deposit as a real inflow covers it, so
     // the plan collapses to the remaining single stretch (falls back to the
@@ -230,7 +228,7 @@ describe("App shell", () => {
     expect(screen.getAllByText("Top Up").length).toBeGreaterThan(0);
   });
 
-  it("records a top-up's reason so coverage metrics can separate shocks from shortfalls", () => {
+  it("records an applied transfer as a top-up, with nothing else to answer", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
     fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
@@ -239,7 +237,6 @@ describe("App shell", () => {
     fireEvent.click(screen.getByText("Dashboard"));
 
     fireEvent.click(screen.getByRole("button", { name: /Apply transfer of/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Recurring shortfall/i }));
 
     const saved = JSON.parse(
       window.localStorage.getItem("finance-cockpit-app-state-v1")!
@@ -248,30 +245,13 @@ describe("App shell", () => {
       (t: { kind?: string }) => t.kind === "topUp"
     );
     expect(applied).toBeTruthy();
-    expect(applied.reason).toBe("shortfall");
-  });
-
-  it("can cancel the reason prompt without recording a top-up", () => {
-    render(<App />);
-    fireEvent.click(screen.getByText("Settings & Rules"));
-    fireEvent.change(screen.getByRole("textbox", { name: /Minimum Safe Balance/i }), {
-      target: { value: "1000" },
-    });
-    fireEvent.click(screen.getByText("Dashboard"));
-
-    fireEvent.click(screen.getByRole("button", { name: /Apply transfer of/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
-
-    const saved = JSON.parse(
-      window.localStorage.getItem("finance-cockpit-app-state-v1")!
-    );
-    expect(saved.adhocTransactions.some((t: { kind?: string }) => t.kind === "topUp")).toBe(false);
-    // The hint is still there, unapplied.
-    expect(screen.getByText(/Top up \$/)).toBeInTheDocument();
+    expect(applied.amount).toBeGreaterThan(0);
+    // No reason is written: there is one kind of top-up.
+    expect("reason" in applied).toBe(false);
   });
 
   describe("recording a top-up that the app did not predict", () => {
-    it("classifies a one-time transaction as a top-up from Settings", () => {
+    it("marks a one-time transaction as a top-up from Settings", () => {
       render(<App />);
       fireEvent.click(screen.getByText("Settings & Rules"));
       fireEvent.click(screen.getAllByText("+ Add")[1]); // One-Time Transactions
@@ -279,33 +259,28 @@ describe("App shell", () => {
       fireEvent.change(screen.getByLabelText("Transaction amount"), {
         target: { value: "800" },
       });
-      fireEvent.change(screen.getByLabelText("Classify transaction"), {
-        target: { value: "shortfall" },
-      });
+      fireEvent.click(screen.getByLabelText("Top-up from savings"));
 
       const saved = JSON.parse(
         window.localStorage.getItem("finance-cockpit-app-state-v1")!
       );
-      expect(saved.adhocTransactions[0]).toMatchObject({
-        kind: "topUp",
-        reason: "shortfall",
-      });
+      expect(saved.adhocTransactions[0]).toMatchObject({ kind: "topUp" });
+      expect("reason" in saved.adhocTransactions[0]).toBe(false);
     });
 
-    it("can un-classify a transaction back to an ordinary one", () => {
+    it("can un-mark a transaction back to an ordinary one", () => {
       render(<App />);
       fireEvent.click(screen.getByText("Settings & Rules"));
       fireEvent.click(screen.getAllByText("+ Add")[1]);
 
-      const select = screen.getByLabelText("Classify transaction");
-      fireEvent.change(select, { target: { value: "oneOff" } });
-      fireEvent.change(select, { target: { value: "none" } });
+      const toggle = screen.getByLabelText("Top-up from savings");
+      fireEvent.click(toggle);
+      fireEvent.click(toggle);
 
       const saved = JSON.parse(
         window.localStorage.getItem("finance-cockpit-app-state-v1")!
       );
       expect(saved.adhocTransactions[0].kind).toBeUndefined();
-      expect(saved.adhocTransactions[0].reason).toBeUndefined();
     });
 
     it("warns when a top-up is not a positive inflow, which coverage would ignore", () => {
@@ -316,13 +291,11 @@ describe("App shell", () => {
       fireEvent.change(screen.getByLabelText("Transaction amount"), {
         target: { value: "-500" },
       });
-      fireEvent.change(screen.getByLabelText("Classify transaction"), {
-        target: { value: "oneOff" },
-      });
+      fireEvent.click(screen.getByLabelText("Top-up from savings"));
       expect(screen.getByText(/must be a positive inflow/i)).toBeInTheDocument();
     });
 
-    it("classifies a quick-added transaction as a top-up from the Dashboard", () => {
+    it("marks a quick-added transaction as a top-up from the Dashboard", () => {
       render(<App />);
       fireEvent.click(screen.getByText("+ One-time"));
       fireEvent.change(screen.getByLabelText("Transaction name"), {
@@ -331,9 +304,7 @@ describe("App shell", () => {
       fireEvent.change(screen.getByLabelText("Transaction amount"), {
         target: { value: "1200" },
       });
-      fireEvent.change(screen.getByLabelText("Classify transaction"), {
-        target: { value: "shortfall" },
-      });
+      fireEvent.click(screen.getByLabelText("Top-up from savings"));
       fireEvent.click(screen.getByText("Add"));
 
       const saved = JSON.parse(
@@ -342,7 +313,8 @@ describe("App shell", () => {
       const added = saved.adhocTransactions.find(
         (t: { name: string }) => t.name === "Manual transfer"
       );
-      expect(added).toMatchObject({ kind: "topUp", reason: "shortfall" });
+      expect(added).toMatchObject({ kind: "topUp" });
+      expect("reason" in added).toBe(false);
     });
   });
 
@@ -496,18 +468,20 @@ describe("App shell", () => {
       expect(screen.getByText(/3 months tracked \(this month in progress\)/)).toBeInTheDocument();
     });
 
-    it("does not draw the one-off portion of a month when the lens excludes it", () => {
+    it("draws one bar for a month, whatever reasons its draws used to carry", () => {
       const today = new Date();
       const iso = (d: Date) => d.toISOString().slice(0, 10);
-      const monthsAgo = (n: number) => {
-        const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 15));
-        return iso(d);
-      };
-      // One month holding BOTH a large shock and a small shortfall.
+      const monthsAgo = (n: number) =>
+        iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 15)));
+
+      // A state written before the two kinds were merged: one month holding
+      // both a shock and a shortfall, and a lens that used to hide one of
+      // them. Both are money the household moved in, so the month now reads
+      // as the whole $2,700.
       window.localStorage.setItem(
         "finance-cockpit-app-state-v1",
         JSON.stringify({
-          version: 3,
+          version: 5,
           account: { startingBalance: 5000 },
           settings: {
             startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
@@ -519,19 +493,18 @@ describe("App shell", () => {
             { id: "b", name: "Top Up", amount: 300, date: monthsAgo(4), kind: "topUp", reason: "shortfall" },
           ],
           overrides: {},
+          checkpoints: [],
         })
       );
       render(<App />);
 
-      // Under the recurring lens only the $300 counts, so the month's bar
-      // must describe $300 — the shock is not part of this view.
       const bar = screen.getByTitle(/topped up/);
-      expect(bar.getAttribute("title")).toMatch(/\$300\.00/);
-      // ...and it must render a single segment, not a shock stacked on top.
+      expect(bar.getAttribute("title")).toMatch(/\$2,700\.00/);
+      // One segment, not a stack: there is one kind of draw to show.
       expect(bar.childElementCount).toBe(1);
     });
 
-    it("counts complete months and lets the lens be switched", () => {
+    it("counts every draw, with no lens left to switch", () => {
       const today = new Date();
       const iso = (d: Date) => d.toISOString().slice(0, 10);
       const monthsAgo = (n: number) => {
@@ -541,7 +514,7 @@ describe("App shell", () => {
       window.localStorage.setItem(
         "finance-cockpit-app-state-v1",
         JSON.stringify({
-          version: 3,
+          version: 5,
           account: { startingBalance: 5000 },
           settings: {
             startDate: iso(today), horizonDays: 90, minSafeBalance: 0,
@@ -553,19 +526,21 @@ describe("App shell", () => {
             { id: "b", name: "Top Up", amount: 400, date: monthsAgo(2), kind: "topUp", reason: "shortfall" },
           ],
           overrides: {},
+          checkpoints: [],
         })
       );
       render(<App />);
 
-      // All draws: both months count as assisted.
+      // Both months are assisted, whichever label the old data used.
       expect(screen.getByText("10 of 12")).toBeInTheDocument();
-      // Recurring only: the one-off drops out.
-      fireEvent.click(screen.getByRole("button", { name: /Recurring only/i }));
-      expect(screen.getByText("11 of 12")).toBeInTheDocument();
-
-      // The lens choice persists to storage.
+      expect(screen.getByText("Total topped up").closest("div")).toHaveTextContent(
+        "$2,200.00"
+      );
+      // The lens control is gone, and so is the stored lens.
+      expect(screen.queryByRole("group", { name: /Coverage lens/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Recurring only/i })).not.toBeInTheDocument();
       const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
-      expect(saved.settings.coverageLens).toBe("recurring");
+      expect("coverageLens" in saved.settings).toBe(false);
     });
 
     it("counts a top-up dated this month immediately, ahead of the month closing", () => {
@@ -655,9 +630,8 @@ describe("App shell", () => {
   });
 
   it("keeps an absurd horizon from building a runaway timeline", () => {
-    // The engine builds one timeline point per day and the chart holds them
-    // all in memory; an unbounded value here used to be a hang, and past
-    // ~100k points the chart's own geometry threw outright.
+    // The engine builds one timeline point per day and the top-up plan walks
+    // every one of them; an unbounded value here used to be a hang.
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
     fireEvent.change(screen.getByRole("textbox", { name: /Horizon/i }), {
@@ -666,11 +640,10 @@ describe("App shell", () => {
     const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
     expect(raw.settings.horizonDays).toBe(3650);
 
-    // The dashboard still renders a real chart rather than blanking out.
+    // The dashboard still renders its figures rather than blanking out.
     fireEvent.click(screen.getByText("Dashboard"));
-    expect(
-      screen.getByLabelText("Projected account balance over the horizon")
-    ).toBeInTheDocument();
+    expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+    expect(screen.getByText("Minimum balance")).toBeInTheDocument();
   });
 
   it("does not push a partial horizon into the engine while the field is being retyped", () => {
