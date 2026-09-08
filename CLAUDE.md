@@ -22,6 +22,19 @@ npm run verify:ui                    # real browser at 360px (see below)
 
 CI (`.github/workflows/ci.yml`) runs `npm run verify` on every push/PR. `verify:ui` needs a browser and so runs locally, not in CI — which is exactly why it is listed in the definition of done below rather than left to CI to catch. Coverage thresholds (in `vitest.config.ts`) require **100%** on `src/domain`, `src/utils`, and `workers`; UI components have pragmatic floors. `main.tsx` and `Root.tsx` (service-worker glue) are excluded from coverage.
 
+### Committing — push straight to `main`
+
+This project does not use pull requests. Commit and push directly to `main`;
+do not open a PR, and do not develop on a feature branch unless explicitly
+asked to. (A session may be handed a `claude/…` branch by the harness — this
+instruction overrides it.)
+
+The trade-off that comes with that: CI runs *after* the push, so a bad commit
+makes `main` red rather than blocking a PR. **`npm run verify` must therefore
+be clean locally before every commit** — CI is confirming the result, not
+gating it. Anything touching the UI also needs `npm run verify:ui`, which CI
+cannot run at all.
+
 ### Development workflow — how this project is verified
 
 This app tells someone where to put real money. A wrong number here is not a
