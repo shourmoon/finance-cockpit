@@ -72,3 +72,25 @@ export function computeEffectiveAnnualRateFromSchedule(
   const rAnnualEffective = Math.pow(1 + rPerPeriod, periodsPerYear) - 1;
   return rAnnualEffective;
 }
+
+/**
+ * The effective annual rate for a schedule, or null when there isn't one.
+ *
+ * `computeEffectiveAnnualRateFromSchedule` throws on an empty schedule, and
+ * empty is reachable: the Mortgage tab's principal field accepts any positive
+ * number, so a typed `0.000000001` clears its `> 0` commit guard and then buys
+ * no schedule at all (the engine stops at a balance under its 1e-6 epsilon).
+ * A non-positive principal lands in the same place, for the same reason.
+ *
+ * Thrown from a render-time useMemo that took the whole tab down. Callers that
+ * render a rate should use this: a rate that does not exist reads as absent,
+ * and every other figure on the row survives.
+ */
+export function effectiveAnnualRateOrNull(
+  schedule: AmortizationEntry[],
+  principal: Money,
+  periodsPerYear = 12
+): number | null {
+  if (schedule.length === 0) return null;
+  return computeEffectiveAnnualRateFromSchedule(schedule, principal, periodsPerYear);
+}

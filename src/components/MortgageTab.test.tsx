@@ -96,6 +96,22 @@ describe("MortgageTab", () => {
       expect(persisted().terms.startDate).toBe("2023-06-01");
     });
 
+    it("survives a principal too small to buy a schedule", () => {
+      // A `0` is caught by the commit guard, but any positive number gets
+      // through — and a principal under the engine's 1e-6 epsilon buys no
+      // schedule at all. The effective-rate solver throws on an empty
+      // schedule, and thrown from a render-time useMemo that takes the
+      // whole tab down. A rate that does not exist reads as absent.
+      seedRealLoan();
+      render(<MortgageTab />);
+      fireEvent.change(screen.getByDisplayValue("680000"), {
+        target: { value: "0.000000001" },
+      });
+
+      expect(screen.getByText("Baseline summary")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("0.000000001")).toBeInTheDocument();
+    });
+
     it("recovers once a valid value is typed", () => {
       seedRealLoan();
       render(<MortgageTab />);
@@ -104,6 +120,55 @@ describe("MortgageTab", () => {
       fireEvent.change(principal, { target: { value: "500000" } });
       expect(persisted().terms.principal).toBe(500000);
     });
+  });
+
+  it("shows a months-saved column that adds up to its own total", () => {
+    // Rule 4 in CLAUDE.md: a figure shown in two places must reconcile on
+    // screen. Each cell here is rounded to whole months on its own, and on a
+    // biweekly loan the underlying values are fractional (a period is 14
+    // days, so months come out in 12/26ths). Independently rounded, the
+    // increments stop adding up to the total the user can read directly
+    // above them: this loan showed 8 + 18 + 10 = 36 against a total of 37.
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v2",
+      JSON.stringify({
+        terms: {
+          principal: 680000,
+          annualRate: 0.0475,
+          termMonths: 360,
+          startDate: "2023-06-01",
+          paymentFrequency: "biweekly",
+        },
+        prepayments: [
+          { date: "2024-01-15", amount: 10000 },
+          { date: "2025-06-15", amount: 25000 },
+          { date: "2026-02-15", amount: 15000 },
+        ],
+        asOfDate: "2026-06-01",
+      })
+    );
+    render(<MortgageTab />);
+
+    // "3 yrs 1 mo" / "+8 mos" / "—" -> a number of months.
+    const months = (text: string): number => {
+      const y = /(\d+)\s*yrs?/.exec(text);
+      const m = /(\d+)\s*mos?/.exec(text);
+      return (y ? +y[1] * 12 : 0) + (m ? +m[1] : 0);
+    };
+
+    const increments: number[] = [];
+    for (let i = 0; ; i++) {
+      const cell = screen.queryByTestId(`prepay-months-inc-${i}`);
+      if (!cell) break;
+      increments.push(months(cell.textContent ?? ""));
+    }
+    expect(increments).toHaveLength(3);
+
+    const total = months(
+      screen.getByTestId(`prepay-months-total-${increments.length - 1}`)
+        .textContent ?? ""
+    );
+    expect(increments.reduce((a, b) => a + b, 0)).toBe(total);
   });
 
   it("switches the loan to biweekly and shortens the payoff", () => {

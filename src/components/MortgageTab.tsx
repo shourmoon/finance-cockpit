@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   computeBaselineMortgage,
   computeMortgageWithPrepayments,
-  computeEffectiveAnnualRateFromSchedule,
+  effectiveAnnualRateOrNull,
 } from "../domain/mortgage";
 import type {
   MortgageOriginalTerms,
@@ -23,6 +23,10 @@ import type {
   PastPrepayment,
   PaymentFrequency,
 } from "../domain/mortgage/types";
+import {
+  computePrepaymentImpacts,
+  type PrepaymentImpact,
+} from "../domain/mortgage/prepaymentImpact";
 import type { RecurringRule, SurplusSettings } from "../domain/types";
 import {
   loadMortgageUIState,
@@ -34,8 +38,9 @@ import {
 // Shared date formatting helper.  This utility converts ISO dates
 // (YYYY‑MM‑DD) into the display format required by the product
 // specification, e.g. "2025-01-26" → "26 Jan '25".
-import { periodsPerYear, periodsToMonths } from "../domain/mortgage/baseline";
+import { periodsPerYear } from "../domain/mortgage/baseline";
 import { formatDate } from "../utils/dates";
+import { apportion } from "../utils/apportion";
 import { isValidISODate } from "../domain/dateUtils";
 import { DateInputWithDisplay, NumberInput } from "./shared";
 import SurplusAllocationCard from "./SurplusAllocationCard";
@@ -209,25 +214,6 @@ function uuid(): string {
 // Augment the base prepayment with a synthetic id for React list keys.
 type PrepaymentRow = PastPrepayment & { id: string };
 
-// Each row in the past prepayment impact table.  It captures both
-// cumulative savings versus the baseline mortgage and incremental
-// savings for the specific prepayment.
-type PrepaymentImpactRow = {
-  date: string;
-  amount: number;
-  note?: string;
-  /** Cumulative interest saved compared with the baseline (no prepayments). */
-  interestSaved: number;
-  /** Cumulative months saved compared with the baseline (no prepayments). */
-  monthsSaved: number;
-  /** Effective annual rate after this prepayment and all previous ones. */
-  effectiveRate: number | null;
-  /** Interest saved by this prepayment alone, over and above the earlier ones. */
-  interestSavedIncremental: number;
-  /** Months saved by this prepayment alone, over and above the earlier ones. */
-  monthsSavedIncremental: number;
-};
-
 /**
  * Cashflow-side inputs the surplus card needs. Optional so the tab can still
  * be rendered standalone (its own tests do), in which case the card simply
@@ -378,7 +364,7 @@ export default function MortgageTab({
   // already an acceleration against that, so the two are credited apart.
   const baselineEffectiveRate = useMemo(
     () =>
-      computeEffectiveAnnualRateFromSchedule(
+      effectiveAnnualRateOrNull(
         baseline.schedule,
         terms.principal,
         periodsPerYear(terms.paymentFrequency)
@@ -388,7 +374,7 @@ export default function MortgageTab({
 
   const actualEffectiveRate = useMemo(
     () =>
-      computeEffectiveAnnualRateFromSchedule(
+      effectiveAnnualRateOrNull(
         withPrepayments.schedule,
         terms.principal,
         periodsPerYear(terms.paymentFrequency)
@@ -401,53 +387,27 @@ export default function MortgageTab({
     [prepaymentLog]
   );
 
-  const perPrepaymentImpacts = useMemo<PrepaymentImpactRow[]>(() => {
-    if (!prepaymentLog.length) return [];
-    // Sort prepayments chronologically
-    const sorted = [...prepaymentLog].sort((a, b) =>
-      a.date.localeCompare(b.date)
+  const perPrepaymentImpacts = useMemo<PrepaymentImpact[]>(
+    () => computePrepaymentImpacts(terms, prepaymentLog, baseline),
+    [prepaymentLog, terms, baseline]
+  );
+
+  // Whole months for the incremental column, apportioned so they sum to the
+  // cumulative total rendered beside them.
+  //
+  // The underlying savings are fractional on a biweekly loan — a period is
+  // 14 days, so months come out in 12/26ths — and rounding each cell on its
+  // own made the column stop adding up to its own total (8 + 18 + 10 shown
+  // against a total of 37). Largest-remainder keeps every cell within a
+  // month of its exact value and matches the total exactly.
+  const incrementMonths = useMemo(() => {
+    if (!perPrepaymentImpacts.length) return [];
+    const last = perPrepaymentImpacts[perPrepaymentImpacts.length - 1];
+    return apportion(
+      perPrepaymentImpacts.map((r) => r.monthsSavedIncremental),
+      last.monthsSaved
     );
-    // Keep track of the previous state to compute incremental savings.
-    let prevActual = baseline;
-    return sorted.map((p, index) => {
-      // Build the prefix up to and including this prepayment
-      const prefix = sorted.slice(0, index + 1);
-      const actual = computeMortgageWithPrepayments(terms, prefix);
-      // Total savings vs baseline
-      const interestSaved = baseline.totalInterest - actual.totalInterest;
-      // Schedule lengths are payment periods, not months — on a biweekly
-      // loan the two differ by 26/12 and this row is rendered as years+months.
-      const monthsSaved = periodsToMonths(
-        baseline.schedule.length - actual.schedule.length,
-        terms.paymentFrequency
-      );
-      // Incremental savings compared with the previous prepayment
-      const interestSavedIncremental =
-        prevActual.totalInterest - actual.totalInterest;
-      const monthsSavedIncremental = periodsToMonths(
-        prevActual.schedule.length - actual.schedule.length,
-        terms.paymentFrequency
-      );
-      // Effective rate after this prepayment
-      const effectiveRate = computeEffectiveAnnualRateFromSchedule(
-        actual.schedule,
-        terms.principal,
-        periodsPerYear(terms.paymentFrequency)
-      );
-      // Update prevActual for the next iteration
-      prevActual = actual;
-      return {
-        date: p.date,
-        amount: p.amount,
-        note: p.note,
-        interestSaved,
-        monthsSaved,
-        effectiveRate,
-        interestSavedIncremental,
-        monthsSavedIncremental,
-      };
-    });
-  }, [prepaymentLog, terms, baseline]);
+  }, [perPrepaymentImpacts]);
 
   function addPrepaymentRow() {
     setPrepayments((prev) => [
@@ -765,11 +725,16 @@ export default function MortgageTab({
                       </div>
                     </div>
                     <div>
-                      <div>{formatMonthsAsYearsMonths(row.monthsSaved)}</div>
-                      <div style={{ fontSize: 10, color: colors.positiveSoft }}>
-                        {row.monthsSavedIncremental > 0
-                          ? `+${formatMonthsAsYearsMonths(row.monthsSavedIncremental)}`
-                          : formatMonthsAsYearsMonths(row.monthsSavedIncremental)}
+                      <div data-testid={`prepay-months-total-${idx}`}>
+                        {formatMonthsAsYearsMonths(row.monthsSaved)}
+                      </div>
+                      <div
+                        data-testid={`prepay-months-inc-${idx}`}
+                        style={{ fontSize: 10, color: colors.positiveSoft }}
+                      >
+                        {incrementMonths[idx] > 0
+                          ? `+${formatMonthsAsYearsMonths(incrementMonths[idx])}`
+                          : formatMonthsAsYearsMonths(incrementMonths[idx])}
                       </div>
                     </div>
                     <div>{formatPercent(row.effectiveRate)}</div>

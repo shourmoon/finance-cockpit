@@ -85,6 +85,14 @@ its first run**:
 - `reconciliationInvariants.test.ts` — the summary counted checkpoints that
   storage discards, so the same log read differently before and after a
   reload.
+- `prepaymentImpactInvariants.test.ts` — written when the computation was
+  moved out of `MortgageTab.tsx`, and it found two on its first run. A
+  principal small enough to buy no schedule threw `Schedule is empty` from
+  three separate render-time memos, killing the tab. And the months-saved
+  column was rounded cell by cell, so on a biweekly loan (where months come
+  out in 12/26ths) the increments stopped adding up to the total rendered
+  beside them — 8 + 18 + 10 against a total of 37, in 64 of 400 generated
+  loans. `apportion()` fixes the second; it exists for exactly this.
 
 Two rules for writing them, both learned by getting them wrong:
 
@@ -173,9 +181,10 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
    - **All date math is UTC** (`dateUtils.ts`): construct dates with `Date.UTC(...)` and read with `getUTC*()` to avoid timezone drift. Month days are clamped to end-of-month.
 
 2. **Mortgage module** (`src/domain/mortgage/`):
-   - `baseline.ts` (annuity payment + no-prepayment schedule) → `history.ts` (re-amortization with past prepayments) → `comparison.ts` (interest/months saved) → `scenarios.ts` (what-if engine over `oneTime`/`monthly`/`yearly`/`biweekly` extra-payment patterns) → `irr.ts` (effective annual rate from a schedule).
+   - `baseline.ts` (annuity payment + no-prepayment schedule) → `history.ts` (re-amortization with past prepayments) → `comparison.ts` (interest/months saved) → `scenarios.ts` (what-if engine over `oneTime`/`monthly`/`yearly`/`biweekly` extra-payment patterns) → `irr.ts` (effective annual rate from a schedule) → `prepaymentImpact.ts` (`computePrepaymentImpacts()`: what each past prepayment bought, cumulative against the baseline *and* incremental over the ones before it).
+   - `irr.ts` exports both `computeEffectiveAnnualRateFromSchedule()`, which **throws** on an empty schedule, and `effectiveAnnualRateOrNull()`, which is what anything rendering a rate should call. An empty schedule is reachable — the principal field accepts any positive number, and one below the engine's 1e-6 epsilon buys no schedule at all — and the throw came from inside a render-time `useMemo`, taking the whole tab down.
    - Has its own `Money`/`ISODate` aliases in `mortgage/types.ts` and its own persisted state (`MortgageUIState` in `mortgage/persistence.ts`), separate from `AppState`.
-   - `src/components/MortgageTab.tsx` (~1,800 lines) is the UI over all of this.
+   - `src/components/MortgageTab.tsx` (~870 lines) is the UI over all of this. Keep it a shell: the last piece of money math living inside it (per-prepayment attribution) was moved to `prepaymentImpact.ts` precisely because logic in a component sits outside the `src/domain` invariant discipline by construction, and it had shipped two defects nobody had laws for.
 
 3. **Reality checks** (`src/domain/reconciliation.ts`, rendered by `src/components/RealityCheckRow.tsx` + `RealityCheckModal.tsx`): the only part of the app that looks *outside* itself. Everything else — the invariant suites, `verify:ui` — proves the app is self-consistent, never that it matches the user's actual bank. Two figures are maintained by hand and nothing corrects them (`account.startingBalance`, and the loan principal implied by the mortgage terms), so a *checkpoint* records "on this date, the statement said this". Recording one is a single act that does two jobs, which is why freshness and reconciliation are one feature: it resets the staleness clock **and** captures how far the model had drifted. `modelled` is **stored, not recomputed** — for cash it is the only option, since correcting the balance destroys the counterfactual moments later. `assessDrift()` resolves direction into terms the two targets share (`modelOptimistic` always means *reality is worse than the model said*, whichever way the raw sign points), `assessFreshness()` ages from the **statement date** and not from when it was typed, and `summarizeCheckpoints()` flags a run of same-direction misses as `systematic` — three misses the same way is a missing rule, not bad luck, and re-entering the balance would only hide it. Cash checkpoints live on `AppState.checkpoints`, mortgage ones on `MortgageUIState.checkpoints`. **The cash check is deliberately locked to today and compared against `account.startingBalance`**, not against the timeline's first point: that point already has today's events applied, and comparing against it would put two different numbers for one quantity inside the same card.
 
