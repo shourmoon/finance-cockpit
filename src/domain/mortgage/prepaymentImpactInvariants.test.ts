@@ -256,6 +256,65 @@ describe("prepayment impact invariants (property-based)", () => {
     }
   });
 
+  it("hands back every dollar the loan could not absorb, and no more", () => {
+    // Conservation, the first line of the checklist. A prepayment larger than
+    // what is still owed is refunded by the servicer, not kept — so the money
+    // has to end up somewhere the table can show. Summed across the rows it
+    // must equal what the engine reports for the whole log, computed here
+    // from the raw prepayment list rather than from another row.
+    for (const c of CASES) {
+      const rows = computePrepaymentImpacts(c.terms, c.prepayments, baselineOf(c));
+      if (rows.length === 0) continue;
+
+      const sorted = [...c.prepayments].sort((a, b) => a.date.localeCompare(b.date));
+      const wholeLog = computeMortgageWithPrepayments(c.terms, sorted);
+      const totalUnapplied = wholeLog.unappliedPrepayments.reduce(
+        (sum, u) => sum + u.amount,
+        0
+      );
+
+      expect(rows.reduce((sum, r) => sum + r.unapplied, 0)).toBeCloseTo(
+        totalUnapplied,
+        6
+      );
+    }
+  });
+
+  it("never bounces back more than the prepayment itself was", () => {
+    // You cannot get back more than you put in. Also: unapplied money is
+    // never negative, which would read as the loan absorbing money that was
+    // never offered.
+    for (const c of CASES) {
+      const rows = computePrepaymentImpacts(c.terms, c.prepayments, baselineOf(c));
+      for (const row of rows) {
+        expect(row.unapplied).toBeGreaterThanOrEqual(-MONEY_TOLERANCE);
+        expect(row.unapplied).toBeLessThanOrEqual(
+          Math.max(0, row.amount) + MONEY_TOLERANCE
+        );
+        expect(Number.isFinite(row.unapplied)).toBe(true);
+      }
+    }
+  });
+
+  it("credits a prepayment that saved nothing with having been absorbed by nothing", () => {
+    // The pair that matters on screen: a row showing no saving must explain
+    // itself. Either the loan took the money and it bought nothing (a
+    // zero-amount prepayment), or the loan could not take it at all — in
+    // which case the whole amount comes back. A row with a positive amount,
+    // no saving, and no money returned would be money that vanished.
+    for (const c of CASES) {
+      const rows = computePrepaymentImpacts(c.terms, c.prepayments, baselineOf(c));
+      for (const row of rows) {
+        if (row.amount <= 0) continue;
+        const boughtNothing =
+          Math.abs(row.interestSavedIncremental) < 1e-9 &&
+          Math.abs(row.monthsSavedIncremental) < 1e-9;
+        if (!boughtNothing) continue;
+        expect(row.unapplied).toBeCloseTo(row.amount, 6);
+      }
+    }
+  });
+
   it("does not depend on the order the prepayments were entered", () => {
     // The table is chronological regardless of entry order, so shuffling the
     // input must not move a single figure.
@@ -329,6 +388,32 @@ describe("prepayment impact — degenerate and hostile inputs", () => {
     expect(rows[1].monthsSavedIncremental).toBeCloseTo(0, 6);
     // And the cumulative figure does not move either.
     expect(rows[1].interestSaved).toBeCloseTo(rows[0].interestSaved, 6);
+    // The whole $50,000 comes back: the loan was already gone, so none of it
+    // was ever owed. Showing the row as a no-op without saying where the
+    // money went is how a table loses $50,000 in plain sight.
+    expect(rows[1].unapplied).toBeCloseTo(50_000, 6);
+
+    // The payoff prepayment overshoots too, by a little. This assertion was
+    // written as "0" from memory and was wrong — the engine was right. By
+    // 1 Feb one payment has already landed, so only $399,519.38 is owed, and
+    // the scheduled principal ($482.62) has first claim on it; the extra can
+    // only reach $399,036.76 of what is left. Hand-computed from the annuity
+    // formula rather than from the engine:
+    //   payment  = 400000 * (r / (1 - (1+r)^-360)),  r = 0.05/12  -> 2,147.29
+    //   owing    = 400000 - (2147.29 - 400000*r)                  -> 399,519.38
+    //   absorbed = owing - (2147.29 - owing*r)                    -> 399,036.76
+    //   leftover = 400000 - absorbed                              ->     963.24
+    expect(rows[0].unapplied).toBeCloseTo(963.24, 2);
+
+    // And the two rows together account for every dollar the loan refused.
+    const wholeLog = computeMortgageWithPrepayments(
+      TERMS,
+      [...payoff].sort((a, b) => a.date.localeCompare(b.date))
+    );
+    expect(rows[0].unapplied + rows[1].unapplied).toBeCloseTo(
+      wholeLog.unappliedPrepayments.reduce((sum, u) => sum + u.amount, 0),
+      6
+    );
   });
 
   it("credits a zero-amount prepayment with nothing", () => {

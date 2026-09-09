@@ -715,7 +715,22 @@ export default function MortgageTab({
                     }}
                   >
                     <div>{formatDateDisplay(row.date)}</div>
-                    <div>{formatCurrency(row.amount)}</div>
+                    <div>
+                      <div>{formatCurrency(row.amount)}</div>
+                      {/* Money the loan could not absorb comes straight back
+                          from the servicer. Saying nothing here left a row
+                          showing a large prepayment that bought nothing, with
+                          no hint the money was still the household's. Below a
+                          cent there is nothing worth telling anyone. */}
+                      {row.unapplied >= 0.01 && (
+                        <div
+                          data-testid={`prepay-returned-${idx}`}
+                          style={{ fontSize: 10, color: colors.amber }}
+                        >
+                          {formatCurrency(row.unapplied)} returned
+                        </div>
+                      )}
+                    </div>
                     <div>
                       <div>{formatCurrency(row.interestSaved)}</div>
                       <div style={{ fontSize: 10, color: colors.positiveSoft }}>

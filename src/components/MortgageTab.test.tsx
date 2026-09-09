@@ -171,6 +171,36 @@ describe("MortgageTab", () => {
     expect(increments.reduce((a, b) => a + b, 0)).toBe(total);
   });
 
+  it("says how much of a prepayment the loan handed back", () => {
+    // Conservation, the first line of CLAUDE.md's money checklist. A
+    // prepayment bigger than what is still owed is refunded by the servicer,
+    // not kept. Before this the row showed the amount and a saving of
+    // nothing, with no hint that $50,000 had come straight back.
+    window.localStorage.setItem(
+      "finance-cockpit-mortgage-v2",
+      JSON.stringify({
+        terms: {
+          principal: 400000,
+          annualRate: 0.05,
+          termMonths: 360,
+          startDate: "2020-01-01",
+        },
+        prepayments: [
+          { date: "2020-02-01", amount: 400000, note: "clears it" },
+          { date: "2035-01-01", amount: 50000, note: "too late" },
+        ],
+        asOfDate: "2035-06-01",
+      })
+    );
+    render(<MortgageTab />);
+
+    // The loan was already gone, so the whole second prepayment came back.
+    expect(screen.getByTestId("prepay-returned-1")).toHaveTextContent("$50,000");
+    // And the payoff itself overshot by $963 — one payment had already
+    // landed, so less than $400,000 was still owed.
+    expect(screen.getByTestId("prepay-returned-0")).toHaveTextContent("$963");
+  });
+
   it("switches the loan to biweekly and shortens the payoff", () => {
     render(<MortgageTab />);
     const before = screen.getByText("Payoff date").parentElement!.textContent!;

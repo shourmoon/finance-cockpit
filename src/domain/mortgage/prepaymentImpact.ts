@@ -39,6 +39,16 @@ export interface PrepaymentImpact {
   interestSavedIncremental: Money;
   /** Calendar months saved by this prepayment alone, beyond the earlier ones. */
   monthsSavedIncremental: number;
+  /**
+   * How much of this prepayment the loan could not absorb, because it was
+   * already smaller than the amount offered or already gone.
+   *
+   * A servicer refunds an overpayment rather than keeping it, so this money
+   * is still the household's. Without it a row can report a prepayment that
+   * saved nothing and say nothing about where the money went — which is how
+   * a table loses a five-figure sum in plain sight.
+   */
+  unapplied: Money;
 }
 
 /**
@@ -73,6 +83,15 @@ export function computePrepaymentImpacts(
   // Walks forward one prepayment at a time; each row is measured against the
   // path as it stood before that prepayment existed.
   let previous: SchedulePath = baseline;
+  // Unapplied money is attributed the same way the savings are: what the
+  // running total grew by when this prepayment joined the prefix. The engine
+  // pools same-period prepayments and reports leftovers against the payment
+  // date rather than the prepayment's own, so differencing the prefixes is
+  // what ties the money back to the prepayment that caused it. Prefixes are
+  // chronological, so adding one never changes how the earlier ones were
+  // applied, and the increments therefore telescope into the whole log's
+  // total. The baseline has no prepayments, so it has nothing unapplied.
+  let previousUnapplied = 0;
 
   return sorted.map((prepayment, index) => {
     const actual = computeMortgageWithPrepayments(
@@ -92,6 +111,11 @@ export function computePrepaymentImpacts(
       terms.paymentFrequency
     );
 
+    const totalUnapplied = actual.unappliedPrepayments.reduce(
+      (sum, u) => sum + u.amount,
+      0
+    );
+
     const row: PrepaymentImpact = {
       date: prepayment.date,
       amount: prepayment.amount,
@@ -105,9 +129,11 @@ export function computePrepaymentImpacts(
       ),
       interestSavedIncremental: previous.totalInterest - actual.totalInterest,
       monthsSavedIncremental,
+      unapplied: totalUnapplied - previousUnapplied,
     };
 
     previous = actual;
+    previousUnapplied = totalUnapplied;
     return row;
   });
 }

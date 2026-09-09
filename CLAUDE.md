@@ -92,7 +92,14 @@ its first run**:
   column was rounded cell by cell, so on a biweekly loan (where months come
   out in 12/26ths) the increments stopped adding up to the total rendered
   beside them — 8 + 18 + 10 against a total of 37, in 64 of 400 generated
-  loans. `apportion()` fixes the second; it exists for exactly this.
+  loans. `apportion()` fixes the second; it exists for exactly this. A third
+  came later, from reading rather than from a red test: the table discarded
+  `unappliedPrepayments`, so a prepayment the loan refused reported a saving
+  of nothing and said nothing about the refund. Its laws also caught a bad
+  assumption in one of their own — a $400,000 prepayment against a $400,000
+  loan does *not* apply in full, because a payment has already landed and the
+  scheduled principal has first claim. That was a test bug, and the test was
+  fixed, not the engine.
 
 Two rules for writing them, both learned by getting them wrong:
 
@@ -181,7 +188,8 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
    - **All date math is UTC** (`dateUtils.ts`): construct dates with `Date.UTC(...)` and read with `getUTC*()` to avoid timezone drift. Month days are clamped to end-of-month.
 
 2. **Mortgage module** (`src/domain/mortgage/`):
-   - `baseline.ts` (annuity payment + no-prepayment schedule) → `history.ts` (re-amortization with past prepayments) → `comparison.ts` (interest/months saved) → `scenarios.ts` (what-if engine over `oneTime`/`monthly`/`yearly`/`biweekly` extra-payment patterns) → `irr.ts` (effective annual rate from a schedule) → `prepaymentImpact.ts` (`computePrepaymentImpacts()`: what each past prepayment bought, cumulative against the baseline *and* incremental over the ones before it).
+   - `baseline.ts` (annuity payment + no-prepayment schedule) → `history.ts` (re-amortization with past prepayments) → `comparison.ts` (interest/months saved) → `scenarios.ts` (what-if engine over `oneTime`/`monthly`/`yearly`/`biweekly` extra-payment patterns) → `irr.ts` (effective annual rate from a schedule) → `prepaymentImpact.ts` (`computePrepaymentImpacts()`: what each past prepayment bought, cumulative against the baseline *and* incremental over the ones before it, plus how much of it the loan could not absorb).
+   - **Unapplied money is attributed per row, not just totalled.** `computeMortgageWithPrepayments` hands back what a loan could not take (it was already smaller than the amount offered, or already gone) and the table ignored it, so an overshooting prepayment showed its amount, a saving of nothing, and no hint the money was still the household's. Attribution is by differencing the chronological prefixes, which is sound because adding a later prepayment never changes how the earlier ones were applied — so the per-row figures telescope into the whole log's total, and that is the law that holds it.
    - `irr.ts` exports both `computeEffectiveAnnualRateFromSchedule()`, which **throws** on an empty schedule, and `effectiveAnnualRateOrNull()`, which is what anything rendering a rate should call. An empty schedule is reachable — the principal field accepts any positive number, and one below the engine's 1e-6 epsilon buys no schedule at all — and the throw came from inside a render-time `useMemo`, taking the whole tab down.
    - Has its own `Money`/`ISODate` aliases in `mortgage/types.ts` and its own persisted state (`MortgageUIState` in `mortgage/persistence.ts`), separate from `AppState`.
    - `src/components/MortgageTab.tsx` (~870 lines) is the UI over all of this. Keep it a shell: the last piece of money math living inside it (per-prepayment attribution) was moved to `prepaymentImpact.ts` precisely because logic in a component sits outside the `src/domain` invariant discipline by construction, and it had shipped two defects nobody had laws for.
