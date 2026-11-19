@@ -30,7 +30,7 @@ function compareISO(a: ISODate, b: ISODate): number {
   return 0;
 }
 
-function makeEventKey(ruleId: UUID, date: ISODate): string {
+export function makeEventKey(ruleId: UUID, date: ISODate): string {
   return `${ruleId}__${date}`;
 }
 

@@ -26,6 +26,7 @@ import {
   createDefaultMortgageUIState,
 } from "./mortgage/persistence";
 import { createSnapshot, parseSnapshot } from "./persistence/snapshot";
+import { runCashflowProjection } from "./cashflowEngine";
 import type { AppState } from "./types";
 import type { MortgageUIState } from "./mortgage/persistence";
 
@@ -289,6 +290,77 @@ describe("persistence invariants (property-based)", () => {
     // The lens the card used to offer goes the same way: one kind of
     // top-up leaves nothing to switch between.
     expect("coverageLens" in up.settings).toBe(false);
+  });
+
+  it("folds a one-off's override into its amount without moving the figure", () => {
+    // v6 -> v7. A one-time transaction happens once, so an override on it was
+    // a second stored value for a quantity that only has one: Settings showed
+    // the original while the dashboard showed the override, and moving the
+    // date orphaned the override and silently reverted the amount.
+    //
+    // The migration folds it in. The law that matters is conservation: the
+    // number the user was looking at before the upgrade must be the number
+    // they see after it. A migration that "tidies up" by reverting to the
+    // pre-override amount would quietly change what they are owed.
+    const stored = {
+      version: 6,
+      account: { startingBalance: 5000 },
+      settings: {
+        startDate: "2026-11-19", horizonDays: 90, minSafeBalance: 0, surplus: {},
+      },
+      rules: [],
+      adhocTransactions: [
+        { id: "t1", name: "Car repair", amount: -640, date: "2026-11-25" },
+        { id: "t2", name: "Bonus", amount: 1200, date: "2026-12-01" },
+      ],
+      overrides: {
+        "t1__2026-11-25": { eventKey: "t1__2026-11-25", overrideAmount: -700 },
+      },
+      checkpoints: [],
+    };
+
+    // What the dashboard showed BEFORE the upgrade, derived from the raw
+    // stored shape rather than from the upgraded state.
+    const before = runCashflowProjection(
+      JSON.parse(JSON.stringify({ ...stored, version: 6 })) as AppState
+    ).events.map((e) => `${e.ruleId}:${e.effectiveAmount}`);
+
+    const up = upgradeAppState(stored);
+    const after = runCashflowProjection(up).events.map(
+      (e) => `${e.ruleId}:${e.effectiveAmount}`
+    );
+
+    expect(after).toEqual(before);
+    // The override is gone, and its value lives on the transaction itself.
+    expect(up.adhocTransactions.find((t) => t.id === "t1")!.amount).toBe(-700);
+    expect(up.adhocTransactions.find((t) => t.id === "t2")!.amount).toBe(1200);
+    expect(Object.keys(up.overrides)).toEqual([]);
+  });
+
+  it("leaves a recurring rule's overrides exactly where they are", () => {
+    // The mechanism still earns its keep for anything that repeats: a rule
+    // has a default and one occurrence can differ from it. Only one-offs,
+    // which have no default, lose their overrides.
+    const stored = {
+      version: 6,
+      account: { startingBalance: 5000 },
+      settings: { startDate: "2026-11-19", horizonDays: 90, minSafeBalance: 0, surplus: {} },
+      rules: [
+        { id: "r1", name: "Card", amount: -400, isVariable: true,
+          schedule: { type: "monthly", day: 20 } },
+      ],
+      adhocTransactions: [],
+      overrides: {
+        "r1__2026-11-20": { eventKey: "r1__2026-11-20", overrideAmount: -520 },
+      },
+      checkpoints: [],
+    };
+    const up = upgradeAppState(stored);
+    expect(up.overrides["r1__2026-11-20"]).toEqual({
+      eventKey: "r1__2026-11-20",
+      overrideAmount: -520,
+    });
+    expect(up.rules[0].amount).toBe(-400);
   });
 
   it("never replaces real mortgage terms with defaults", () => {

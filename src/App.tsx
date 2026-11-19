@@ -208,19 +208,33 @@ export default function App() {
     }));
   }
 
-  function applyOverride(eventId: string, amount: number | null) {
+  function applyOverride(event: FutureEvent, amount: number | null) {
     setState((s) => {
-      const overrides = { ...s.overrides };
-
-      if (amount === null) {
-        delete overrides[eventId];
-      } else {
-        overrides[eventId] = {
-          eventKey: eventId,
-          overrideAmount: amount,
+      // A one-time transaction happens once, so there is no "default vs this
+      // time" to override — editing the amount IS editing the transaction.
+      // Storing an override beside it would put two numbers on one quantity,
+      // which is how Settings and the dashboard came to disagree.
+      const oneOff = s.adhocTransactions.find((t) => t.id === event.ruleId);
+      if (oneOff) {
+        // Nothing to reset to: a blank box leaves the amount as it is.
+        if (amount === null) return s;
+        return {
+          ...s,
+          adhocTransactions: s.adhocTransactions.map((t) =>
+            t.id === oneOff.id ? { ...t, amount } : t
+          ),
         };
       }
 
+      const overrides = { ...s.overrides };
+      if (amount === null) {
+        delete overrides[event.id];
+      } else {
+        overrides[event.id] = {
+          eventKey: event.id,
+          overrideAmount: amount,
+        };
+      }
       return { ...s, overrides };
     });
   }
@@ -229,19 +243,6 @@ export default function App() {
     const txn: AdhocTransaction = {
       id: makeId("txn"),
       ...transferDepositToTransaction(deposit),
-    };
-    setState((s) => ({
-      ...s,
-      adhocTransactions: [...s.adhocTransactions, txn],
-    }));
-  }
-
-  function addAdhocTransaction() {
-    const txn: AdhocTransaction = {
-      id: makeId("txn"),
-      name: "One-time transaction",
-      amount: 0,
-      date: state.settings.startDate,
     };
     setState((s) => ({
       ...s,
@@ -487,7 +488,10 @@ export default function App() {
           <div style={styles.card}>
             <div style={styles.cardHeaderRow}>
               <h3 style={styles.cardTitle}>One-Time Transactions</h3>
-              <button style={styles.addButton} onClick={addAdhocTransaction}>
+              {/* Opens the same dialog the dashboard's "+ One-time" uses.
+                  Dropping a blank $0 row dated today and making the user
+                  correct three fields was never the kinder option. */}
+              <button style={styles.addButton} onClick={() => setQuickAddOpen(true)}>
                 + Add
               </button>
             </div>
@@ -906,8 +910,12 @@ export default function App() {
       {/* OVERRIDE MODAL */}
       <OverrideModal
         event={selectedEvent}
+        isOneOff={
+          selectedEvent !== null &&
+          state.adhocTransactions.some((t) => t.id === selectedEvent.ruleId)
+        }
         onSave={(amount) => {
-          if (selectedEvent) applyOverride(selectedEvent.id, amount);
+          if (selectedEvent) applyOverride(selectedEvent, amount);
           setSelectedEvent(null);
         }}
         onClose={() => setSelectedEvent(null)}

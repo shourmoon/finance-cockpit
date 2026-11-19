@@ -8,6 +8,29 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+/**
+ * Add a one-time transaction the way the UI now does it: "+ Add" opens the
+ * dialog, and nothing is stored until it is confirmed.
+ */
+function addOneOffViaDialog(
+  { name = "One-time transaction", amount = 0, date }:
+  { name?: string; amount?: number; date?: string } = {}
+) {
+  const addButtons = screen.getAllByText("+ Add");
+  fireEvent.click(addButtons[addButtons.length - 1]);
+  fireEvent.change(screen.getByLabelText("Transaction name"), {
+    target: { value: name },
+  });
+  fireEvent.change(screen.getByLabelText("Transaction amount"), {
+    target: { value: String(amount) },
+  });
+  if (date) {
+    const dates = document.querySelectorAll('input[type="date"]');
+    fireEvent.change(dates[dates.length - 1], { target: { value: date } });
+  }
+  fireEvent.click(screen.getByText("Add", { exact: true }));
+}
+
 describe("App shell", () => {
   it("renders the dashboard by default with the safe-to-spend hero", () => {
     render(<App />);
@@ -255,11 +278,7 @@ describe("App shell", () => {
     it("marks a one-time transaction as a top-up from Settings", () => {
       render(<App />);
       fireEvent.click(screen.getByText("Settings & Rules"));
-      fireEvent.click(screen.getAllByText("+ Add")[1]); // One-Time Transactions
-
-      fireEvent.change(screen.getByLabelText("Transaction amount"), {
-        target: { value: "800" },
-      });
+      addOneOffViaDialog({ name: "Transfer", amount: 800 });
       fireEvent.click(screen.getByLabelText("Top-up from savings"));
 
       const saved = JSON.parse(
@@ -272,7 +291,7 @@ describe("App shell", () => {
     it("can un-mark a transaction back to an ordinary one", () => {
       render(<App />);
       fireEvent.click(screen.getByText("Settings & Rules"));
-      fireEvent.click(screen.getAllByText("+ Add")[1]);
+      addOneOffViaDialog();
 
       const toggle = screen.getByLabelText("Top-up from savings");
       fireEvent.click(toggle);
@@ -316,6 +335,130 @@ describe("App shell", () => {
       );
       expect(added).toMatchObject({ kind: "topUp" });
       expect("reason" in added).toBe(false);
+    });
+  });
+
+  describe("the Start date field", () => {
+    it("accepts a new date, and accepts being cleared", () => {
+      // Both halves matter. The date input only passes up values storage
+      // would keep, so a real date has to get through — and an empty one
+      // still has to, because this field uses it to mean "I have not told
+      // you what today is", which is what makes coverage claim nothing
+      // rather than inventing a clean month.
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      const startDate = screen.getByLabelText("Start date");
+
+      fireEvent.change(startDate, { target: { value: "2027-04-01" } });
+      expect(
+        JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!)
+          .settings.startDate
+      ).toBe("2027-04-01");
+
+      fireEvent.change(startDate, { target: { value: "" } });
+      expect(
+        JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!)
+          .settings.startDate
+      ).toBe("");
+
+      // And the app is still standing, claiming nothing about coverage.
+      fireEvent.click(screen.getByText("Dashboard"));
+      expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+      expect(screen.queryByText(/months on one salary/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("adding a one-time transaction from Settings", () => {
+    it("asks what to add instead of dropping a blank row", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      const before = screen.queryAllByLabelText("Transaction name").length;
+
+      fireEvent.click(screen.getAllByText("+ Add")[1]); // One-Time Transactions
+
+      // A dialog, and nothing added yet.
+      expect(screen.getByText("Add one-time transaction")).toBeInTheDocument();
+      expect(screen.queryAllByLabelText("Transaction name").length).toBe(before + 1);
+      const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+      expect(saved.adhocTransactions).toHaveLength(before);
+    });
+
+    it("adds what was typed, not a zero on the start date", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.click(screen.getAllByText("+ Add")[1]);
+
+      fireEvent.change(screen.getByLabelText("Transaction name"), {
+        target: { value: "New tyres" },
+      });
+      fireEvent.change(screen.getByLabelText("Transaction amount"), {
+        target: { value: "-450" },
+      });
+      fireEvent.click(screen.getByText("Add", { exact: true }));
+
+      const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+      const added = saved.adhocTransactions.find(
+        (t: { name: string }) => t.name === "New tyres"
+      );
+      expect(added).toBeTruthy();
+      expect(added.amount).toBe(-450);
+    });
+  });
+
+  describe("a one-time transaction's amount has one source of truth", () => {
+    function seedOneOff() {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 7,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: "2026-11-19", horizonDays: 90, minSafeBalance: 0,
+            trackingSince: "2026-01-01", surplus: {},
+          },
+          rules: [],
+          adhocTransactions: [
+            { id: "t1", name: "Car repair", amount: -640, date: "2026-11-25" },
+          ],
+          overrides: {},
+          checkpoints: [],
+        })
+      );
+    }
+
+    it("writes a dashboard edit back to the transaction, not to an override", () => {
+      // A one-off happens once, so there is no "default vs this time" to
+      // override. Two stored values for one quantity drifted apart: Settings
+      // kept showing the original while the dashboard showed the new one.
+      seedOneOff();
+      render(<App />);
+      fireEvent.click(screen.getByText("Car repair"));
+      fireEvent.change(screen.getByPlaceholderText(/leave blank/i), {
+        target: { value: "-700" },
+      });
+      fireEvent.click(screen.getByText("Save"));
+
+      const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+      expect(saved.adhocTransactions[0].amount).toBe(-700);
+      // No second copy of the figure anywhere.
+      expect(Object.keys(saved.overrides)).toEqual([]);
+    });
+
+    it("shows the same amount in Settings as the dashboard does", () => {
+      seedOneOff();
+      render(<App />);
+      fireEvent.click(screen.getByText("Car repair"));
+      fireEvent.change(screen.getByPlaceholderText(/leave blank/i), {
+        target: { value: "-700" },
+      });
+      fireEvent.click(screen.getByText("Save"));
+
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      const amounts = screen
+        .getAllByLabelText("Transaction amount")
+        .map((i) => (i as HTMLInputElement).value);
+      expect(amounts).toContain("-700");
+      expect(amounts).not.toContain("-640");
     });
   });
 
@@ -813,16 +956,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByText("Settings & Rules"));
     expect(screen.getByText(/No one-time transactions yet/)).toBeInTheDocument();
 
-    // The card has its own + Add button (the rules card has the other).
-    const addButtons = screen.getAllByText("+ Add");
-    fireEvent.click(addButtons[addButtons.length - 1]);
-
-    fireEvent.change(screen.getByLabelText("Transaction name"), {
-      target: { value: "Car repair" },
-    });
-    fireEvent.change(screen.getByLabelText("Transaction amount"), {
-      target: { value: "-800" },
-    });
+    addOneOffViaDialog({ name: "Car repair", amount: -800 });
 
     const raw = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
     expect(raw.adhocTransactions).toHaveLength(1);
@@ -840,8 +974,7 @@ describe("App shell", () => {
   it("deletes a one-time transaction", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
-    const addButtons = screen.getAllByText("+ Add");
-    fireEvent.click(addButtons[addButtons.length - 1]);
+    addOneOffViaDialog({ name: "Car repair", amount: -800 });
     expect(screen.getByLabelText("Transaction name")).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("Delete transaction"));
@@ -850,11 +983,10 @@ describe("App shell", () => {
     expect(raw.adhocTransactions).toHaveLength(0);
   });
 
-  it("changing a transaction's date moves it in the persisted state", () => {
+  it("changing a transaction's date updates the persisted state", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
-    const addButtons = screen.getAllByText("+ Add");
-    fireEvent.click(addButtons[addButtons.length - 1]);
+    addOneOffViaDialog({ name: "Car repair", amount: -800 });
 
     // The transaction row's date input is the last date input on the tab.
     const dateInputs = document.querySelectorAll('input[type="date"]');

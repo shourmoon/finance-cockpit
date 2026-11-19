@@ -7,11 +7,17 @@ import Modal from "./Modal";
 
 interface Props {
   event: FutureEvent | null;
+  /**
+   * True when the event is a one-time transaction. There is no repeating
+   * default behind it, so the dialog asks for its amount outright instead of
+   * offering to override something.
+   */
+  isOneOff?: boolean;
   onSave: (amount: number | null) => void;
   onClose: () => void;
 }
 
-export default function OverrideModal({ event, onSave, onClose }: Props) {
+export default function OverrideModal({ event, isOneOff = false, onSave, onClose }: Props) {
   const [val, setVal] = useState<string>("");
 
   // Reset the input when a different event is shown — the render-time
@@ -29,7 +35,7 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
   return (
     <Modal onClose={onClose} labelledBy="override-modal-title">
       <h3 id="override-modal-title" style={{ ...ui.cardTitle, marginBottom: 10 }}>
-        Override: {event.ruleName}
+        {isOneOff ? "Edit amount" : "Override"}: {event.ruleName}
         <br />
         <span style={{ fontSize: 13, fontWeight: 400, color: colors.muted }}>
           {formatDate(event.date)}
@@ -37,17 +43,19 @@ export default function OverrideModal({ event, onSave, onClose }: Props) {
       </h3>
 
       <div style={styles.row}>
-        <span>Default Amount:</span>
+        <span>{isOneOff ? "Current Amount:" : "Default Amount:"}</span>
         <b>{formatMoney(event.defaultAmount)}</b>
       </div>
 
       <label style={styles.label}>
-        Override Amount:
+        {isOneOff ? "New Amount:" : "Override Amount:"}
         <input
           type="number"
           value={val}
           onChange={(e) => setVal(e.target.value)}
-          placeholder="(leave blank for none)"
+          placeholder={
+            isOneOff ? "(leave blank to keep it)" : "(leave blank for none)"
+          }
           style={styles.input}
         />
       </label>

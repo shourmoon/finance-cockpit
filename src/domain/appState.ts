@@ -11,6 +11,8 @@ EventOverridesMap,
 UUID,
 } from "./types";
 import { toISODate, isValidISODate } from "./dateUtils";
+// One definition of the override key, shared with the engine that reads it.
+import { makeEventKey } from "./cashflowEngine";
 // One definition of a valid checkpoint, shared with the module that reads
 // them, so storage and the summary can never disagree about what counts.
 import { sanitizeCheckpoints } from "./reconciliation";
@@ -38,6 +40,19 @@ export { DEFAULT_RESERVE_MONTHS };
 // last confirmed, and stamping one would report a balance as fresh that
 // nobody has looked at. An older state arrives with an empty log and reads
 // as never confirmed, which is exactly what it is.
+// v6 -> v7: a one-time transaction can no longer carry an override. The
+// override mechanism exists so one occurrence of a REPEATING rule can differ
+// from the rule's default; a one-off happens once and has no default, so an
+// override on it was simply a second stored value for a quantity that has
+// one. The two drifted apart in plain sight — Settings showed the original
+// while the dashboard showed the override — and because the key carries the
+// date, moving the date orphaned the override and silently reverted the
+// amount. Any override belonging to an ad-hoc transaction is folded into
+// that transaction's amount and dropped. Folded, NOT discarded: the figure
+// the user was looking at is the one that survives, so nothing on screen
+// moves across the upgrade. An override left over from an older date is
+// dropped outright — it can never apply again, and reviving it if the date
+// happened to move back would be a surprise, not a feature.
 // v5 -> v6: retired the two kinds of top-up. `reason` on an ad-hoc
 // transaction and `settings.coverageLens` are dropped on read — the only
 // subtractive migration here so far, and deliberately narrow: the top-up
@@ -46,7 +61,7 @@ export { DEFAULT_RESERVE_MONTHS };
 // goes, along with the lens that existed to filter on it. Nothing is
 // backfilled in the other direction: a draw recorded as a one-off shock is
 // still a draw, and coverage now counts it as one.
-export const APP_STATE_VERSION = 6;
+export const APP_STATE_VERSION = 7;
 
 /** Long-run pre-tax equity return. Conservative relative to historical. */
 export const DEFAULT_EXPECTED_RETURN = 0.07;
@@ -429,6 +444,17 @@ export function upgradeAppState(raw: any): AppState {
     : [];
 
   const overrides: EventOverridesMap = sanitizeOverrides(raw.overrides);
+
+  // v6 -> v7: fold any one-off's override into its own amount (see above).
+  for (const txn of adhocTransactions) {
+    const applies = overrides[makeEventKey(txn.id, txn.date)];
+    if (applies) txn.amount = applies.overrideAmount;
+    // Drop every override belonging to this transaction, including ones
+    // stranded on a date it no longer has.
+    for (const key of Object.keys(overrides)) {
+      if (key.startsWith(`${txn.id}__`)) delete overrides[key];
+    }
+  }
 
   return {
     version: APP_STATE_VERSION,
