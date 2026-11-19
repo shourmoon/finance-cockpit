@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from "react";
 import type { RecurringRule } from "../domain/types";
 // Import date formatter to display anchor dates consistently
 import { formatDate } from "../utils/dates";
+import { isValidISODate } from "../domain/dateUtils";
 import { ui, colors } from "./ui";
 import Modal from "./Modal";
 
@@ -90,7 +91,10 @@ export default function RuleEditorModal({
       };
     } else {
       const effectiveAnchor =
-        anchorDate && anchorDate.trim().length > 0 ? anchorDate : defaultStartDate;
+        // `sanitizeSchedule` drops a biweekly rule outright when the anchor
+        // is not a real date, so a half-typed one would lose the whole rule
+        // on the next reload rather than just the date.
+        isValidISODate(anchorDate) ? anchorDate : defaultStartDate;
       schedule = {
         type: "biweekly",
         anchorDate: effectiveAnchor,

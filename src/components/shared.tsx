@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { formatDate } from "../utils/dates";
+import { isValidISODate } from "../domain/dateUtils";
 import { colors } from "./ui";
 
 /**
@@ -122,19 +123,49 @@ export function DateInputWithDisplay({
   captionStyle?: React.CSSProperties;
   ariaLabel?: string;
 }) {
+  // Same shape as NumberInput above, and for the same reason. A native date
+  // input reports a value on every keystroke, and a half-typed year reads as
+  // a real-looking string: typing 2027 passes through 0002, 0020 and 0202.
+  // Those are not dates this app can store — `sanitizeAdhocTransaction` and
+  // `sanitizeSchedule` drop a record whose date fails `isValidISODate`, and
+  // they drop the whole record with it — so committing one meant the row
+  // disappeared on the next reload. Holding the raw text here lets the user
+  // type while the caller only ever hears dates that storage will keep: the
+  // write path refuses exactly what the read path refuses.
+  const [text, setText] = useState(value);
+  const [committed, setCommitted] = useState(value);
+
+  // The parent moved the date (a reset, a sync, a pull): follow it. Compared
+  // against the last value we passed up, not against the raw text, so our own
+  // commit does not read as an outside change and wipe what is being typed.
+  if (value !== committed) {
+    setCommitted(value);
+    setText(value);
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
       <input
         type="date"
         aria-label={ariaLabel}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={text}
+        onChange={(e) => {
+          const next = e.target.value;
+          setText(next);
+          // An empty value is a real instruction — the Start date field uses
+          // it to mean "I have not told you what today is" — so it goes up.
+          // Anything else has to be a date the domain accepts.
+          if (next === "" || isValidISODate(next)) {
+            setCommitted(next);
+            onChange(next);
+          }
+        }}
         style={inputStyle}
       />
       <span
         style={{ fontSize: 12, color: colors.muted, marginTop: 4, ...captionStyle }}
       >
-        {formatDate(value) || "—"}
+        {formatDate(text) || "—"}
       </span>
     </div>
   );

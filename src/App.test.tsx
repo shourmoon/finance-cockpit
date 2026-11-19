@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import App from "./App";
+import { upgradeAppState } from "./domain/appState";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -315,6 +316,97 @@ describe("App shell", () => {
       );
       expect(added).toMatchObject({ kind: "topUp" });
       expect("reason" in added).toBe(false);
+    });
+  });
+
+  describe("editing a one-time transaction's date", () => {
+    function seedThree() {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 6,
+          account: { startingBalance: 5000 },
+          settings: {
+            startDate: "2026-11-19", horizonDays: 90, minSafeBalance: 1000,
+            trackingSince: "2026-01-01", surplus: {},
+          },
+          rules: [],
+          adhocTransactions: [
+            { id: "a", name: "Alpha", amount: -100, date: "2026-11-20" },
+            { id: "b", name: "Bravo", amount: -200, date: "2026-11-25" },
+            { id: "c", name: "Charlie", amount: -300, date: "2026-11-30" },
+          ],
+          overrides: {},
+          checkpoints: [],
+        })
+      );
+    }
+    const rowNames = () =>
+      screen.getAllByLabelText("Transaction name").map((i) => (i as HTMLInputElement).value);
+    const stored = () =>
+      JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+
+    it("keeps the rows where they are while a date is being changed", () => {
+      // The list used to be sorted by the very field being edited, so each
+      // committed keystroke re-sorted it and moved the row out from under
+      // the cursor. In a real browser that scrambled the remaining
+      // keystrokes into a date with a six-digit year.
+      seedThree();
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      expect(rowNames()).toEqual(["Alpha", "Bravo", "Charlie"]);
+
+      // Move the middle row's date before the first row's.
+      const dates = screen.getAllByLabelText("Transaction date");
+      fireEvent.change(dates[1], { target: { value: "2026-11-18" } });
+
+      // The date took, and nothing jumped.
+      expect(stored().adhocTransactions.find((t: { id: string }) => t.id === "b").date)
+        .toBe("2026-11-18");
+      expect(rowNames()).toEqual(["Alpha", "Bravo", "Charlie"]);
+    });
+
+    it("never writes a date that storage would throw the transaction away for", () => {
+      // The write path and the read path have to agree. A half-typed year
+      // is a string the input reports but `sanitizeAdhocTransaction` drops —
+      // and it drops the whole transaction with it, so the row simply
+      // vanished the next time the app was opened.
+      seedThree();
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      const dates = screen.getAllByLabelText("Transaction date");
+
+      for (const partial of ["0002-11-25", "0020-11-25", "225202-07-18", "2026-02-30"]) {
+        fireEvent.change(dates[1], { target: { value: partial } });
+      }
+
+      // Every transaction still survives the trip through storage.
+      expect(upgradeAppState(stored()).adhocTransactions.map((t) => t.id)).toEqual([
+        "a", "b", "c",
+      ]);
+      // Bravo still has its original date: nothing half-typed was committed.
+      expect(stored().adhocTransactions.find((t: { id: string }) => t.id === "b").date)
+        .toBe("2026-11-25");
+    });
+
+    it("survives a reload after a date edit, with all three transactions intact", () => {
+      // The end-to-end promise: edit a date, come back, everything is there.
+      seedThree();
+      const first = render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.change(screen.getAllByLabelText("Transaction date")[1], {
+        target: { value: "0002-11-25" },
+      });
+      fireEvent.change(screen.getAllByLabelText("Transaction date")[1], {
+        target: { value: "2027-03-09" },
+      });
+      first.unmount();
+
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      expect(rowNames().sort()).toEqual(["Alpha", "Bravo", "Charlie"]);
+      expect(stored().adhocTransactions.find((t: { id: string }) => t.id === "b").date)
+        .toBe("2027-03-09");
     });
   });
 

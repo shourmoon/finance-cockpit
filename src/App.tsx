@@ -499,9 +499,13 @@ export default function App() {
                 the projection alongside your recurring rules.
               </div>
             ) : (
-              [...state.adhocTransactions]
-                .sort((a, b) => a.date.localeCompare(b.date))
-                .map((txn) => (
+              // Deliberately NOT sorted by date. These rows carry the date
+              // inputs, and sorting a list by the field being edited moves
+              // the row out from under the cursor on every keystroke — which
+              // scrambled the rest of what was being typed into a date with
+              // a six-digit year. The dashboard ledger is where these appear
+              // in date order; nothing there is editable.
+              state.adhocTransactions.map((txn) => (
                   <div key={txn.id} style={styles.ruleRow}>
                     <div style={styles.ruleInfo}>
                       <input
@@ -516,6 +520,7 @@ export default function App() {
                       <div style={{ marginTop: 6 }}>
                         <DateInputWithDisplay
                           value={txn.date}
+                          ariaLabel="Transaction date"
                           onChange={(val) => {
                             if (val) updateAdhocTransaction(txn.id, { date: val });
                           }}
