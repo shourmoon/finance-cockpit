@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { createInitialAppState, sanitizeHorizonDays } from "./domain/appState";
+import {
+  createInitialAppState,
+  sanitizeHorizonDays,
+  advanceStartDate,
+} from "./domain/appState";
+import { toISODate } from "./domain/dateUtils";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { runCashflowProjection } from "./domain/cashflowEngine";
 import {
@@ -63,7 +68,13 @@ function DateInputWithDisplay({
 export default function App() {
   const [state, setState] = useState<AppState>(() => {
     const loaded = loadAppState();
-    return loaded ?? createInitialAppState();
+    const base = loaded ?? createInitialAppState();
+    // The app's "now" is not the user's to maintain. It used to be stamped
+    // on the first install and left, so the projection drifted a day further
+    // into the past every day — and freshness, which ages the last checkpoint
+    // against this date, reported a months-old balance as confirmed today.
+    const settings = advanceStartDate(base.settings, todayIso());
+    return settings === base.settings ? base : { ...base, settings };
   });
 
   const [selectedEvent, setSelectedEvent] = useState<FutureEvent | null>(
@@ -164,6 +175,18 @@ export default function App() {
 
   function updateStartingBalance(val: number) {
     setState((s) => ({ ...s, account: { startingBalance: val } }));
+  }
+
+  function setFollowToday(follow: boolean) {
+    setState((s) => {
+      if (!follow) {
+        // Pin it where it currently sits, so nothing moves under the user.
+        return { ...s, settings: { ...s.settings, followToday: false } };
+      }
+      const settings = { ...s.settings };
+      delete settings.followToday;
+      return { ...s, settings: advanceStartDate(settings, todayIso()) };
+    });
   }
 
   function updateStartDate(val: string) {
@@ -346,7 +369,7 @@ export default function App() {
                 read as one form. Each field stays a <label> so the input
                 keeps its accessible name. */}
             <div style={styles.settingsGrid}>
-              <label style={styles.field}>
+              <div style={styles.field}>
                 <span style={ui.fieldLabel}>Start date</span>
                 {/* DateInputWithDisplay shows the human-friendly date underneath. */}
                 <DateInputWithDisplay
@@ -354,7 +377,18 @@ export default function App() {
                   onChange={(val) => updateStartDate(val)}
                   ariaLabel="Start date"
                 />
-              </label>
+                {/* Following is the default and almost always right. Pinning
+                    is for looking at the projection from some other day. */}
+                <label style={styles.followRow}>
+                  <input
+                    type="checkbox"
+                    aria-label="Follow today's date"
+                    checked={state.settings.followToday !== false}
+                    onChange={(e) => setFollowToday(e.target.checked)}
+                  />
+                  <span>Follow today&apos;s date</span>
+                </label>
+              </div>
 
               <label style={styles.field}>
                 <span style={ui.fieldLabel}>Horizon (days)</span>
@@ -665,6 +699,18 @@ export default function App() {
                 <span style={styles.metricVal}>
                   {formatMoney(state.account.startingBalance)}
                 </span>
+                {/* Every figure on this screen is computed from this one, so
+                    how old it is qualifies all of them. Silent while it is
+                    fresh — a caption that is always on screen is one nobody
+                    reads — and it draws from the same freshness the check
+                    row below uses, not a second reckoning of the same thing. */}
+                {cashChecks.freshness.level !== "fresh" && (
+                  <span style={styles.balanceAge} data-testid="balance-age">
+                    {cashChecks.freshness.lastConfirmed
+                      ? `as of ${formatDate(cashChecks.freshness.lastConfirmed)}`
+                      : "never confirmed"}
+                  </span>
+                )}
               </div>
               <div style={styles.metricCell}>
                 <span style={styles.metricKey}>Minimum balance</span>
@@ -952,6 +998,12 @@ export default function App() {
       />
     </div>
   );
+}
+
+/** Today, in the app's UTC convention. Outside the component: it reads the
+ *  clock, and a render must not. */
+function todayIso(): string {
+  return toISODate(new Date());
 }
 
 // Fallback id generator. Lives outside the component because it reads the
@@ -1331,6 +1383,19 @@ const styles: Record<string, CSSProperties> = {
   },
   metricKey: {
     ...ui.miniLabel,
+  },
+  followRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.muted,
+    cursor: "pointer",
+  },
+  balanceAge: {
+    fontSize: 10.5,
+    color: colors.amber,
   },
   metricVal: {
     fontSize: 15,

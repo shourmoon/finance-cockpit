@@ -8,6 +8,7 @@ SurplusSettings,
 RecurringRule,
 RecurringSchedule,
 EventOverridesMap,
+ISODate,
 UUID,
 } from "./types";
 import { toISODate, isValidISODate } from "./dateUtils";
@@ -40,6 +41,15 @@ export { DEFAULT_RESERVE_MONTHS };
 // last confirmed, and stamping one would report a balance as fresh that
 // nobody has looked at. An older state arrives with an empty log and reads
 // as never confirmed, which is exactly what it is.
+// v7 -> v8: added `settings.followToday`. Additive, and absent means true, so
+// every existing state starts following today without its stored startDate
+// being touched — the engine still receives a concrete date and no domain
+// caller changes. This closes the oldest quiet failure in the app: startDate
+// was stamped on the first install and never moved again, so the projection
+// drifted a day further into the past every day, and the one feature built to
+// catch drift could not see it. `assessFreshness` ages the last checkpoint
+// against startDate, so with startDate frozen on the day a balance was
+// confirmed, that balance read "confirmed today" forever.
 // v6 -> v7: a one-time transaction can no longer carry an override. The
 // override mechanism exists so one occurrence of a REPEATING rule can differ
 // from the rule's default; a one-off happens once and has no default, so an
@@ -61,7 +71,7 @@ export { DEFAULT_RESERVE_MONTHS };
 // goes, along with the lens that existed to filter on it. Nothing is
 // backfilled in the other direction: a draw recorded as a one-off shock is
 // still a draw, and coverage now counts it as one.
-export const APP_STATE_VERSION = 7;
+export const APP_STATE_VERSION = 8;
 
 /** Long-run pre-tax equity return. Conservative relative to historical. */
 export const DEFAULT_EXPECTED_RETURN = 0.07;
@@ -144,6 +154,30 @@ export function sanitizeSurplusSettings(raw: any): SurplusSettings {
   }
 
   return surplus;
+}
+
+/**
+ * Move the projection's "now" up to today, unless the user pinned it.
+ *
+ * Pure, and takes `today` rather than reading the clock: the clock belongs at
+ * the UI boundary, and a domain function that asks what day it is cannot be
+ * tested over a range of days. Returns the SAME object when nothing changes,
+ * so a caller can persist the result unconditionally without writing storage
+ * and re-rendering on every load.
+ *
+ * Never moves the date backwards. A device with a wrong clock, or a tab that
+ * wakes up with a stale one, must not drag the projection into the past and
+ * hide what has already been recorded.
+ */
+export function advanceStartDate(
+  settings: CashflowSettings,
+  today: ISODate
+): CashflowSettings {
+  if (settings.followToday === false) return settings;
+  if (!isValidISODate(today)) return settings;
+  // `>` on ISO dates is a valid chronological comparison: the format sorts.
+  if (!(today > settings.startDate)) return settings;
+  return { ...settings, startDate: today };
 }
 
 /**
@@ -403,6 +437,11 @@ export function upgradeAppState(raw: any): AppState {
         : toISODate(new Date()),
     surplus: sanitizeSurplusSettings(raw.settings?.surplus),
   };
+
+  // Only an explicit `false` pins the date; anything else follows today.
+  // Stored as the exception rather than the rule so an older state, which
+  // has no opinion, gets the behaviour almost everyone wants.
+  if (raw.settings?.followToday === false) settings.followToday = false;
 
   // Optional: omitted entirely when unset, which is what hides the
   // "second salary kept" metric rather than showing a placeholder.

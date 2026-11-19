@@ -50,7 +50,7 @@ describe("App shell", () => {
       JSON.stringify({
         version: 2,
         account: { startingBalance: 500 },
-        settings: { startDate: "2026-07-01", horizonDays: 10, minSafeBalance: 0 },
+        settings: { startDate: "2026-07-01", followToday: false, horizonDays: 10, minSafeBalance: 0 },
         rules: [],
         adhocTransactions: [
           { id: "t1", name: "Test Event", amount: -50, date: "2026-07-03" },
@@ -78,7 +78,7 @@ describe("App shell", () => {
       JSON.stringify({
         version: 2,
         account: { startingBalance: 1000 },
-        settings: { startDate: "2026-07-01", horizonDays: 30, minSafeBalance: 0 },
+        settings: { startDate: "2026-07-01", followToday: false, horizonDays: 30, minSafeBalance: 0 },
         rules: [],
         adhocTransactions: [
           { id: "a1", name: "Alpha", amount: 200, date: "2026-07-10" },
@@ -105,7 +105,7 @@ describe("App shell", () => {
       JSON.stringify({
         version: 2,
         account: { startingBalance: 1000 },
-        settings: { startDate: "2026-07-01", horizonDays: 30, minSafeBalance: 0 },
+        settings: { startDate: "2026-07-01", followToday: false, horizonDays: 30, minSafeBalance: 0 },
         rules: [],
         adhocTransactions: [
           { id: "a1", name: "Alpha", amount: 200, date: "2026-07-10" },
@@ -129,7 +129,7 @@ describe("App shell", () => {
       JSON.stringify({
         version: 2,
         account: { startingBalance: 1000 },
-        settings: { startDate: "2026-07-01", horizonDays: 30, minSafeBalance: 0 },
+        settings: { startDate: "2026-07-01", followToday: false, horizonDays: 30, minSafeBalance: 0 },
         rules: [],
         adhocTransactions: [
           { id: "a1", name: "Alpha", amount: 200, date: "2026-07-10" },
@@ -173,7 +173,7 @@ describe("App shell", () => {
       JSON.stringify({
         version: 2,
         account: { startingBalance: 200 },
-        settings: { startDate: "2026-07-01", horizonDays: 40, minSafeBalance: 100 },
+        settings: { startDate: "2026-07-01", followToday: false, horizonDays: 40, minSafeBalance: 100 },
         rules: [],
         adhocTransactions: [
           { id: "a1", name: "Dip one", amount: -150, date: "2026-07-05" },
@@ -228,7 +228,7 @@ describe("App shell", () => {
       JSON.stringify({
         version: 2,
         account: { startingBalance: 200 },
-        settings: { startDate: "2026-07-01", horizonDays: 40, minSafeBalance: 100 },
+        settings: { startDate: "2026-07-01", followToday: false, horizonDays: 40, minSafeBalance: 100 },
         rules: [],
         adhocTransactions: [
           { id: "a1", name: "Dip one", amount: -150, date: "2026-07-05" },
@@ -335,6 +335,82 @@ describe("App shell", () => {
       );
       expect(added).toMatchObject({ kind: "topUp" });
       expect("reason" in added).toBe(false);
+    });
+  });
+
+  describe("the start date keeps itself current", () => {
+    const todayIso = () => new Date().toISOString().slice(0, 10);
+
+    function seedStale(extra: Record<string, unknown> = {}) {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 7,
+          account: { startingBalance: 3200 },
+          settings: {
+            startDate: "2026-09-01", horizonDays: 90, minSafeBalance: 0,
+            trackingSince: "2026-01-01", surplus: {}, ...extra,
+          },
+          rules: [], adhocTransactions: [], overrides: {},
+          checkpoints: [{ id: "c1", date: "2026-09-01", actual: 3200, modelled: 3400 }],
+        })
+      );
+    }
+    const stored = () =>
+      JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+
+    it("moves a months-old start date up to today on load", () => {
+      seedStale();
+      render(<App />);
+      expect(stored().settings.startDate).toBe(todayIso());
+    });
+
+    it("leaves it alone once it is pinned", () => {
+      seedStale({ followToday: false });
+      render(<App />);
+      expect(stored().settings.startDate).toBe("2026-09-01");
+    });
+
+    it("pinning from Settings stops it following today", () => {
+      seedStale();
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.click(screen.getByLabelText("Follow today's date"));
+      expect(stored().settings.followToday).toBe(false);
+    });
+
+    it("tells the truth about the balance's age once the date is current", () => {
+      // The whole point. With the start date frozen on the day the balance
+      // was confirmed, freshness ages it against that same frozen date and
+      // reports "Confirmed today" forever — the one feature built to catch
+      // drift, blind to the drift it was built for.
+      seedStale();
+      render(<App />);
+      expect(screen.queryByText(/Confirmed today/)).not.toBeInTheDocument();
+      expect(screen.getByTestId("reality-age-cash").textContent).toMatch(
+        /Confirmed .* ago/
+      );
+      // ...and the age is attached to the figure it qualifies.
+      expect(screen.getByTestId("balance-age")).toHaveTextContent(/as of 1 Sep/);
+    });
+
+    it("says nothing about age when the balance really was just confirmed", () => {
+      // The row's own rule: one line until there is something worth saying.
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8,
+          account: { startingBalance: 3200 },
+          settings: {
+            startDate: todayIso(), horizonDays: 90, minSafeBalance: 0,
+            trackingSince: "2026-01-01", surplus: {},
+          },
+          rules: [], adhocTransactions: [], overrides: {},
+          checkpoints: [{ id: "c1", date: todayIso(), actual: 3200, modelled: 3200 }],
+        })
+      );
+      render(<App />);
+      expect(screen.queryByTestId("balance-age")).not.toBeInTheDocument();
     });
   });
 

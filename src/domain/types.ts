@@ -184,7 +184,22 @@ export interface SurplusSettings {
 }
 
 export interface CashflowSettings {
+  /**
+   * The day the projection runs from — the app's notion of "now".
+   *
+   * Kept as a concrete date so the engine never has to ask what day it is,
+   * but it is no longer the user's to maintain: the app moves it up to today
+   * on load unless `followToday` is false. It used to be stamped once on the
+   * first install and then left, so every day after that the whole dashboard
+   * projected from a date further in the past.
+   */
   startDate: ISODate;
+  /**
+   * False only when the user has deliberately pinned the start date, to look
+   * at the projection from some other day. Absent means follow today, which
+   * is what almost everyone wants almost always.
+   */
+  followToday?: boolean;
   horizonDays: number;
   minSafeBalance: Money;
   /**
