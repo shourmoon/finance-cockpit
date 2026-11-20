@@ -416,11 +416,52 @@ export default function App() {
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Settings</h3>
 
-            {/* Stacked label-over-input fields in a wrapping two-column
+            {/* The balance leads, outside any group. Everything in the app
+                is counted forward from it, and it is the one field here
+                that gets updated regularly rather than set once.
+
+                Read-only on purpose: a free-text balance with no date
+                attached is how this figure drifts, and it quietly bypassed
+                the one dialog built to stop that. Correcting it is still
+                one tap — it just cannot happen any more without recording
+                the day it was true. */}
+            <div style={styles.settingsBalance} data-testid="settings-balance">
+              <span style={ui.fieldLabel}>Balance</span>
+              <div style={styles.balanceReadout}>
+                <span style={styles.balanceReadoutValue}>
+                  {formatMoney(state.account.startingBalance)}
+                </span>
+                <button
+                  type="button"
+                  style={styles.balanceUpdate}
+                  onClick={() => setRealityCheckOpen(true)}
+                >
+                  Update balance
+                </button>
+              </div>
+              <span
+                style={balanceStale ? styles.balanceAgeStale : styles.balanceAge}
+              >
+                {balanceStamp}
+              </span>
+              <span style={styles.fieldHint}>
+                Every figure in the app is counted forward from this one, so
+                it is only ever set by checking it against your bank.
+              </span>
+            </div>
+
+            {/* Grouped by what each field changes, rather than left as one
+                undifferentiated grid of six. Every field already explained
+                itself, but a reader still had to read all six to find the
+                one they came for.
+
+                Stacked label-over-input fields in a wrapping two-column
                 grid — the same control pattern the Mortgage tab's
                 Original Loan Terms card uses, so the two config surfaces
                 read as one form. Each field stays a <label> so the input
                 keeps its accessible name. */}
+            <div data-testid="settings-group-forecast">
+            <h4 style={styles.settingsGroupTitle}>Forecast</h4>
             <div style={styles.settingsGrid}>
               {/* While it follows today there is nothing here to fill in,
                   so nothing is shown to fill in. The picker appears only
@@ -500,36 +541,12 @@ export default function App() {
                 </span>
               </label>
 
-              {/* Read-only on purpose. A free-text balance with no date
-                  attached is how this figure drifts, and it quietly bypassed
-                  the one dialog built to stop that. Correcting it is still
-                  one tap — it just cannot happen any more without recording
-                  the day it was true. */}
-              <div style={{ ...styles.field, flexBasis: "100%" }}>
-                <span style={ui.fieldLabel}>Balance</span>
-                <div style={styles.balanceReadout}>
-                  <span style={styles.balanceReadoutValue}>
-                    {formatMoney(state.account.startingBalance)}
-                  </span>
-                  <button
-                    type="button"
-                    style={styles.balanceUpdate}
-                    onClick={() => setRealityCheckOpen(true)}
-                  >
-                    Update balance
-                  </button>
-                </div>
-                <span
-                  style={balanceStale ? styles.balanceAgeStale : styles.balanceAge}
-                >
-                  {balanceStamp}
-                </span>
-                <span style={styles.fieldHint}>
-                  Every figure in the app is counted forward from this one,
-                  so it is only ever set by checking it against your bank.
-                </span>
-              </div>
+            </div>
+            </div>
 
+            <div data-testid="settings-group-coverage">
+            <h4 style={styles.settingsGroupTitle}>One-salary coverage</h4>
+            <div style={styles.settingsGrid}>
               <label style={styles.field}>
                 <span style={ui.fieldLabel}>Top-ups tracked since</span>
                 <SharedDateInput
@@ -558,6 +575,7 @@ export default function App() {
                   leave untouched. Leave at 0 to hide that figure.
                 </span>
               </label>
+            </div>
             </div>
           </div>
 
@@ -1536,6 +1554,17 @@ const styles: Record<string, CSSProperties> = {
   },
   metricKey: {
     ...ui.miniLabel,
+  },
+  settingsGroupTitle: {
+    ...ui.miniLabel,
+    margin: "18px 0 10px",
+    paddingTop: 14,
+    borderTop: `1px solid ${colors.hairline}`,
+  },
+  settingsBalance: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
   },
   fieldHint: {
     fontSize: 11,

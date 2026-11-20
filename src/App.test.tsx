@@ -394,6 +394,31 @@ describe("App shell", () => {
     });
   });
 
+  describe("the Settings page", () => {
+    it("groups the settings by what they affect", () => {
+      // Six fields in one undifferentiated grid: the balance, three
+      // forecast settings and two coverage ones, with nothing to say which
+      // belonged to what. Each field now explains itself, but a reader
+      // still had to read all six to find the one they came for.
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+
+      const forecast = screen.getByTestId("settings-group-forecast");
+      expect(forecast).toHaveTextContent("Forecast");
+      // The balance leads, outside any group: everything is counted from
+      // it, and it is the one field here that gets updated regularly.
+      const balance = screen.getByTestId("settings-balance");
+      expect(balance).toBeInTheDocument();
+
+      const coverage = screen.getByTestId("settings-group-coverage");
+      expect(coverage).toHaveTextContent(/one-salary coverage/i);
+
+      // Each field sits under the heading for the thing it changes.
+      expect(forecast).toContainElement(screen.getByLabelText("Horizon (days)"));
+      expect(coverage).toContainElement(screen.getByLabelText("Tracking since"));
+    });
+  });
+
   describe("a brand-new install", () => {
     beforeEach(seedNothing);
 

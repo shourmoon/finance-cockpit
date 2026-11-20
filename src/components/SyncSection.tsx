@@ -22,6 +22,8 @@ import {
 import type { Snapshot } from "../domain/persistence/snapshot";
 
 import { SYNC_BASE_URL } from "../config";
+import { formatDate } from "../utils/dates";
+import { isValidISODate } from "../domain/dateUtils";
 
 const SYNC_KEY_STORAGE = "finance-cockpit:sync-key";
 const LAST_SYNC_STORAGE = "finance-cockpit:last-sync";
@@ -103,6 +105,12 @@ export default function SyncSection() {
   const [pin, setPin] = useState<string>("");
 
   const [lastSynced, setLastSynced] = useState<string | null>(readLastSyncRemoteUpdatedAt());
+  // Sync is configured once and then never touched, so once there is a key
+  // it folds to a single line instead of holding a screenful of inputs and
+  // six buttons forever. With nothing remembered it stays open, because
+  // then setting it up IS the task and hiding it behind a disclosure the
+  // user has to find first would be worse than the clutter.
+  const [open, setOpen] = useState<boolean>(() => !getRememberedSyncKey());
   const [remoteUpdatedAt, setRemoteUpdatedAt] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -355,9 +363,62 @@ export default function SyncSection() {
     setMessage("Sync key was cleared from this device.");
   }
 
+  // Two things in here are emphatically not "set and forget": a conflict is
+  // a decision the user still owes, and an error means sync is silently not
+  // happening. Both are reachable with the panel open and would vanish on
+  // the next tap of the toggle — stranding two diverged devices with no way
+  // back to the Keep Local / Keep Remote choice. So while either is
+  // outstanding the panel is pinned open and no toggle is offered at all,
+  // rather than offered and ignored.
+  // The summary is on screen all the time, so its date follows the app's
+  // one convention (DD MMM 'YY via formatDate) rather than the raw
+  // toLocaleString the expanded rows use. `lastSynced` is a UTC timestamp
+  // out of localStorage, so it is untrusted: a value that is not a real
+  // date reads as "not synced yet", never as "Invalid Date".
+  const syncedOn = (() => {
+    const day = (lastSynced ?? "").slice(0, 10);
+    return isValidISODate(day) ? formatDate(day) : null;
+  })();
+
+  const pinnedOpen = Boolean(conflict) || Boolean(error);
+  const expanded = open || pinnedOpen;
+
   return (
     <div style={styles.card}>
-      <h3 style={styles.cardTitle}>Sync &amp; Multi‑Device</h3>
+      <div style={styles.syncHeader}>
+        <h3 style={{ ...styles.cardTitle, marginBottom: 0 }}>
+          Sync &amp; Multi‑Device
+        </h3>
+        {!pinnedOpen && (
+          <button
+            type="button"
+            style={styles.syncToggle}
+            data-testid="sync-toggle"
+            aria-expanded={expanded}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {expanded ? "Hide" : "Change"}
+          </button>
+        )}
+      </div>
+
+      {!expanded && (
+        <div style={styles.syncSummary} data-testid="sync-summary">
+          {sharedKey ? (
+            <>
+              <span style={{ color: colors.text }}>{sharedKey}</span>
+              <span style={{ color: colors.muted }}>
+                {syncedOn ? ` · synced ${syncedOn}` : " · not synced yet"}
+              </span>
+            </>
+          ) : (
+            <span style={{ color: colors.muted }}>Not set up</span>
+          )}
+        </div>
+      )}
+
+      {expanded && (
+        <>
 
       <div style={{ marginBottom: 12, fontSize: 13, color: colors.muted }}>
         Enter the same <b>Sync Key</b> and <b>PIN</b> on every device. Use “Sync now” for automatic behaviour,
@@ -454,6 +515,8 @@ export default function SyncSection() {
 
       {message && <div style={{ marginTop: 10, fontSize: 12, color: colors.positive }}>{message}</div>}
       {error && <div style={{ marginTop: 10, fontSize: 12, color: colors.error }}>{error}</div>}
+        </>
+      )}
     </div>
   );
 }
@@ -482,6 +545,22 @@ function mapSyncError(e: any): string {
 // Mixed record: static CSSProperties plus disabled-aware button
 // factories, so it stays loosely typed.
 const styles: Record<string, any> = {
+  syncHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  syncToggle: {
+    ...ui.secondaryButton,
+    padding: "4px 10px",
+    fontSize: 12,
+    flexShrink: 0,
+  },
+  syncSummary: {
+    marginTop: 8,
+    fontSize: 13,
+  },
   card: ui.card,
   cardTitle: ui.cardTitle,
   label: {
