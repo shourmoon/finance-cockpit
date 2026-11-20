@@ -466,8 +466,9 @@ describe("upgradeAppState - defaults for a current-version state with missing fi
     expect(upgraded.settings.horizonDays).toBe(90);
     expect(upgraded.settings.minSafeBalance).toBe(0);
     expect(/^\d{4}-\d{2}-\d{2}$/.test(upgraded.settings.startDate)).toBe(true);
-    // rules missing (not an array) => default rule set
-    expect(upgraded.rules.length).toBeGreaterThan(0);
+    // Rules missing (not an array) => an empty list, not an invented one.
+    // The app ships with nothing rather than a demo household.
+    expect(upgraded.rules).toEqual([]);
     expect(upgraded.overrides).toEqual({});
   });
 

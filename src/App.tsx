@@ -180,6 +180,52 @@ export default function App() {
     : "never checked against your bank";
   const balanceStale = cashChecks.freshness.level !== "fresh";
 
+  // What the forecast still needs before it can say anything true. The app
+  // used to fill these gaps with invented rules and forecast confidently
+  // from them; it now asks instead. Each step is "done" by evidence in the
+  // data, not by a flag, so it cannot drift out of step with reality.
+  const setupSteps = [
+    {
+      key: "balance",
+      label: "Tell me your balance",
+      hint: "What the account holds right now. Everything else is counted from it.",
+      done: state.checkpoints.length > 0,
+      action: () => setRealityCheckOpen(true),
+      cta: "Set balance",
+    },
+    {
+      key: "income",
+      label: "Add what comes in",
+      hint: "Pay, and anything else that arrives on a schedule.",
+      done: state.rules.some((r) => r.amount > 0),
+      action: () => {
+        setEditingRule(makeNewRule("Income"));
+        setEditingIsNew(true);
+      },
+      cta: "Add income",
+    },
+    {
+      key: "bills",
+      label: "Add what goes out",
+      hint: "Rent, bills, subscriptions — the payments you can see coming.",
+      done: state.rules.some((r) => r.amount < 0),
+      action: () => {
+        setEditingRule(makeNewRule("Bill"));
+        setEditingIsNew(true);
+      },
+      cta: "Add a bill",
+    },
+  ];
+  const setupDone = setupSteps.every((step) => step.done);
+  // Only a genuinely untouched app gets the setup card alone. Rules are not
+  // the test: a confirmed balance is worth showing on its own, and so is
+  // recorded top-up history, neither of which needs a single rule to exist.
+  // Gating on rules hid both from people who had them.
+  const nothingToForecast =
+    state.rules.length === 0 &&
+    state.adhocTransactions.length === 0 &&
+    state.checkpoints.length === 0;
+
   useEffect(() => {
     saveAppState(state);
   }, [state]);
@@ -317,12 +363,12 @@ export default function App() {
     }));
   }
 
-  function makeNewRule(): RecurringRule {
+  function makeNewRule(name = "New Rule"): RecurringRule {
     const id = makeId("rule");
 
     return {
       id,
-      name: "New Rule",
+      name,
       amount: 0,
       isVariable: false,
       schedule: {
@@ -393,6 +439,10 @@ export default function App() {
                     Today &middot; {formatDate(state.settings.startDate)}
                   </span>
                 )}
+                <span style={styles.fieldHint}>
+                  The day the forecast counts from. It keeps itself on today
+                  unless you pin it.
+                </span>
                 <label style={styles.followRow}>
                   <input
                     type="checkbox"
@@ -416,6 +466,9 @@ export default function App() {
                   ariaLabel="Horizon (days)"
                   inputStyle={ui.input}
                 />
+                <span style={styles.fieldHint}>
+                  How far ahead to forecast.
+                </span>
                 <div style={styles.presetRow}>
                   {[30, 60, 90, 180].map((days) => (
                     <button
@@ -441,6 +494,10 @@ export default function App() {
                   onChange={updateMinSafeBalance}
                   inputStyle={ui.input}
                 />
+                <span style={styles.fieldHint}>
+                  The cushion you never want to drop below. Safe to Spend and
+                  the top-up plan both keep you above it.
+                </span>
               </label>
 
               {/* Read-only on purpose. A free-text balance with no date
@@ -467,6 +524,10 @@ export default function App() {
                 >
                   {balanceStamp}
                 </span>
+                <span style={styles.fieldHint}>
+                  Every figure in the app is counted forward from this one,
+                  so it is only ever set by checking it against your bank.
+                </span>
               </div>
 
               <label style={styles.field}>
@@ -479,6 +540,10 @@ export default function App() {
                   inputStyle={ui.input}
                   ariaLabel="Tracking since"
                 />
+                <span style={styles.fieldHint}>
+                  When you started recording transfers from savings. Months
+                  before this count as unknown, never as months you coped.
+                </span>
               </label>
 
               <label style={styles.field}>
@@ -488,6 +553,10 @@ export default function App() {
                   onChange={updateSecondSalary}
                   inputStyle={ui.input}
                 />
+                <span style={styles.fieldHint}>
+                  Only used to work out how much of it you have managed to
+                  leave untouched. Leave at 0 to hide that figure.
+                </span>
               </label>
             </div>
           </div>
@@ -637,8 +706,43 @@ export default function App() {
         </>
       )}
 
+      {/* FIRST RUN: ask, rather than forecast from nothing */}
+      {activeTab === "dashboard" && !setupDone && (
+        <div style={styles.card} data-testid="first-run">
+          <h3 style={styles.cardTitle}>
+            {nothingToForecast ? "Let's set this up" : "Nearly there"}
+          </h3>
+          <div style={styles.setupIntro}>
+            {nothingToForecast
+              ? "Three things, and the forecast starts telling you something true."
+              : "A couple of things still missing before the forecast is complete."}
+          </div>
+          {setupSteps.map((step) => (
+            <div key={step.key} style={styles.setupStep}>
+              <span
+                style={step.done ? styles.setupTickDone : styles.setupTick}
+                aria-hidden="true"
+              >
+                {step.done ? "✓" : ""}
+              </span>
+              <div style={styles.setupText}>
+                <span style={step.done ? styles.setupLabelDone : styles.setupLabel}>
+                  {step.label}
+                </span>
+                {!step.done && <span style={styles.setupHint}>{step.hint}</span>}
+              </div>
+              {!step.done && (
+                <button type="button" style={styles.setupCta} onClick={step.action}>
+                  {step.cta}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* DASHBOARD TAB */}
-      {activeTab === "dashboard" && (
+      {activeTab === "dashboard" && !nothingToForecast && (
         <>
           <div style={styles.card}>
             {/* Hero: the number the user opens the app for. */}
@@ -921,7 +1025,7 @@ export default function App() {
       )}
 
       {/* ONE-SALARY COVERAGE (Dashboard, below the events ledger) */}
-      {activeTab === "dashboard" && (
+      {activeTab === "dashboard" && !nothingToForecast && (
         <CoverageCard
           metrics={coverage}
           trackingSince={state.settings.trackingSince}
@@ -1432,6 +1536,59 @@ const styles: Record<string, CSSProperties> = {
   },
   metricKey: {
     ...ui.miniLabel,
+  },
+  fieldHint: {
+    fontSize: 11,
+    color: colors.faint,
+    lineHeight: 1.4,
+    marginTop: 4,
+  },
+  setupIntro: {
+    fontSize: 12.5,
+    color: colors.textSoft,
+    marginTop: -4,
+    marginBottom: 12,
+    lineHeight: 1.45,
+  },
+  setupStep: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 9,
+    paddingTop: 9,
+    paddingBottom: 9,
+    borderTop: `1px solid ${colors.hairline}`,
+  },
+  setupTick: {
+    width: 18,
+    height: 18,
+    borderRadius: "50%",
+    border: `1px solid ${colors.cardBorder}`,
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  setupTickDone: {
+    width: 18,
+    height: 18,
+    borderRadius: "50%",
+    background: colors.green,
+    color: colors.greenInk,
+    flexShrink: 0,
+    marginTop: 1,
+    fontSize: 12,
+    lineHeight: "18px",
+    textAlign: "center",
+    fontWeight: 700,
+  },
+  setupText: { display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 },
+  setupLabel: { fontSize: 14, fontWeight: 600, color: colors.text },
+  setupLabelDone: { fontSize: 14, fontWeight: 500, color: colors.muted },
+  setupHint: { fontSize: 11.5, color: colors.faint, lineHeight: 1.4 },
+  setupCta: {
+    ...ui.primaryButton,
+    padding: "5px 11px",
+    fontSize: 12.5,
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   followRow: {
     display: "flex",

@@ -5,8 +5,51 @@ import App from "./App";
 import { upgradeAppState } from "./domain/appState";
 import { colors } from "./components/ui";
 
+/**
+ * The household these tests assume. It used to arrive for free, because the
+ * app shipped these four rules to every new install — which was the bug.
+ * Now that a fresh install is genuinely empty, the fixture is stated here
+ * instead: a test should say what it is testing against rather than lean on
+ * whatever the product happens to ship.
+ */
+function seedHousehold() {
+  const today = new Date().toISOString().slice(0, 10);
+  window.localStorage.setItem(
+    "finance-cockpit-app-state-v1",
+    JSON.stringify({
+      version: 8,
+      account: { startingBalance: 0 },
+      settings: {
+        startDate: today, horizonDays: 90, minSafeBalance: 0,
+        trackingSince: today, surplus: {},
+      },
+      rules: [
+        { id: "rule-paycheck", name: "Paycheck (Twice a Month)", amount: 2000,
+          isVariable: false,
+          schedule: { type: "twiceMonth", day1: 15, day2: 31,
+                      businessDayConvention: "previousBusinessDayUS" } },
+        { id: "rule-rent", name: "Rent", amount: -1500, isVariable: false,
+          schedule: { type: "monthly", day: 1 } },
+        { id: "rule-credit-card", name: "Credit Card Payment", amount: -400,
+          isVariable: true, schedule: { type: "monthly", day: 20 } },
+        { id: "rule-groceries", name: "Groceries (Biweekly)", amount: -150,
+          isVariable: true, schedule: { type: "biweekly", anchorDate: today } },
+      ],
+      adhocTransactions: [],
+      overrides: {},
+      checkpoints: [],
+    })
+  );
+}
+
+/** A genuinely empty app, for the tests about what a new user meets. */
+function seedNothing() {
+  window.localStorage.clear();
+}
+
 beforeEach(() => {
   window.localStorage.clear();
+  seedHousehold();
 });
 
 /**
@@ -348,6 +391,105 @@ describe("App shell", () => {
       );
       expect(added).toMatchObject({ kind: "topUp" });
       expect("reason" in added).toBe(false);
+    });
+  });
+
+  describe("a brand-new install", () => {
+    beforeEach(seedNothing);
+
+    it("invents nothing", () => {
+      // It used to ship four rules — a $2,000 paycheck, $1,500 rent, a
+      // credit card and groceries — so the first thing anyone saw was a
+      // stranger's finances presented as their own.
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      expect(screen.queryByText(/Paycheck/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Groceries/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Credit Card/)).not.toBeInTheDocument();
+
+      const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+      expect(saved.rules).toEqual([]);
+      expect(saved.adhocTransactions).toEqual([]);
+    });
+
+    it("offers to help instead of forecasting from nothing", () => {
+      // With nothing entered there is nothing to forecast, and the old
+      // screen filled the gap with invented events: "Safe to Spend $0.00",
+      // a red "Below safety floor", and a prompt to move $550 that did not
+      // exist. An empty app should ask, not assert.
+      render(<App />);
+      expect(screen.getByTestId("first-run")).toBeInTheDocument();
+      expect(screen.queryByText("Safe to Spend today")).not.toBeInTheDocument();
+      expect(screen.queryByText(/Below safety floor/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
+    });
+
+    it("hands over to the real dashboard as soon as there is something to forecast", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.click(screen.getAllByText("+ Add")[0]); // Recurring Rules
+      fireEvent.change(screen.getByDisplayValue("New Rule"), {
+        target: { value: "Salary" },
+      });
+      fireEvent.click(screen.getByText("Save"));
+
+      fireEvent.click(screen.getByText("Dashboard"));
+      expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+    });
+
+    it("opens a dialog that matches the button that was pressed", () => {
+      // Two buttons, "Add income" and "Add a bill", both used to open the
+      // same blank form called "New Rule". A button that promises one thing
+      // and opens another teaches the reader the labels mean nothing.
+      render(<App />);
+      fireEvent.click(screen.getByText("Add income"));
+      expect(screen.getByDisplayValue("Income")).toBeInTheDocument();
+      fireEvent.click(screen.getByText("Cancel"));
+
+      fireEvent.click(screen.getByText("Add a bill"));
+      expect(screen.getByDisplayValue("Bill")).toBeInTheDocument();
+    });
+
+    it("keeps nudging until the three things are done, then stops", () => {
+      // The card tracks what is still missing rather than vanishing at the
+      // first sign of life, which would leave the forecast half-built.
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8, account: { startingBalance: 3200 },
+          settings: { startDate: "2026-11-20", horizonDays: 90, minSafeBalance: 0, surplus: {} },
+          rules: [
+            { id: "in", name: "Salary", amount: 4200, isVariable: false,
+              schedule: { type: "monthly", day: 15 } },
+            { id: "out", name: "Rent", amount: -2600, isVariable: false,
+              schedule: { type: "monthly", day: 1 } },
+          ],
+          adhocTransactions: [], overrides: {},
+          checkpoints: [{ id: "c", date: "2026-11-20", actual: 3200, modelled: 3200 }],
+        })
+      );
+      render(<App />);
+      // Balance confirmed, money in, money out: nothing left to ask.
+      expect(screen.queryByTestId("first-run")).not.toBeInTheDocument();
+      expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+    });
+
+    it("leaves an existing user's data alone", () => {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8, account: { startingBalance: 500 },
+          settings: { startDate: "2026-11-20", horizonDays: 90, minSafeBalance: 0, surplus: {} },
+          rules: [
+            { id: "mine", name: "My own rule", amount: -99, isVariable: false,
+              schedule: { type: "monthly", day: 3 } },
+          ],
+          adhocTransactions: [], overrides: {}, checkpoints: [],
+        })
+      );
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      expect(screen.getByText("My own rule")).toBeInTheDocument();
     });
   });
 
@@ -835,6 +977,9 @@ describe("App shell", () => {
             trackingSince: monthsAgo(12), coverageLens: "all",
           },
           rules: [], adhocTransactions: [], overrides: {},
+          // The app is in use: a balance has been confirmed. Without any
+          // sign of use at all, a fresh install gets the setup card instead.
+          checkpoints: [{ id: "c", date: iso(today), actual: 5000, modelled: 5000 }],
         })
       );
       render(<App />);
@@ -914,6 +1059,9 @@ describe("App shell", () => {
             secondSalaryMonthly: 6000,
           },
           rules: [], adhocTransactions: [], overrides: {},
+          // The app is in use: a balance has been confirmed. Without any
+          // sign of use at all, a fresh install gets the setup card instead.
+          checkpoints: [{ id: "c", date: iso(today), actual: 5000, modelled: 5000 }],
         })
       );
       render(<App />);

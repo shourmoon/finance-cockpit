@@ -9,7 +9,6 @@ RecurringRule,
 RecurringSchedule,
 EventOverridesMap,
 ISODate,
-UUID,
 } from "./types";
 import { toISODate, isValidISODate } from "./dateUtils";
 // One definition of the override key, shared with the engine that reads it.
@@ -235,54 +234,17 @@ function createDefaultSettings(): CashflowSettings {
   };
 }
 
+/**
+ * No rules. The app used to ship four — a $2,000 paycheck, $1,500 rent, a
+ * credit card and groceries — so the first thing anyone saw was a stranger's
+ * finances presented as their own, complete with a projected shortfall and a
+ * prompt to move money that did not exist. An app whose whole claim is that
+ * it never shows a figure it cannot stand behind cannot open with invented
+ * ones. Nothing to forecast is the honest starting state, and the dashboard
+ * asks for what it needs instead of filling the gap.
+ */
 function createDefaultRules(): RecurringRule[] {
-  const todayIso = toISODate(new Date());
-  const mkId = (suffix: string): UUID => `rule-${suffix}`;
-
-  return [
-    {
-      id: mkId("paycheck"),
-      name: "Paycheck (Twice a Month)",
-      amount: 2000,
-      isVariable: false,
-      schedule: {
-        type: "twiceMonth",
-        day1: 15,
-        day2: 31,
-        businessDayConvention: "previousBusinessDayUS",
-      },
-    },
-    {
-      id: mkId("rent"),
-      name: "Rent",
-      amount: -1500,
-      isVariable: false,
-      schedule: {
-        type: "monthly",
-        day: 1,
-      },
-    },
-    {
-      id: mkId("credit-card"),
-      name: "Credit Card Payment",
-      amount: -400,
-      isVariable: true,
-      schedule: {
-        type: "monthly",
-        day: 20,
-      },
-    },
-    {
-      id: mkId("groceries"),
-      name: "Groceries (Biweekly)",
-      amount: -150,
-      isVariable: true,
-      schedule: {
-        type: "biweekly",
-        anchorDate: todayIso,
-      },
-    },
-  ];
+  return [];
 }
 
 function createDefaultOverrides(): EventOverridesMap {

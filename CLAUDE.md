@@ -189,6 +189,25 @@ Everything under `src/domain/` is pure, framework-free TypeScript with no React 
    - **Why this mattered more than it looks.** The date was stamped once on the first install and never moved, so the dashboard projected from a date further in the past every day. Worse, the one feature built to catch drift was blind to it: `assessFreshness` ages the last checkpoint against `asOf`, which *is* `settings.startDate`. With the date frozen on the day a balance was confirmed, that balance read **"Confirmed today", age 0 days, forever** — a real state reported as fresh when it was 79 days old. A staleness detector anchored to the value that goes stale cannot see it. The dashboard also now prints the balance's age beside "Balance today" whenever it is not fresh, drawn from the same `freshness` the check row uses rather than a second reckoning of it.
    - **One number, one name, one date.** `account.startingBalance` used to appear three times under two names: "Balance today" on the dashboard (a lie whenever it wasn't), "Starting balance" as the ledger's opening line a few inches below it, and a third free-text "Starting balance" box in Settings. A reader had no way to know those were the same figure. All three are now **"Balance"**, and every one carries the same `as of <date>` stamp, derived from the same `freshness.lastConfirmed` the check row uses. The stamp shows **always**, not only once stale: a figure that says when it is from needs no explaining, while one that says so only sometimes teaches the reader that a missing date means nothing in particular. (It needs `textTransform: "none"` in the ledger, whose label is uppercased — the same words rendering as "AS OF 1 SEP '26" in one place and "as of 1 Sep '26" in the other recreates the impression this removes, and `textContent` comparisons in jsdom cannot see it.)
    - **The balance cannot be set without a date.** Settings has no balance input; it shows the figure read-only beside an "Update balance" button that opens the same dated reality-check dialog the dashboard uses, and `updateStartingBalance` is gone. An undated free-text box beside a feature built to date that very figure was how it drifted in the first place — there is now no code path that writes `startingBalance` without also recording a checkpoint.
+   - **The app ships empty, and says what it needs.** `createDefaultRules()`
+     returns `[]`. It used to return four — a $2,000 paycheck, $1,500 rent, a
+     credit card and groceries — so the first screen anyone saw was a
+     stranger's finances presented as their own, forecast confidently, with a
+     red floor breach and a prompt to move money that did not exist. An app
+     whose whole claim is that it never shows a figure it cannot stand behind
+     cannot open with invented ones. With nothing stored the dashboard and
+     coverage card are replaced by a setup card (`data-testid="first-run"`)
+     listing the three things the forecast needs: a confirmed balance, one
+     inflow, one outflow. Each step is **done by evidence in the data**
+     (`checkpoints.length > 0`, `rules.some(r => r.amount > 0)`, `< 0`), never
+     by a stored "onboarded" flag, so it cannot drift out of step with what is
+     actually there; the card thins out as steps complete and disappears at
+     three of three. The gate for hiding the dashboard is narrower than the
+     gate for showing the card: a confirmed balance or recorded top-up history
+     is worth showing on its own, with no rule in sight. Its two rule buttons
+     seed the editor's name from the button pressed ("Income"/"Bill") — both
+     opening a blank form called "New Rule" taught the reader the labels meant
+     nothing.
    - **All date math is UTC** (`dateUtils.ts`): construct dates with `Date.UTC(...)` and read with `getUTC*()` to avoid timezone drift. Month days are clamped to end-of-month.
 
 2. **Mortgage module** (`src/domain/mortgage/`):
