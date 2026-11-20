@@ -11,10 +11,11 @@ import {
   loadPrePullBackup,
   syncNow,
 } from "./sync";
-import { loadMortgageUIState, createDefaultMortgageUIState } from "../mortgage/persistence";
+import { loadMortgageUIState, saveMortgageUIState } from "../mortgage/persistence";
 import { saveAppState } from "../persistence";
 import { createInitialAppState } from "../appState";
 import type { RemotePersistenceAdapter } from "./remote";
+import { sampleMortgageUIState } from "../../test/mortgageFixture";
 
 const DEVICE_ID_KEY = "finance-cockpit:device-id";
 const LAST_SYNC_KEY = "finance-cockpit:last-sync";
@@ -56,7 +57,7 @@ describe("sync internals - last-sync metadata parsing", () => {
           ? null
           : {
               app_state: createInitialAppState(),
-              mortgage_ui: createDefaultMortgageUIState(),
+              mortgage_ui: sampleMortgageUIState(),
               updated_at: "2025-01-01T00:00:00Z",
             };
       },
@@ -131,7 +132,18 @@ describe("sync internals - resilience to storage failures", () => {
 describe("sync internals - applySnapshot and backups", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("falls back to default mortgage state when the snapshot's mortgage_ui is corrupt", () => {
+  it("leaves this device's loan alone when the snapshot carries none", () => {
+    // Sync is remote-wins, and this is the one deliberate exception. The
+    // app has no way to delete a mortgage, so "no mortgage here" is never
+    // an instruction to delete one — it is a device whose owner has not
+    // entered theirs. Treating it as a deletion meant the first push from
+    // a phone that had never opened the Mortgage tab wiped a real loan off
+    // the laptop; substituting a fabricated loan, which is what this did
+    // before, was worse still.
+    const real = sampleMortgageUIState();
+    real.terms.principal = 712_500;
+    saveMortgageUIState(real);
+
     applySnapshot({
       schemaVersion: 1,
       app_state: createInitialAppState(),
@@ -139,7 +151,7 @@ describe("sync internals - applySnapshot and backups", () => {
       updated_at: "2025-01-01T00:00:00Z",
       device_id: "d",
     });
-    expect(loadMortgageUIState()).toEqual(createDefaultMortgageUIState());
+    expect(loadMortgageUIState()!.terms.principal).toBe(712_500);
   });
 
   it("loadPrePullBackup returns null on corrupt backup JSON", () => {

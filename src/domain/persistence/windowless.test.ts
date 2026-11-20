@@ -10,10 +10,10 @@ import { getLocalSnapshot, applySnapshot, loadPrePullBackup, syncNow } from "./s
 import {
   loadMortgageUIState,
   saveMortgageUIState,
-  createDefaultMortgageUIState,
 } from "../mortgage/persistence";
 import { createInitialAppState } from "../appState";
 import type { RemotePersistenceAdapter } from "./remote";
+import { sampleMortgageUIState } from "../../test/mortgageFixture";
 
 describe("persistence without a window", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -22,15 +22,15 @@ describe("persistence without a window", () => {
     vi.stubGlobal("window", undefined);
   }
 
-  it("loadMortgageUIState falls back to defaults (v2 and v1 guards)", () => {
+  it("loadMortgageUIState reports no loan (v2 and v1 guards)", () => {
     removeWindow();
-    expect(loadMortgageUIState()).toEqual(createDefaultMortgageUIState());
+    expect(loadMortgageUIState()).toBeNull();
   });
 
   it("saveMortgageUIState is a no-op instead of throwing", () => {
     removeWindow();
     expect(() =>
-      saveMortgageUIState(createDefaultMortgageUIState())
+      saveMortgageUIState(sampleMortgageUIState())
     ).not.toThrow();
   });
 
@@ -52,7 +52,7 @@ describe("persistence without a window", () => {
       applySnapshot({
         schemaVersion: 1,
         app_state: createInitialAppState(),
-        mortgage_ui: createDefaultMortgageUIState(),
+        mortgage_ui: sampleMortgageUIState(),
         updated_at: "2025-01-01T00:00:00Z",
         device_id: "x",
       })
@@ -65,7 +65,7 @@ describe("persistence without a window", () => {
       async loadState() {
         return {
           app_state: createInitialAppState(),
-          mortgage_ui: createDefaultMortgageUIState(),
+          mortgage_ui: sampleMortgageUIState(),
           updated_at: "2025-06-01T00:00:00Z",
         };
       },

@@ -11,7 +11,6 @@ import type { AppState } from "../types";
 import { upgradeAppState } from "../appState";
 import type { MortgageUIState } from "../mortgage/persistence";
 import {
-  createDefaultMortgageUIState,
   sanitizeMortgageUIState,
 } from "../mortgage/persistence";
 
@@ -34,7 +33,14 @@ export interface Snapshot {
   /** The primary cashflow application state. */
   app_state: AppState;
   /** The mortgage UI state (terms, prepayments, as-of date). */
-  mortgage_ui: MortgageUIState;
+  /**
+   * The mortgage, or `null` when this device has none. Nullable because a
+   * household without a mortgage is an ordinary thing, and the alternative
+   * was a fabricated $300,000 loan travelling between devices as if it were
+   * real — the worst place of all to invent a figure, since the receiving
+   * device cannot tell it from the genuine article.
+   */
+  mortgage_ui: MortgageUIState | null;
   /** ISO8601 timestamp of the last update to this snapshot. */
   updated_at: string;
   /** A stable identifier for the device that produced the snapshot. */
@@ -49,7 +55,7 @@ export interface Snapshot {
  */
 export function createSnapshot(
   app_state: AppState,
-  mortgage_ui: MortgageUIState,
+  mortgage_ui: MortgageUIState | null,
   device_id: string,
   updated_at?: string
 ): Snapshot {
@@ -77,14 +83,15 @@ export function parseSnapshot(value: unknown): Snapshot | null {
   const { schemaVersion, app_state, mortgage_ui, updated_at, device_id } = obj;
   if (typeof schemaVersion !== "number") return null;
   if (!app_state || typeof app_state !== "object") return null;
-  if (!mortgage_ui || typeof mortgage_ui !== "object") return null;
+  // A snapshot with no mortgage block is valid: not every household has a
+  // loan, and rejecting the whole envelope over a missing optional
+  // subsystem would break sync entirely for those that do not.
   if (typeof updated_at !== "string" || !updated_at) return null;
   if (typeof device_id !== "string" || !device_id) return null;
   return {
     schemaVersion,
     app_state: upgradeAppState(app_state),
-    mortgage_ui:
-      sanitizeMortgageUIState(mortgage_ui) ?? createDefaultMortgageUIState(),
+    mortgage_ui: sanitizeMortgageUIState(mortgage_ui),
     updated_at,
     device_id,
   };

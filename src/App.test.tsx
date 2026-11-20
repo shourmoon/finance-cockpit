@@ -1196,7 +1196,10 @@ describe("App shell", () => {
     expect(screen.getByText("Recurring Rules")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Mortgage Optimizer"));
-    expect(screen.getByText(/Original loan terms/i)).toBeInTheDocument();
+    // This household has no loan stored, so the tab asks for one rather
+    // than opening on the $300,000 demo it used to invent. The workbench
+    // itself is covered in MortgageTab.test.tsx.
+    expect(screen.getByTestId("mortgage-setup")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Dashboard"));
     expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();

@@ -19,7 +19,6 @@ import {
 import {
   loadMortgageUIState,
   saveMortgageUIState,
-  createDefaultMortgageUIState,
 } from "../mortgage/persistence";
 import { createInitialAppState } from "../appState";
 import type {
@@ -27,6 +26,7 @@ import type {
   RemoteStateResponse,
   RemoteStatePayload,
 } from "./remote";
+import { sampleMortgageUIState } from "../../test/mortgageFixture";
 
 describe("sync helpers", () => {
   beforeEach(() => {
@@ -39,7 +39,7 @@ describe("sync helpers", () => {
     const app = createInitialAppState();
     app.account.startingBalance = 500;
     saveAppState(app);
-    const mortgage = createDefaultMortgageUIState();
+    const mortgage = sampleMortgageUIState();
     mortgage.terms.principal = 200000;
     saveMortgageUIState(mortgage);
     const snap = getLocalSnapshot();
@@ -51,7 +51,7 @@ describe("sync helpers", () => {
 
   it("applySnapshot writes state to local persistence", () => {
     const app = createInitialAppState();
-    const mortgage = createDefaultMortgageUIState();
+    const mortgage = sampleMortgageUIState();
     app.account.startingBalance = 123;
     mortgage.terms.principal = 789000;
     const snap = {
@@ -73,7 +73,7 @@ describe("sync helpers", () => {
     const app = createInitialAppState();
     app.account.startingBalance = 999;
     saveAppState(app);
-    const mortgage = createDefaultMortgageUIState();
+    const mortgage = sampleMortgageUIState();
     mortgage.terms.principal = 333333;
     saveMortgageUIState(mortgage);
     // In‑memory remote storage
@@ -104,7 +104,7 @@ describe("sync helpers", () => {
     // Preload remote data
     const remoteApp = createInitialAppState();
     remoteApp.account.startingBalance = 777;
-    const remoteMortgage = createDefaultMortgageUIState();
+    const remoteMortgage = sampleMortgageUIState();
     remoteMortgage.terms.principal = 888888;
     let remote: RemoteStateResponse | null = {
       app_state: remoteApp,
@@ -146,7 +146,7 @@ describe("sync helpers", () => {
     const app = createInitialAppState();
     app.account.startingBalance = 100;
     saveAppState(app);
-    const mortgage = createDefaultMortgageUIState();
+    const mortgage = sampleMortgageUIState();
     mortgage.terms.principal = 100000;
     saveMortgageUIState(mortgage);
     // Remote has been updated since last sync
@@ -186,13 +186,13 @@ describe("sync helpers", () => {
     const app = createInitialAppState();
     app.account.startingBalance = 555;
     saveAppState(app);
-    const mortgage = createDefaultMortgageUIState();
+    const mortgage = sampleMortgageUIState();
     mortgage.terms.principal = 444444;
     saveMortgageUIState(mortgage);
     // Remote matches last sync timestamp
     let remote: RemoteStateResponse | null = {
       app_state: createInitialAppState(),
-      mortgage_ui: createDefaultMortgageUIState(),
+      mortgage_ui: sampleMortgageUIState(),
       updated_at: "2025-05-01T00:00:00Z",
     };
     const fakeAdapter: RemotePersistenceAdapter = {
@@ -223,7 +223,7 @@ describe("sync helpers", () => {
     const localApp = createInitialAppState();
     localApp.account.startingBalance = 42; // unsynced local edit
     saveAppState(localApp);
-    saveMortgageUIState(createDefaultMortgageUIState());
+    saveMortgageUIState(sampleMortgageUIState());
 
     const remoteApp = createInitialAppState();
     remoteApp.account.startingBalance = 7;
@@ -231,7 +231,7 @@ describe("sync helpers", () => {
       async loadState() {
         return {
           app_state: remoteApp,
-          mortgage_ui: createDefaultMortgageUIState(),
+          mortgage_ui: sampleMortgageUIState(),
           updated_at: "2025-03-01T00:00:00Z",
         };
       },
@@ -254,12 +254,12 @@ describe("sync helpers", () => {
       JSON.stringify({ remote_updated_at: "2025-05-01T00:00:00Z" })
     );
     saveAppState(createInitialAppState());
-    saveMortgageUIState(createDefaultMortgageUIState());
+    saveMortgageUIState(sampleMortgageUIState());
     const fakeAdapter: RemotePersistenceAdapter = {
       async loadState() {
         return {
           app_state: createInitialAppState(),
-          mortgage_ui: createDefaultMortgageUIState(),
+          mortgage_ui: sampleMortgageUIState(),
           updated_at: "2025-05-01T00:00:00Z",
         };
       },

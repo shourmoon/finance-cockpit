@@ -23,12 +23,12 @@ import {
   sanitizeMortgageUIState,
   saveMortgageUIState,
   loadMortgageUIState,
-  createDefaultMortgageUIState,
 } from "./mortgage/persistence";
 import { createSnapshot, parseSnapshot } from "./persistence/snapshot";
 import { runCashflowProjection } from "./cashflowEngine";
 import type { AppState } from "./types";
 import type { MortgageUIState } from "./mortgage/persistence";
+import { sampleMortgageUIState } from "../test/mortgageFixture";
 
 /** Deterministic PRNG so any failure is reproducible from the seed. */
 function rng(seed: number) {
@@ -366,7 +366,7 @@ describe("persistence invariants (property-based)", () => {
   it("never replaces real mortgage terms with defaults", () => {
     // This one shipped: a save with any unusable field swapped the user's
     // real loan for the hard-coded $300k demo.
-    const defaults = createDefaultMortgageUIState().terms;
+    const defaults = sampleMortgageUIState().terms;
     for (const state of MORTGAGE_STATES) {
       window.localStorage.clear();
       saveMortgageUIState(state);
@@ -468,5 +468,130 @@ describe("persistence invariants (property-based)", () => {
     const initial = createInitialAppState();
     saveAppState(initial);
     expect(loadAppState()).toEqual(initial);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The app never invents a loan.
+// ---------------------------------------------------------------------------
+//
+// `sampleMortgageUIState()` returned a $300,000 loan at 5% starting
+// 2025-01-01, and three production paths reached for it whenever the real
+// thing was missing or unreadable: the load path on a fresh install, the save
+// path when terms arrived unusable, and `parseSnapshot` when a pulled
+// snapshot's mortgage block would not sanitize. The first means a new user
+// opens the Mortgage tab and is told what they owe on a loan that does not
+// exist, complete with prepayment advice. The third is worse: it fires on
+// *sync*, so a garbled payload from another device becomes a confident
+// $300,000 debt on this one.
+//
+// The law is the same one the cash side already obeys: absence of data is not
+// data. A loan that was never entered has no terms, and every one of these
+// paths must say so rather than fill the hole.
+describe("the app never invents a loan", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  /**
+   * Stored payloads that are not a usable loan. Deliberately includes shapes
+   * that are *nearly* right — the dangerous case is not `null`, it is a loan
+   * with one field rotted, because that is what reaches the fallback.
+   */
+  function unusablePayloads(r: () => number): unknown[] {
+    const nearlyRight = () => ({
+      terms: {
+        principal: 100_000 + Math.floor(r() * 500_000),
+        annualRate: r() * 0.1,
+        termMonths: 120 + Math.floor(r() * 300),
+        startDate: iso(2020 + Math.floor(r() * 6), 1 + Math.floor(r() * 12), 1),
+        paymentFrequency: "monthly",
+      },
+      prepayments: [],
+      asOfDate: iso(2026, 1, 1),
+      checkpoints: [],
+    });
+    const rot = [
+      (s: any) => { s.terms.principal = Number.NaN; return s; },
+      (s: any) => { s.terms.principal = 0; return s; },
+      (s: any) => { s.terms.principal = -s.terms.principal; return s; },
+      (s: any) => { s.terms.annualRate = Number.POSITIVE_INFINITY; return s; },
+      (s: any) => { s.terms.termMonths = 0; return s; },
+      (s: any) => { s.terms.startDate = "not-a-date"; return s; },
+      (s: any) => { delete s.terms; return s; },
+      (s: any) => { s.terms = null; return s; },
+    ];
+    return [
+      ...rot.map((f) => f(nearlyRight())),
+      {}, [], "a loan", 7, null,
+    ];
+  }
+
+  it("has no loan at all until one is entered", () => {
+    // A fresh install. Nothing has been stored, so there is nothing to say.
+    expect(loadMortgageUIState()).toBeNull();
+  });
+
+  it("reads back no loan from anything that is not one", () => {
+    const r = rng(90_210);
+    for (const payload of unusablePayloads(r)) {
+      window.localStorage.clear();
+      window.localStorage.setItem(
+        "finance-cockpit-mortgage-v2",
+        JSON.stringify(payload)
+      );
+      expect(loadMortgageUIState()).toBeNull();
+    }
+  });
+
+  it("writes no loan when handed one it cannot use and holds none already", () => {
+    // The save path's fallback is "keep the terms already stored" — which is
+    // right, and was itself a fix. With nothing stored there is no such
+    // thing to keep, and the answer is to write nothing, not to write a
+    // fabricated loan into the user's storage behind their back.
+    const r = rng(31_337);
+    for (const payload of unusablePayloads(r)) {
+      window.localStorage.clear();
+      saveMortgageUIState(payload as any);
+      expect(loadMortgageUIState()).toBeNull();
+    }
+  });
+
+  it("pulls no loan from a snapshot that does not carry one", () => {
+    // This path runs on sync, against data from another device.
+    const r = rng(5_150);
+    for (const payload of unusablePayloads(r)) {
+      const parsed = parseSnapshot({
+        schemaVersion: 1,
+        app_state: createInitialAppState(),
+        mortgage_ui: payload,
+        updated_at: "2026-11-20T00:00:00.000Z",
+        device_id: "d1",
+      });
+      // Either the whole snapshot is rejected, or it is accepted carrying no
+      // loan. What it must never do is arrive carrying terms nobody entered.
+      if (parsed !== null) {
+        expect(parsed.mortgage_ui).toBeNull();
+      }
+    }
+  });
+
+  it("still round-trips a real loan, unchanged", () => {
+    // The positive control. A law that only ever returns null would pass
+    // every test above and destroy every user's mortgage.
+    const real = {
+      terms: {
+        principal: 683_400,
+        annualRate: 0.0419,
+        termMonths: 360,
+        startDate: "2021-06-01",
+        paymentFrequency: "biweekly" as const,
+      },
+      prepayments: [{ date: "2024-02-01", amount: 12_000 }],
+      asOfDate: "2026-11-20",
+      checkpoints: [],
+    };
+    saveMortgageUIState(real);
+    expect(loadMortgageUIState()).toEqual(real);
   });
 });

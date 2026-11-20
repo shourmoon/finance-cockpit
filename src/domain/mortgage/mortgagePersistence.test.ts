@@ -3,10 +3,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   loadMortgageUIState,
   saveMortgageUIState,
-  createDefaultMortgageUIState,
   sanitizeMortgageUIState,
   type MortgageUIState,
 } from "./persistence";
+import { sampleMortgageUIState } from "../../test/mortgageFixture";
 
 const validTerms = {
   principal: 300_000,
@@ -51,7 +51,7 @@ describe("sanitizeMortgageUIState (validator branches)", () => {
   });
 
   it("round-trips the frequency through save and load", () => {
-    const state = createDefaultMortgageUIState();
+    const state = sampleMortgageUIState();
     state.terms = { ...state.terms, paymentFrequency: "biweekly" };
     saveMortgageUIState(state);
     expect(loadMortgageUIState().terms.paymentFrequency).toBe("biweekly");
@@ -72,30 +72,20 @@ describe("mortgage persistence v2", () => {
     window.localStorage.clear();
   });
 
-  it("returns defaults when nothing is in storage", () => {
-    const state = loadMortgageUIState();
-    const defaults = createDefaultMortgageUIState();
-
-    expect(state.terms.principal).toBe(defaults.terms.principal);
-    expect(state.terms.annualRate).toBe(defaults.terms.annualRate);
-    expect(state.terms.termMonths).toBe(defaults.terms.termMonths);
-    expect(state.prepayments.length).toBe(0);
-    expect(state.asOfDate).toBe(defaults.asOfDate);
+  it("returns no loan when nothing is in storage", () => {
+    // It used to return a $300,000 loan at 5%, which the Mortgage tab then
+    // rendered as the reader's own. Absence of data is not data.
+    expect(loadMortgageUIState()).toBeNull();
   });
 
 
-  it("treats malformed JSON as missing and falls back to defaults", () => {
+  it("treats malformed JSON as no loan", () => {
     // Simulate corrupted storage for v2
     window.localStorage.setItem(
       "finance-cockpit-mortgage-v2",
       "{ not valid json"
     );
-
-    const state = loadMortgageUIState();
-    const defaults = createDefaultMortgageUIState();
-
-    expect(state.terms.principal).toBe(defaults.terms.principal);
-    expect(state.prepayments.length).toBe(0);
+    expect(loadMortgageUIState()).toBeNull();
   });
 
   it("sanitizes invalid nested fields when loading v2 (keeps valid terms)", () => {
@@ -113,18 +103,17 @@ describe("mortgage persistence v2", () => {
     expect(state.asOfDate).toBe("2025-01-01");
   });
 
-  it("treats a literal 'null' payload as empty and returns defaults", () => {
+  it("treats a literal 'null' payload as no loan", () => {
     window.localStorage.setItem("finance-cockpit-mortgage-v2", "null");
-    expect(loadMortgageUIState()).toEqual(createDefaultMortgageUIState());
+    expect(loadMortgageUIState()).toBeNull();
   });
 
-  it("returns defaults when v2 terms are invalid", () => {
+  it("returns no loan when v2 terms are invalid", () => {
     window.localStorage.setItem(
       "finance-cockpit-mortgage-v2",
       JSON.stringify({ terms: { principal: -1 }, prepayments: [] })
     );
-    const state = loadMortgageUIState();
-    expect(state).toEqual(createDefaultMortgageUIState());
+    expect(loadMortgageUIState()).toBeNull();
   });
 
   it("never overwrites a valid persisted loan with defaults when asked to save invalid terms", () => {
@@ -155,16 +144,30 @@ describe("mortgage persistence v2", () => {
     expect(reloaded.prepayments).toEqual(real.prepayments);
   });
 
-  it("falls back to defaults for invalid terms only when nothing valid was ever stored", () => {
+  it("writes nothing at all for invalid terms when nothing valid was ever stored", () => {
+    // The save path keeps whatever valid terms are already stored rather
+    // than letting a bad value destroy a real loan. With nothing stored
+    // there is no such thing to keep — and the answer is to write nothing,
+    // not to invent a loan and persist it behind the user's back, which is
+    // what the old third branch did.
     saveMortgageUIState({
       terms: { principal: -1, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
       prepayments: [],
       asOfDate: "2025-01-01",
     } as MortgageUIState);
-    expect(loadMortgageUIState().terms).toEqual(createDefaultMortgageUIState().terms);
+    expect(loadMortgageUIState()).toBeNull();
+    expect(
+      window.localStorage.getItem("finance-cockpit-mortgage-v2")
+    ).toBeNull();
   });
 
   it("saveMortgageUIState repairs invalid fields before persisting", () => {
+    // A real loan is already stored, so the terms have something to fall
+    // back to and the rest of the repair is what is under test here.
+    const real = sampleMortgageUIState();
+    real.terms.principal = 512_000;
+    saveMortgageUIState(real);
+
     const dirty = {
       terms: { principal: -1, annualRate: 0.05, termMonths: 360, startDate: "2025-01-01" },
       prepayments: "nope",
@@ -175,18 +178,18 @@ describe("mortgage persistence v2", () => {
     const raw = JSON.parse(
       window.localStorage.getItem("finance-cockpit-mortgage-v2")!
     );
-    // Invalid terms are replaced with the default terms.
-    expect(raw.terms).toEqual(createDefaultMortgageUIState().terms);
+    // Invalid terms keep the loan that was already there.
+    expect(raw.terms).toEqual(real.terms);
     expect(raw.prepayments).toEqual([]);
-    // asOfDate falls back to the (dirty) state's terms.startDate.
-    expect(raw.asOfDate).toBe("2025-01-01");
+    // asOfDate falls back to the surviving terms' startDate.
+    expect(raw.asOfDate).toBe(real.terms.startDate);
   });
 
   it("saveMortgageUIState persists a fully valid state unchanged", () => {
-    const clean = createDefaultMortgageUIState();
+    const clean = sampleMortgageUIState();
     clean.terms.principal = 250_000;
     saveMortgageUIState(clean);
-    expect(loadMortgageUIState().terms.principal).toBe(250_000);
+    expect(loadMortgageUIState()!.terms.principal).toBe(250_000);
   });
 
   it("ignores a legacy v1 payload with invalid terms", () => {
@@ -194,7 +197,7 @@ describe("mortgage persistence v2", () => {
       "finance-cockpit-mortgage-v1",
       JSON.stringify({ terms: { principal: 0 }, prepayments: [] })
     );
-    expect(loadMortgageUIState()).toEqual(createDefaultMortgageUIState());
+    expect(loadMortgageUIState()).toBeNull();
   });
 
   it("migrates a v1 payload dropping invalid prepayments", () => {
@@ -234,7 +237,7 @@ describe("mortgage persistence v2", () => {
       .mockImplementation(() => {
         throw new Error("quota");
       });
-    expect(() => saveMortgageUIState(createDefaultMortgageUIState())).not.toThrow();
+    expect(() => saveMortgageUIState(sampleMortgageUIState())).not.toThrow();
     spy.mockRestore();
   });
 

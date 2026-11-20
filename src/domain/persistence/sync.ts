@@ -13,7 +13,6 @@ import type { Snapshot } from "./snapshot";
 import { loadAppState, saveAppState } from "../persistence";
 import { upgradeAppState } from "../appState";
 import {
-  createDefaultMortgageUIState,
   loadMortgageUIState,
   saveMortgageUIState,
   sanitizeMortgageUIState,
@@ -125,10 +124,14 @@ export function getLocalSnapshot(): Snapshot {
  */
 export function applySnapshot(snapshot: Snapshot): void {
   saveAppState(upgradeAppState(snapshot.app_state));
-  saveMortgageUIState(
-    sanitizeMortgageUIState(snapshot.mortgage_ui) ??
-      createDefaultMortgageUIState()
-  );
+  // A snapshot that carries no loan leaves this device's loan alone. Sync is
+  // otherwise remote-wins, and this is the one deliberate exception: the app
+  // has no way to delete a mortgage, so "no mortgage here" is never an
+  // instruction to delete one — it is a device that has not entered theirs.
+  // Treating it as a deletion would mean the first push from a phone that
+  // had never opened the Mortgage tab wiped a real loan off the laptop.
+  const incoming = sanitizeMortgageUIState(snapshot.mortgage_ui);
+  if (incoming) saveMortgageUIState(incoming);
 }
 
 /**

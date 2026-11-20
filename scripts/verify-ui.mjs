@@ -332,6 +332,53 @@ try {
     }
   }
 
+  // --- 7. an app with nothing in it asserts nothing ---
+  // Both tabs used to open on invented data: four demo rules on the
+  // dashboard (a $2,000 paycheck, $1,500 rent) and a $300,000 loan at 5% on
+  // the Mortgage tab, each rendered exactly as a real figure would be. A
+  // reader had no way to tell. Here the storage is emptied the way a first
+  // install finds it, and nothing that looks like money may appear.
+  //
+  // A fresh context, not this page: the household above is seeded through
+  // addInitScript, which re-runs on every navigation, so clearing storage
+  // and reloading hands the seed straight back.
+  const emptyCtx = await browser.newContext({
+    viewport: { width: WIDTH, height: 900 },
+    deviceScaleFactor: 2,
+  });
+  const empty = await emptyCtx.newPage();
+  empty.on("pageerror", (e) => noise.push(`empty app, page error: ${e.message}`));
+  empty.on("console", (m) => {
+    if (m.type() === "error") noise.push(`empty app, console error: ${m.text()}`);
+  });
+  await empty.goto(`http://localhost:${PORT}/`, { waitUntil: "networkidle" });
+  await empty.waitForTimeout(400);
+
+  for (const [tab, testid] of [
+    ["Dashboard", "first-run"],
+    ["Mortgage Optimizer", "mortgage-setup"],
+  ]) {
+    await empty.getByText(tab, { exact: false }).first().click();
+    await empty.waitForTimeout(400);
+
+    if ((await empty.locator(`[data-testid="${testid}"]`).count()) !== 1) {
+      fail(`empty app, ${tab}: no setup panel — it is showing something else`);
+    }
+    const body = await empty.locator("body").innerText();
+    const money = body.match(/\$[\d,]+/g);
+    if (money) {
+      fail(`empty app, ${tab}: shows figures from nothing — ${money.join(", ")}`);
+    }
+    const layout = await empty.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    if (layout.scrollWidth > layout.clientWidth) {
+      fail(`empty app, ${tab}: page scrolls horizontally (${layout.scrollWidth}px)`);
+    }
+  }
+  await emptyCtx.close();
+
   for (const n of noise) fail(n);
   await browser.close();
 } finally {

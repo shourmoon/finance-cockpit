@@ -40,23 +40,6 @@ export interface MortgageUIState {
 const STORAGE_KEY_V2 = "finance-cockpit-mortgage-v2";
 const LEGACY_STORAGE_KEY_V1 = "finance-cockpit-mortgage-v1";
 
-export function createDefaultMortgageUIState(): MortgageUIState {
-  const defaultTerms: MortgageOriginalTerms = {
-    principal: 300_000,
-    annualRate: 0.05,
-    termMonths: 360,
-    startDate: "2025-01-01",
-    paymentFrequency: "monthly",
-  };
-
-  return {
-    terms: defaultTerms,
-    prepayments: [],
-    asOfDate: defaultTerms.startDate,
-    checkpoints: [],
-  };
-}
-
 /**
  * Very defensive JSON parsing to avoid runtime crashes due to malformed
  * localStorage content. Returns null if anything looks off.
@@ -191,32 +174,40 @@ function loadAndMigrateV1(): MortgageUIState | null {
 }
 
 /**
- * Load mortgage UI state with:
+ * Load mortgage UI state:
  *  1) v2 (current)
  *  2) fallback to migrated v1
- *  3) fallback to hard-coded defaults
+ *  3) null — no loan has been entered on this device
+ *
+ * `null` is the honest third answer, and it used to be a hard-coded $300,000
+ * loan at 5% starting 2025-01-01. A new user opening the Mortgage tab was
+ * shown what they owed on a loan that did not exist, down to the prepayment
+ * advice. Absence of data is not data; the tab asks for the terms instead.
  */
-export function loadMortgageUIState(): MortgageUIState {
+export function loadMortgageUIState(): MortgageUIState | null {
   const v2 = loadV2FromStorage();
   if (v2) return v2;
 
-  const migrated = loadAndMigrateV1();
-  if (migrated) return migrated;
-
-  return createDefaultMortgageUIState();
+  return loadAndMigrateV1();
 }
 
 export function saveMortgageUIState(state: MortgageUIState): void {
   if (typeof window === "undefined") return;
   try {
     // Terms are the one field with no safe substitute: overwriting them
-    // with the hard-coded defaults would silently destroy the user's real
-    // mortgage the moment anything hands us an unusable value. Keep
-    // whatever valid terms are already stored instead, and only fall back
-    // to defaults when there is nothing good to preserve.
+    // with anything at all would silently destroy the user's real mortgage
+    // the moment something hands us an unusable value. Keep whatever valid
+    // terms are already stored instead.
+    //
+    // When there is nothing good to preserve either, write nothing. The
+    // old third branch invented a $300,000 loan and persisted it, so a
+    // single bad value on a device with no mortgage left a fabricated debt
+    // in storage — and then pushed it to every other device on the next
+    // sync. There is no such thing as a default mortgage.
     const safeTerms = isValidTerms(state.terms)
       ? state.terms
-      : loadV2FromStorage()?.terms ?? createDefaultMortgageUIState().terms;
+      : loadV2FromStorage()?.terms;
+    if (!safeTerms) return;
 
     // Built field by field rather than by spreading `state`: a spread carries
     // through anything the caller happens to be holding, so retired fields

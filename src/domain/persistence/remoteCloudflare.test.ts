@@ -9,14 +9,14 @@ import { createCloudflareAdapter } from "./remoteCloudflare";
 import type { RemoteStatePayload } from "./remote";
 import { RemoteSyncError } from "./remote";
 import { createInitialAppState } from "../appState";
-import { createDefaultMortgageUIState } from "../mortgage/persistence";
+import { sampleMortgageUIState } from "../../test/mortgageFixture";
 
 const BASE = "https://sync.example.com";
 
 function makePayload(): RemoteStatePayload {
   return {
     app_state: createInitialAppState(),
-    mortgage_ui: createDefaultMortgageUIState(),
+    mortgage_ui: sampleMortgageUIState(),
     prev_updated_at: null,
   };
 }

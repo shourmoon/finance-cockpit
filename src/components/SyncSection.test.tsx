@@ -2,8 +2,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { saveAppState } from "../domain/persistence";
-import { saveMortgageUIState, createDefaultMortgageUIState } from "../domain/mortgage/persistence";
+import { saveMortgageUIState } from "../domain/mortgage/persistence";
 import { createInitialAppState } from "../domain/appState";
+import { sampleMortgageUIState } from "../test/mortgageFixture";
 
 // SYNC_BASE_URL is read through ../config so we can control it per test.
 const cfg = vi.hoisted(() => ({ base: undefined as string | undefined }));
@@ -18,7 +19,7 @@ beforeEach(() => {
   cfg.base = undefined;
   // getLocalSnapshot requires a persisted AppState to exist.
   saveAppState(createInitialAppState());
-  saveMortgageUIState(createDefaultMortgageUIState());
+  saveMortgageUIState(sampleMortgageUIState());
   vi.resetModules();
 });
 
@@ -140,7 +141,7 @@ describe("SyncSection - remote configured", () => {
     setupRemote();
     const remoteSnap = {
       app_state: createInitialAppState(),
-      mortgage_ui: createDefaultMortgageUIState(),
+      mortgage_ui: sampleMortgageUIState(),
       updated_at: "2025-05-01T00:00:00Z",
     };
     // Last-sync matches the remote, so syncNow chooses the push path.
@@ -180,7 +181,7 @@ describe("SyncSection - remote configured", () => {
 
     const remoteSnap = {
       app_state: { ...createInitialAppState(), account: { startingBalance: 7 } },
-      mortgage_ui: createDefaultMortgageUIState(),
+      mortgage_ui: sampleMortgageUIState(),
       updated_at: "2025-05-01T00:00:00Z",
     };
     vi.stubGlobal(

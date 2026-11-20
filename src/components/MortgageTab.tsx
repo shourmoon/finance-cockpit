@@ -31,7 +31,6 @@ import type { RecurringRule, SurplusSettings } from "../domain/types";
 import {
   loadMortgageUIState,
   saveMortgageUIState,
-  createDefaultMortgageUIState,
   type MortgageUIState,
 } from "../domain/mortgage/persistence";
 
@@ -141,6 +140,7 @@ function LabeledDateInput({
         onChange={onChange}
         captionStyle={{ fontSize: 10, marginTop: 2 }}
         inputStyle={ui.input}
+        ariaLabel={label}
       />
     </div>
   );
@@ -177,6 +177,7 @@ function LabeledNumberInput({
         min={min}
         step={step}
         style={ui.input}
+        aria-label={label}
       />
     </div>
   );
@@ -225,14 +226,171 @@ export interface MortgageTabProps {
   onSurplusChange?: (next: SurplusSettings) => void;
 }
 
-export default function MortgageTab({
+/**
+ * The tab's gate. There is no such thing as a default mortgage, so with
+ * nothing stored this asks for the loan rather than rendering a workbench
+ * over invented terms — which is what it did, down to the prepayment advice
+ * on a $300,000 debt the reader did not have.
+ *
+ * Splitting the gate from the workbench keeps the workbench exactly as it
+ * was: it still takes a concrete, valid `MortgageUIState` and every memo
+ * below can go on assuming one. Threading `terms: … | null` through the ten
+ * render-time computations instead would have put a null check in front of
+ * each, and the engine throws on a non-positive principal from inside a
+ * `useMemo`, which takes the whole tab down.
+ */
+export default function MortgageTab(props: MortgageTabProps = {}) {
+  const [stored, setStored] = useState<MortgageUIState | null>(() =>
+    loadMortgageUIState()
+  );
+
+  if (!stored) {
+    return (
+      <MortgageSetup
+        onStart={(terms) => {
+          const fresh: MortgageUIState = {
+            terms,
+            prepayments: [],
+            asOfDate: terms.startDate,
+            checkpoints: [],
+          };
+          // Persisted before the workbench mounts, because the workbench
+          // reads its initial state from storage.
+          saveMortgageUIState(fresh);
+          setStored(fresh);
+        }}
+      />
+    );
+  }
+
+  return <MortgageWorkbench {...props} stored={stored} />;
+}
+
+/**
+ * Asks for the four numbers a loan needs, and refuses to start on anything
+ * the engine cannot amortize. A principal at or below zero buys no schedule
+ * at all, and an empty schedule used to throw from inside a render-time
+ * memo — so this is the one place that must not let one through.
+ */
+function MortgageSetup({
+  onStart,
+}: {
+  onStart: (terms: MortgageOriginalTerms) => void;
+}) {
+  const [principalInput, setPrincipalInput] = useState("");
+  const [rateInput, setRateInput] = useState("");
+  const [yearsInput, setYearsInput] = useState("30");
+  const [startDate, setStartDate] = useState("");
+  const [frequency, setFrequency] =
+    useState<MortgageOriginalTerms["paymentFrequency"]>("monthly");
+  const [error, setError] = useState<string | null>(null);
+
+  function start() {
+    const principal = parseNumber(principalInput);
+    const rate = parseNumber(rateInput);
+    const years = parseNumber(yearsInput);
+    if (principal === null || principal <= 0) {
+      setError("Enter the amount borrowed.");
+      return;
+    }
+    if (rate === null || rate < 0) {
+      setError("Enter the interest rate.");
+      return;
+    }
+    if (years === null || years <= 0) {
+      setError("Enter the term in years.");
+      return;
+    }
+    if (!isValidISODate(startDate)) {
+      setError("Enter the date the loan started.");
+      return;
+    }
+    onStart({
+      principal,
+      annualRate: rate / 100,
+      termMonths: Math.max(1, Math.round(years * 12)),
+      startDate,
+      paymentFrequency: frequency,
+    });
+  }
+
+  return (
+    <div style={ui.card} data-testid="mortgage-setup">
+      <h3 style={{ ...ui.cardTitle, marginBottom: 4 }}>Tell me about the loan</h3>
+      <div style={ui.subtitle}>
+        The terms as they were on day one, not where the loan stands now —
+        everything since is worked out from the payments and anything extra
+        you have put in.
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
+        <LabeledNumberInput
+          label="Principal"
+          value={principalInput}
+          onChange={setPrincipalInput}
+          placeholder="420000"
+          min={0}
+        />
+        <LabeledNumberInput
+          label="Interest rate (%)"
+          value={rateInput}
+          onChange={setRateInput}
+          placeholder="4.25"
+          min={0}
+          step={0.01}
+        />
+        <LabeledNumberInput
+          label="Term (years)"
+          value={yearsInput}
+          onChange={setYearsInput}
+          min={1}
+        />
+        <LabeledDateInput
+          label="First payment"
+          value={startDate}
+          onChange={setStartDate}
+        />
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 130 }}>
+          <span style={ui.fieldLabel}>Payments</span>
+          <select
+            value={frequency}
+            onChange={(e) =>
+              setFrequency(
+                e.target.value as MortgageOriginalTerms["paymentFrequency"]
+              )
+            }
+            style={ui.input}
+            aria-label="Payments"
+          >
+            <option value="monthly">Monthly</option>
+            <option value="biweekly">Every two weeks</option>
+          </select>
+        </div>
+      </div>
+      {error && (
+        <div style={{ ...ui.subtitle, color: colors.danger, marginTop: 10 }}>
+          {error}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={start}
+        style={{ ...ui.primaryButton, marginTop: 14 }}
+      >
+        Start tracking this loan
+      </button>
+    </div>
+  );
+}
+
+function MortgageWorkbench({
   rules = [],
   surplus,
   onSurplusChange,
-}: MortgageTabProps = {}) {
-  // Initialise from persisted state if available.
-  const initialUI: MortgageUIState =
-    loadMortgageUIState() ?? createDefaultMortgageUIState();
+  stored,
+}: MortgageTabProps & { stored: MortgageUIState }) {
+  const initialUI: MortgageUIState = stored;
 
   const [terms, setTerms] = useState<MortgageOriginalTerms>(
     initialUI.terms

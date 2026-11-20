@@ -14,11 +14,97 @@ const SHARED_INPUT = {
   borderColor: colors.inputBorder,
 };
 
+/**
+ * A real loan, stored. The tab used to invent a $300,000 one whenever
+ * storage was empty, so every test below rendered against fabricated terms
+ * and never noticed. The figures asserted here are the $300k loan's, kept
+ * deliberately: it is a fine fixture, it was only ever a bad default.
+ */
+function seedLoan() {
+  window.localStorage.setItem(
+    "finance-cockpit-mortgage-v2",
+    JSON.stringify({
+      terms: {
+        principal: 300_000,
+        annualRate: 0.05,
+        termMonths: 360,
+        startDate: "2025-01-01",
+        paymentFrequency: "monthly",
+      },
+      prepayments: [],
+      asOfDate: "2025-01-01",
+      checkpoints: [],
+    })
+  );
+}
+
 beforeEach(() => {
   window.localStorage.clear();
+  seedLoan();
   // Deterministic ids for prepayment rows.
   let n = 0;
   vi.stubGlobal("crypto", { randomUUID: () => `id-${n++}` });
+});
+
+describe("with no loan entered", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("asks for the loan instead of inventing one", () => {
+    // It used to open on a $300,000 loan at 5% starting 2025-01-01 and tell
+    // the reader what they owed on it, down to the prepayment advice.
+    render(<MortgageTab />);
+    expect(screen.getByTestId("mortgage-setup")).toBeInTheDocument();
+    expect(screen.queryByText("Baseline summary")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$1,610/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$300,000/)).not.toBeInTheDocument();
+    // And nothing is written to storage on the strength of having looked.
+    expect(
+      window.localStorage.getItem("finance-cockpit-mortgage-v2")
+    ).toBeNull();
+  });
+
+  it("opens the workbench once the terms are entered", () => {
+    render(<MortgageTab />);
+    fireEvent.change(screen.getByLabelText("Principal"), {
+      target: { value: "420000" },
+    });
+    fireEvent.change(screen.getByLabelText("Interest rate (%)"), {
+      target: { value: "4.25" },
+    });
+    fireEvent.change(screen.getByLabelText("Term (years)"), {
+      target: { value: "25" },
+    });
+
+    // The loan's own start date is required: there is no honest default for
+    // it, and guessing today would date every loan to the day it was typed.
+    fireEvent.click(screen.getByText("Start tracking this loan"));
+    expect(screen.getByText("Enter the date the loan started.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("First payment"), {
+      target: { value: "2021-06-01" },
+    });
+    fireEvent.click(screen.getByText("Start tracking this loan"));
+
+    expect(screen.queryByTestId("mortgage-setup")).not.toBeInTheDocument();
+    expect(screen.getByText("Baseline summary")).toBeInTheDocument();
+    expect(persisted().terms.principal).toBe(420000);
+    expect(persisted().terms.annualRate).toBeCloseTo(0.0425, 10);
+    expect(persisted().terms.termMonths).toBe(300);
+    expect(persisted().terms.startDate).toBe("2021-06-01");
+  });
+
+  it("will not start tracking a loan with no principal", () => {
+    // The button must not be a way to write the very zero-principal terms
+    // the engine throws on; an empty schedule took the whole tab down once.
+    render(<MortgageTab />);
+    fireEvent.click(screen.getByText("Start tracking this loan"));
+    expect(screen.getByTestId("mortgage-setup")).toBeInTheDocument();
+    expect(
+      window.localStorage.getItem("finance-cockpit-mortgage-v2")
+    ).toBeNull();
+  });
 });
 
 function persisted() {

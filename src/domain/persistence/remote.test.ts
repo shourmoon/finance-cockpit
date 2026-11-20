@@ -6,7 +6,7 @@ import {
   stubRemoteAdapter,
 } from "./remote";
 import { createInitialAppState } from "../appState";
-import { createDefaultMortgageUIState } from "../mortgage/persistence";
+import { sampleMortgageUIState } from "../../test/mortgageFixture";
 
 describe("remoteSyncErrorFromStatus", () => {
   it("maps HTTP statuses to error kinds", () => {
@@ -40,7 +40,7 @@ describe("stubRemoteAdapter", () => {
   it("saveState returns a synthetic ISO timestamp", async () => {
     const ts = await stubRemoteAdapter.saveState("k", {
       app_state: createInitialAppState(),
-      mortgage_ui: createDefaultMortgageUIState(),
+      mortgage_ui: sampleMortgageUIState(),
       prev_updated_at: null,
     });
     expect(typeof ts).toBe("string");

@@ -13,13 +13,15 @@ import type { MortgageUIState } from "../mortgage/persistence";
 
 export interface RemoteStateResponse {
   app_state: AppState;
-  mortgage_ui: MortgageUIState;
+  /** Null when the device that pushed has no mortgage. See Snapshot. */
+  mortgage_ui: MortgageUIState | null;
   updated_at: string;
 }
 
 export interface RemoteStatePayload {
   app_state: AppState;
-  mortgage_ui: MortgageUIState;
+  /** Null when this device has no mortgage. See Snapshot. */
+  mortgage_ui: MortgageUIState | null;
   prev_updated_at?: string | null;
 }
 

@@ -8,12 +8,12 @@
 import { describe, it, expect } from "vitest";
 import { createSnapshot, parseSnapshot } from "./snapshot";
 import { createInitialAppState } from "../appState";
-import { createDefaultMortgageUIState } from "../mortgage/persistence";
+import { sampleMortgageUIState } from "../../test/mortgageFixture";
 
 describe("snapshot helpers", () => {
   it("createSnapshot returns a well‑formed object", () => {
     const app = createInitialAppState();
-    const mortgage = createDefaultMortgageUIState();
+    const mortgage = sampleMortgageUIState();
     const snap = createSnapshot(app, mortgage, "device-1", "2025-01-01T00:00:00Z");
     expect(snap.schemaVersion).toBeGreaterThan(0);
     expect(snap.app_state).toBe(app);
@@ -52,14 +52,19 @@ describe("snapshot helpers", () => {
       device_id: "d",
     };
     expect(parseSnapshot({ ...base, app_state: null })).toBeNull();
-    expect(parseSnapshot({ ...base, mortgage_ui: null })).toBeNull();
     expect(parseSnapshot({ ...base, updated_at: "" })).toBeNull();
     expect(parseSnapshot({ ...base, device_id: "" })).toBeNull();
+    // A missing mortgage block is NOT malformed. Plenty of households have
+    // no loan, and rejecting the whole envelope over an absent optional
+    // subsystem would break sync outright for every one of them.
+    const noLoan = parseSnapshot({ ...base, mortgage_ui: null });
+    expect(noLoan).not.toBeNull();
+    expect(noLoan!.mortgage_ui).toBeNull();
   });
 
   it("parseSnapshot round‑trips a snapshot", () => {
     const app = createInitialAppState();
-    const mortgage = createDefaultMortgageUIState();
+    const mortgage = sampleMortgageUIState();
     const original = createSnapshot(app, mortgage, "dev-123");
     const parsed = parseSnapshot(original);
     expect(parsed).not.toBeNull();
@@ -85,7 +90,7 @@ describe("snapshot helpers", () => {
     const parsed = parseSnapshot({
       schemaVersion: 1,
       app_state: corruptApp,
-      mortgage_ui: createDefaultMortgageUIState(),
+      mortgage_ui: sampleMortgageUIState(),
       updated_at: "2025-01-01T00:00:00Z",
       device_id: "dev",
     });
@@ -104,14 +109,17 @@ describe("snapshot helpers", () => {
     const parsed = parseSnapshot({
       schemaVersion: 1,
       app_state: app,
-      mortgage_ui: createDefaultMortgageUIState(),
+      mortgage_ui: sampleMortgageUIState(),
       updated_at: "2025-01-01T00:00:00Z",
       device_id: "dev",
     });
     expect(parsed!.app_state.adhocTransactions.map((t) => t.id)).toEqual(["keep"]);
   });
 
-  it("parseSnapshot falls back to default mortgage state when mortgage_ui is corrupt", () => {
+  it("parseSnapshot carries no loan when mortgage_ui is corrupt", () => {
+    // This runs on data from another device. It used to substitute a
+    // $300,000 loan at 5%, which the receiving device could not tell from
+    // the real thing.
     const parsed = parseSnapshot({
       schemaVersion: 1,
       app_state: createInitialAppState(),
@@ -120,6 +128,6 @@ describe("snapshot helpers", () => {
       device_id: "dev",
     });
     expect(parsed).not.toBeNull();
-    expect(parsed!.mortgage_ui).toEqual(createDefaultMortgageUIState());
+    expect(parsed!.mortgage_ui).toBeNull();
   });
 });
