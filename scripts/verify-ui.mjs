@@ -312,6 +312,11 @@ try {
   // month that was never measured. Nothing may be claimed from no date.
   await page.getByText("Settings & Rules", { exact: false }).first().click();
   await page.waitForTimeout(300);
+  // The start date manages itself now, so there is no picker on screen until
+  // it is deliberately pinned — which is the only way a user can reach the
+  // blank-date state this check is about.
+  await page.getByLabel("Follow today's date").uncheck();
+  await page.waitForTimeout(200);
   await page.getByLabel("Start date").fill("");
   await page.waitForTimeout(300);
   await page.getByText("Dashboard", { exact: false }).first().click();

@@ -169,13 +169,20 @@ export default function App() {
   );
   const [realityCheckOpen, setRealityCheckOpen] = useState(false);
 
+  // One number, one name, one date. `account.startingBalance` used to appear
+  // as "Balance today" on the dashboard (a lie whenever it wasn't), as
+  // "Starting balance" three inches below it in the ledger, and as a third
+  // free-text "Starting balance" in Settings. Three names for one quantity,
+  // and only one of them ever said what day it was true of.
+  const balanceAsOf = cashChecks.freshness.lastConfirmed;
+  const balanceStamp = balanceAsOf
+    ? `as of ${formatDate(balanceAsOf)}`
+    : "never checked against your bank";
+  const balanceStale = cashChecks.freshness.level !== "fresh";
+
   useEffect(() => {
     saveAppState(state);
   }, [state]);
-
-  function updateStartingBalance(val: number) {
-    setState((s) => ({ ...s, account: { startingBalance: val } }));
-  }
 
   function setFollowToday(follow: boolean) {
     setState((s) => {
@@ -369,16 +376,23 @@ export default function App() {
                 read as one form. Each field stays a <label> so the input
                 keeps its accessible name. */}
             <div style={styles.settingsGrid}>
+              {/* While it follows today there is nothing here to fill in,
+                  so nothing is shown to fill in. The picker appears only
+                  when the user deliberately pins the date to look at the
+                  projection from some other day. */}
               <div style={styles.field}>
-                <span style={ui.fieldLabel}>Start date</span>
-                {/* DateInputWithDisplay shows the human-friendly date underneath. */}
-                <DateInputWithDisplay
-                  value={state.settings.startDate}
-                  onChange={(val) => updateStartDate(val)}
-                  ariaLabel="Start date"
-                />
-                {/* Following is the default and almost always right. Pinning
-                    is for looking at the projection from some other day. */}
+                <span style={ui.fieldLabel}>Forecasting from</span>
+                {state.settings.followToday === false ? (
+                  <DateInputWithDisplay
+                    value={state.settings.startDate}
+                    onChange={(val) => updateStartDate(val)}
+                    ariaLabel="Start date"
+                  />
+                ) : (
+                  <span style={styles.forecastFrom}>
+                    Today &middot; {formatDate(state.settings.startDate)}
+                  </span>
+                )}
                 <label style={styles.followRow}>
                   <input
                     type="checkbox"
@@ -429,17 +443,34 @@ export default function App() {
                 />
               </label>
 
-              <label style={styles.field}>
-                <span style={ui.fieldLabel}>Starting balance</span>
-                <NumberInput
-                  value={state.account.startingBalance}
-                  onChange={updateStartingBalance}
-                  inputStyle={ui.input}
-                />
-              </label>
+              {/* Read-only on purpose. A free-text balance with no date
+                  attached is how this figure drifts, and it quietly bypassed
+                  the one dialog built to stop that. Correcting it is still
+                  one tap — it just cannot happen any more without recording
+                  the day it was true. */}
+              <div style={{ ...styles.field, flexBasis: "100%" }}>
+                <span style={ui.fieldLabel}>Balance</span>
+                <div style={styles.balanceReadout}>
+                  <span style={styles.balanceReadoutValue}>
+                    {formatMoney(state.account.startingBalance)}
+                  </span>
+                  <button
+                    type="button"
+                    style={styles.balanceUpdate}
+                    onClick={() => setRealityCheckOpen(true)}
+                  >
+                    Update balance
+                  </button>
+                </div>
+                <span
+                  style={balanceStale ? styles.balanceAgeStale : styles.balanceAge}
+                >
+                  {balanceStamp}
+                </span>
+              </div>
 
               <label style={styles.field}>
-                <span style={ui.fieldLabel}>Tracking since</span>
+                <span style={ui.fieldLabel}>Top-ups tracked since</span>
                 <SharedDateInput
                   value={state.settings.trackingSince ?? state.settings.startDate}
                   onChange={(val) => {
@@ -695,22 +726,24 @@ export default function App() {
 
             <div style={styles.metricGrid}>
               <div style={styles.metricCell}>
-                <span style={styles.metricKey}>Balance today</span>
+                <span style={styles.metricKey} data-testid="balance-label">
+                  Balance
+                </span>
                 <span style={styles.metricVal}>
                   {formatMoney(state.account.startingBalance)}
                 </span>
-                {/* Every figure on this screen is computed from this one, so
-                    how old it is qualifies all of them. Silent while it is
-                    fresh — a caption that is always on screen is one nobody
-                    reads — and it draws from the same freshness the check
-                    row below uses, not a second reckoning of the same thing. */}
-                {cashChecks.freshness.level !== "fresh" && (
-                  <span style={styles.balanceAge} data-testid="balance-age">
-                    {cashChecks.freshness.lastConfirmed
-                      ? `as of ${formatDate(cashChecks.freshness.lastConfirmed)}`
-                      : "never confirmed"}
-                  </span>
-                )}
+                {/* Always stamped, not only once it has gone stale: a figure
+                    that says when it is from needs no explaining, while one
+                    that says so only sometimes teaches the reader that a
+                    missing date means nothing in particular. Every figure on
+                    this screen is computed from this one, so its age
+                    qualifies all of them. */}
+                <span
+                  style={balanceStale ? styles.balanceAgeStale : styles.balanceAge}
+                  data-testid="balance-age"
+                >
+                  {balanceStamp}
+                </span>
               </div>
               <div style={styles.metricCell}>
                 <span style={styles.metricKey}>Minimum balance</span>
@@ -778,10 +811,20 @@ export default function App() {
               <>
                 <div style={styles.eventsHint}>Tap a row to override its amount</div>
 
-                {/* Ledger opening line: where the balance starts, before any
-                    upcoming event moves it. */}
+                {/* The same figure the card above shows, so it wears the
+                    same name and the same date. It used to be called
+                    "Starting balance" here and "Balance today" there, which
+                    read as two numbers that happened to agree. */}
                 <div style={styles.openingRow}>
-                  <span style={styles.openingLabel}>Starting balance</span>
+                  <span style={styles.openingLabel}>
+                    <span data-testid="balance-label">Balance</span>
+                    <span
+                      style={balanceStale ? styles.balanceAgeStale : styles.balanceAge}
+                      data-testid="balance-age"
+                    >
+                      {balanceStamp}
+                    </span>
+                  </span>
                   <span style={styles.openingValue}>
                     {formatMoney(state.account.startingBalance)}
                   </span>
@@ -1207,6 +1250,12 @@ const styles: Record<string, CSSProperties> = {
   },
   openingLabel: {
     ...ui.miniLabel,
+    // The name and its as-of stamp are two spans; without this they render
+    // run together as "BALANCEas of 1 Sep '26".
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    flexWrap: "wrap",
   },
   openingValue: {
     fontSize: 16,
@@ -1393,9 +1442,51 @@ const styles: Record<string, CSSProperties> = {
     color: colors.muted,
     cursor: "pointer",
   },
+  // `textTransform: none` because the ledger's opening label is uppercased
+  // and the stamp would inherit it — the same words rendering as "AS OF 1
+  // SEP '26" in one place and "as of 1 Sep '26" in the other, which is the
+  // very impression this change exists to remove.
   balanceAge: {
     fontSize: 10.5,
+    color: colors.faint,
+    textTransform: "none",
+    letterSpacing: "normal",
+  },
+  balanceAgeStale: {
+    fontSize: 10.5,
     color: colors.amber,
+    textTransform: "none",
+    letterSpacing: "normal",
+  },
+  balanceReadout: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  balanceReadoutValue: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: colors.text,
+    fontVariantNumeric: "tabular-nums",
+  },
+  balanceUpdate: {
+    ...ui.miniLabel,
+    background: "transparent",
+    border: `1px solid ${colors.cardBorder}`,
+    borderRadius: 7,
+    padding: "3px 9px",
+    color: colors.text,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    letterSpacing: "0.03em",
+    whiteSpace: "nowrap",
+  },
+  forecastFrom: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: colors.text,
+    padding: "6px 0",
   },
   metricVal: {
     fontSize: 15,

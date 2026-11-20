@@ -3,10 +3,23 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import App from "./App";
 import { upgradeAppState } from "./domain/appState";
+import { colors } from "./components/ui";
 
 beforeEach(() => {
   window.localStorage.clear();
 });
+
+/**
+ * Set the balance the way the UI now does it: through the dated dialog, from
+ * either tab. There is no undated box to type into any more.
+ */
+function setBalanceViaDialog(amount: number) {
+  fireEvent.click(screen.getByRole("button", { name: /update balance|check it|re-check/i }));
+  fireEvent.change(screen.getByLabelText("Statement amount"), {
+    target: { value: String(amount) },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Record check" }));
+}
 
 /**
  * Add a one-time transaction the way the UI now does it: "+ Add" opens the
@@ -35,7 +48,7 @@ describe("App shell", () => {
   it("renders the dashboard by default with the safe-to-spend hero", () => {
     render(<App />);
     expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
-    expect(screen.getByText("Balance today")).toBeInTheDocument();
+    expect(screen.getAllByTestId("balance-label")[0]).toHaveTextContent("Balance");
     expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
     // Default rules produce upcoming events.
     expect(screen.getAllByText(/Paycheck|Rent/).length).toBeGreaterThan(0);
@@ -72,7 +85,7 @@ describe("App shell", () => {
     expect(within(row!).getByText("→")).toBeInTheDocument();
   });
 
-  it("opens the ledger with a starting-balance line and runs a per-transaction balance", () => {
+  it("opens the ledger with the balance line and runs a per-transaction balance", () => {
     window.localStorage.setItem(
       "finance-cockpit-app-state-v1",
       JSON.stringify({
@@ -90,7 +103,7 @@ describe("App shell", () => {
     render(<App />);
 
     // Opening ledger line shows where the balance started.
-    const opening = screen.getByText("Starting balance").parentElement;
+    const opening = screen.getAllByTestId("balance-label")[1].closest("div");
     expect(opening?.textContent).toContain("$1,000.00");
 
     // Same-day rows run a progressing balance (1000 -> 1200 -> 1150),
@@ -338,6 +351,136 @@ describe("App shell", () => {
     });
   });
 
+  describe("the balance has one name and one date", () => {
+    function seed(checkpointDate: string | null) {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8,
+          account: { startingBalance: 3200 },
+          settings: {
+            startDate: "2026-09-01", followToday: false, horizonDays: 90,
+            minSafeBalance: 0, trackingSince: "2026-01-01", surplus: {},
+          },
+          rules: [
+            { id: "r", name: "Salary", amount: 4200, isVariable: false,
+              schedule: { type: "monthly", day: 15 } },
+          ],
+          adhocTransactions: [], overrides: {},
+          checkpoints: checkpointDate
+            ? [{ id: "c1", date: checkpointDate, actual: 3200, modelled: 3200 }]
+            : [],
+        })
+      );
+    }
+
+    it("never calls a figure 'today' that is not from today", () => {
+      // The complaint, exactly: the dashboard said "Balance today" over a
+      // number that was true on 1 September.
+      seed("2026-09-01");
+      render(<App />);
+      expect(screen.queryByText("Balance today")).not.toBeInTheDocument();
+    });
+
+    it("stamps the balance with the date it is true of, always", () => {
+      // Not only when it has gone stale. A figure that says when it is from
+      // needs no explaining; one that says so only sometimes teaches the
+      // reader that the absence of a date means nothing in particular.
+      seed("2026-09-01");
+      render(<App />);
+      for (const stamp of screen.getAllByTestId("balance-age")) {
+        expect(stamp).toHaveTextContent(/1 Sep '26/);
+      }
+    });
+
+    it("gives the ledger's opening figure the same name as the metric", () => {
+      // Same number, three inches apart, under two different names was the
+      // other half of the confusion.
+      seed("2026-09-01");
+      render(<App />);
+      const labels = screen.getAllByTestId("balance-label").map((e) => e.textContent);
+      expect(labels.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(labels).size).toBe(1);
+      // ...and both carry the same as-of date, rendered the same way. The
+      // ledger's label is uppercased, so without this the stamp inherited it
+      // and the two read as different things while matching as text.
+      const stamps = screen.getAllByTestId("balance-age");
+      expect(new Set(stamps.map((e) => e.textContent)).size).toBe(1);
+      for (const stamp of stamps) {
+        expect(stamp).toHaveStyle({ textTransform: "none" });
+      }
+    });
+
+    it("says plainly when the figure has never been checked", () => {
+      seed(null);
+      render(<App />);
+      expect(screen.getAllByTestId("balance-age")[0]).toHaveTextContent(/never checked/i);
+    });
+  });
+
+  describe("Settings stops asking for things it manages itself", () => {
+    function seedPlain() {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8,
+          account: { startingBalance: 3200 },
+          settings: {
+            startDate: "2026-09-01", followToday: false, horizonDays: 90,
+            minSafeBalance: 0, trackingSince: "2026-01-01", surplus: {},
+          },
+          rules: [], adhocTransactions: [], overrides: {}, checkpoints: [],
+        })
+      );
+    }
+
+    it("has no undated balance box to type into", () => {
+      // A free-text balance with no date attached is how the figure drifts,
+      // and it quietly bypasses the one dialog built to stop that.
+      seedPlain();
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      expect(screen.queryByLabelText("Starting balance")).not.toBeInTheDocument();
+    });
+
+    it("still lets the balance be corrected, through the dated dialog", () => {
+      // Nothing becomes impossible. It just cannot be changed any more
+      // without recording the day it was true.
+      seedPlain();
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      fireEvent.click(screen.getByRole("button", { name: /update balance/i }));
+
+      expect(screen.getByText("Check against your bank")).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText("Statement amount"), {
+        target: { value: "4150" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Record check" }));
+
+      const saved = JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
+      expect(saved.account.startingBalance).toBe(4150);
+      expect(saved.checkpoints).toHaveLength(1);
+    });
+
+    it("hides the start-date picker while the date manages itself", () => {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8, account: { startingBalance: 0 },
+          settings: { startDate: "2026-09-01", horizonDays: 90, minSafeBalance: 0, surplus: {} },
+          rules: [], adhocTransactions: [], overrides: {}, checkpoints: [],
+        })
+      );
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      // Following today: nothing to fill in.
+      expect(screen.queryByLabelText("Start date")).not.toBeInTheDocument();
+      // Pin it and the picker appears.
+      fireEvent.click(screen.getByLabelText("Follow today's date"));
+      expect(screen.getByLabelText("Start date")).toBeInTheDocument();
+    });
+  });
+
   describe("the start date keeps itself current", () => {
     const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -394,8 +537,8 @@ describe("App shell", () => {
       expect(screen.getByTestId("balance-age")).toHaveTextContent(/as of 1 Sep/);
     });
 
-    it("says nothing about age when the balance really was just confirmed", () => {
-      // The row's own rule: one line until there is something worth saying.
+    it("stamps today's date, quietly, when the balance really was just confirmed", () => {
+      // The stamp is always there — what changes is whether it is a warning.
       window.localStorage.setItem(
         "finance-cockpit-app-state-v1",
         JSON.stringify({
@@ -410,7 +553,9 @@ describe("App shell", () => {
         })
       );
       render(<App />);
-      expect(screen.queryByTestId("balance-age")).not.toBeInTheDocument();
+      const stamp = screen.getAllByTestId("balance-age")[0];
+      expect(stamp).toHaveTextContent(/as of/);
+      expect(stamp).not.toHaveStyle({ color: colors.amber });
     });
   });
 
@@ -423,6 +568,8 @@ describe("App shell", () => {
       // rather than inventing a clean month.
       render(<App />);
       fireEvent.click(screen.getByText("Settings & Rules"));
+      // The picker only exists once the date is deliberately pinned.
+      fireEvent.click(screen.getByLabelText("Follow today's date"));
       const startDate = screen.getByLabelText("Start date");
 
       fireEvent.change(startDate, { target: { value: "2027-04-01" } });
@@ -890,9 +1037,7 @@ describe("App shell", () => {
   it("hides the top-up hint when the balance stays above the floor", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
-    fireEvent.change(screen.getByRole("textbox", { name: /Starting Balance/i }), {
-      target: { value: "1000000" },
-    });
+    setBalanceViaDialog(1000000);
     fireEvent.click(screen.getByText("Dashboard"));
     expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
   });
@@ -913,15 +1058,14 @@ describe("App shell", () => {
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
 
-    const startingBalance = screen.getByRole("textbox", { name: /Starting Balance/i });
-    fireEvent.change(startingBalance, { target: { value: "5000" } });
+    setBalanceViaDialog(5000);
 
     // Persisted state should reflect the new balance.
     const raw = window.localStorage.getItem("finance-cockpit-app-state-v1")!;
     expect(JSON.parse(raw).account.startingBalance).toBe(5000);
 
-    // Dashboard reflects it too — shown both as the "Balance today" metric
-    // and as the ledger's opening "Starting balance" line.
+    // Dashboard reflects it too — once as the metric and once as the
+    // ledger's opening line, under the same name and the same date.
     fireEvent.click(screen.getByText("Dashboard"));
     expect(screen.getAllByText("$5,000.00").length).toBeGreaterThan(0);
   });
@@ -1121,13 +1265,12 @@ describe("App shell", () => {
   it("restores persisted state on reload", () => {
     const { unmount } = render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
-    fireEvent.change(screen.getByRole("textbox", { name: /Starting Balance/i }), {
-      target: { value: "4242" },
-    });
+    setBalanceViaDialog(4242);
     unmount();
 
     render(<App />);
     fireEvent.click(screen.getByText("Settings & Rules"));
-    expect(screen.getByDisplayValue("4242")).toBeInTheDocument();
+    // Read-only now, so it is rendered text rather than an input value.
+    expect(screen.getByText("$4,242.00")).toBeInTheDocument();
   });
 });
