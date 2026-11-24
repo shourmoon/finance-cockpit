@@ -439,13 +439,21 @@ describe("App shell", () => {
       expect(screen.queryByText("$12,450.00")).not.toBeInTheDocument();
     });
 
-    it("says where the figure came from", () => {
-      // "as of 18 Nov" would now be a lie: the figure is not as of the
-      // 18th, it is rolled forward from it. The stamp says both.
+    it("says when the figure was confirmed, and nothing more", () => {
+      // The stamp says the one thing the reader cannot work out for
+      // themselves: which day this number was last checked against a bank.
+      //
+      // It briefly also said "· +$4,200.00 since", spelling out what had
+      // been added from the rules in between. That is the app narrating its
+      // own arithmetic: the figure is the user's own salary and bills
+      // applied on schedule, so it can never tell them anything they did
+      // not already know, and it turned a balance into a balance plus a
+      // running commentary.
       render(<App />);
       const stamp = screen.getAllByTestId("balance-age")[0];
-      expect(stamp).toHaveTextContent(/confirmed 18 Nov '26/i);
-      expect(stamp).toHaveTextContent(/4,200/);
+      expect(stamp).toHaveTextContent(/confirmed 18\sNov\s'26/i);
+      expect(stamp.textContent).not.toMatch(/since/i);
+      expect(stamp.textContent).not.toMatch(/4,200/);
     });
 
     it("agrees with itself between the metric and the ledger", () => {

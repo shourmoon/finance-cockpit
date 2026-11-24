@@ -125,7 +125,6 @@ export default function App() {
   // meant typing today's bank balance into a reality check and watching the
   // page show a different number back.
   const balanceNow = useMemo(() => balanceOn(state, today), [state, today]);
-  const rolledSinceCheck = balanceNow - state.account.startingBalance;
 
   // Where the ledger's running total starts. Same source, different day.
   const balanceAtWindow = useMemo(
@@ -211,20 +210,22 @@ export default function App() {
   // and only one of them ever said what day it was true of.
   //
   // The figure shown is `balanceNow`, not the stored one, so there is still
-  // exactly one number on screen for "what is in the account". But it is no
-  // longer true *as of* the check date once anything has happened since, so
-  // the stamp says what it actually is: the day it was confirmed, and what
-  // has been added or taken since. "as of 18 Nov" over a figure rolled
-  // forward to today would be the same class of lie as the old "Balance
-  // today" — a date that does not belong to the number beside it.
+  // exactly one number on screen for "what is in the account". The stamp
+  // says the one thing the reader cannot work out for themselves: which day
+  // it was last checked against a bank. It says "confirmed" rather than "as
+  // of" because the figure is rolled forward from that day, not true as of
+  // it — "as of 18 Nov" over a figure carried forward to today would be the
+  // same class of lie as the old "Balance today".
+  //
+  // It briefly also spelled out what had been added since ("· +$4,200.00
+  // since"). That was the app narrating its own arithmetic: the amount is
+  // the user's own salary and bills applied on schedule, so it can never
+  // tell them anything they did not already know, and it turned a balance
+  // into a balance plus a running commentary. Cut on the user's say-so.
   const balanceAsOf = cashChecks.freshness.lastConfirmed;
-  const balanceStamp = !balanceAsOf
-    ? "never checked against your bank"
-    : Math.abs(rolledSinceCheck) < 0.005
-      ? `confirmed ${formatDate(balanceAsOf)}`
-      : `confirmed ${formatDate(balanceAsOf)} · ${
-          rolledSinceCheck > 0 ? "+" : "−"
-        }${formatMoney(Math.abs(rolledSinceCheck))} since`;
+  const balanceStamp = balanceAsOf
+    ? `confirmed ${formatDate(balanceAsOf)}`
+    : "never checked against your bank";
   const balanceStale = cashChecks.freshness.level !== "fresh";
 
   // What the forecast still needs before it can say anything true. The app
