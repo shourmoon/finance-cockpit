@@ -7,7 +7,7 @@ import {
 } from "./domain/appState";
 import { toISODate } from "./domain/dateUtils";
 import { loadAppState, saveAppState } from "./domain/persistence";
-import { runCashflowProjection } from "./domain/cashflowEngine";
+import { openingBalanceAtStart, runCashflowProjection } from "./domain/cashflowEngine";
 import {
   computeSafeToSpendFromEvents,
   computeTopUpHint,
@@ -99,15 +99,28 @@ export default function App() {
     () => runCashflowProjection(state),
     [state]
   );
+  // The balance at the moment the window opens.
+  //
+  // `account.startingBalance` is what the bank said on the day of the last
+  // reality check; the window opens on `settings.startDate`, which follows
+  // today. Those are two different dates, so the confirmed figure is rolled
+  // across the gap (see openingBalanceAtStart). Everything on this screen
+  // that means "the balance now" reads THIS, not the stored figure — three
+  // places used the stored one and each was wrong by whatever had happened
+  // since the check: safe-to-spend, the ledger's running total, and the
+  // headline figure itself.
+  const balanceNow = useMemo(() => openingBalanceAtStart(state), [state]);
+  const rolledSinceCheck = balanceNow - state.account.startingBalance;
+
   // Derive safe-to-spend from the projection above instead of re-running it.
   const safe = useMemo(
     () =>
       computeSafeToSpendFromEvents(
-        state.account.startingBalance,
+        balanceNow,
         state.settings.minSafeBalance ?? 0,
         events
       ),
-    [state.account.startingBalance, state.settings.minSafeBalance, events]
+    [balanceNow, state.settings.minSafeBalance, events]
   );
 
   const topUp = useMemo(
@@ -127,13 +140,13 @@ export default function App() {
   // lands on that day's closing balance.
   const runningBalanceByEvent = useMemo(() => {
     const byEvent = new Map<string, number>();
-    let balance = state.account.startingBalance;
+    let balance = balanceNow;
     for (const e of events) {
       balance += e.effectiveAmount;
       byEvent.set(e.id, balance);
     }
     return byEvent;
-  }, [events, state.account.startingBalance]);
+  }, [events, balanceNow]);
 
 
   // Coverage is measured against the app's notion of "now" (settings.startDate),
@@ -174,10 +187,22 @@ export default function App() {
   // "Starting balance" three inches below it in the ledger, and as a third
   // free-text "Starting balance" in Settings. Three names for one quantity,
   // and only one of them ever said what day it was true of.
+  //
+  // The figure shown is `balanceNow`, not the stored one, so there is still
+  // exactly one number on screen for "what is in the account". But it is no
+  // longer true *as of* the check date once anything has happened since, so
+  // the stamp says what it actually is: the day it was confirmed, and what
+  // has been added or taken since. "as of 18 Nov" over a figure rolled
+  // forward to today would be the same class of lie as the old "Balance
+  // today" — a date that does not belong to the number beside it.
   const balanceAsOf = cashChecks.freshness.lastConfirmed;
-  const balanceStamp = balanceAsOf
-    ? `as of ${formatDate(balanceAsOf)}`
-    : "never checked against your bank";
+  const balanceStamp = !balanceAsOf
+    ? "never checked against your bank"
+    : Math.abs(rolledSinceCheck) < 0.005
+      ? `confirmed ${formatDate(balanceAsOf)}`
+      : `confirmed ${formatDate(balanceAsOf)} · ${
+          rolledSinceCheck > 0 ? "+" : "−"
+        }${formatMoney(Math.abs(rolledSinceCheck))} since`;
   const balanceStale = cashChecks.freshness.level !== "fresh";
 
   // What the forecast still needs before it can say anything true. The app
@@ -429,7 +454,7 @@ export default function App() {
               <span style={ui.fieldLabel}>Balance</span>
               <div style={styles.balanceReadout}>
                 <span style={styles.balanceReadoutValue}>
-                  {formatMoney(state.account.startingBalance)}
+                  {formatMoney(balanceNow)}
                 </span>
                 <button
                   type="button"
@@ -852,7 +877,7 @@ export default function App() {
                   Balance
                 </span>
                 <span style={styles.metricVal}>
-                  {formatMoney(state.account.startingBalance)}
+                  {formatMoney(balanceNow)}
                 </span>
                 {/* Always stamped, not only once it has gone stale: a figure
                     that says when it is from needs no explaining, while one
@@ -948,7 +973,7 @@ export default function App() {
                     </span>
                   </span>
                   <span style={styles.openingValue}>
-                    {formatMoney(state.account.startingBalance)}
+                    {formatMoney(balanceNow)}
                   </span>
                 </div>
 
@@ -1065,7 +1090,12 @@ export default function App() {
         // today's scheduled events applied and would put a second, different
         // number for one quantity inside the same card.
         dateEditable={false}
-        modelledOn={() => state.account.startingBalance}
+        /* What the model believes the opening balance is today — rolled
+           from the last check, not the last check's own figure. Comparing a
+           statement against the figure it was last set to would measure
+           nothing but the gap between two statements; the drift this card
+           exists to capture is the model's error since then. */
+        modelledOn={() => balanceNow}
         formatMoney={formatMoney}
         onSave={({ date, actual, modelled }) => {
           setState((s) => ({

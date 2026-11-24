@@ -394,6 +394,74 @@ describe("App shell", () => {
     });
   });
 
+  describe("a balance confirmed before the window opens", () => {
+    // The reported bug: changing "Forecasting from" moved every running
+    // balance. The cause was that the confirmed balance and the start date
+    // are two different dates the engine treated as one, so the events
+    // between them belonged to neither — too late for the balance, too
+    // early for the ledger. advanceStartDate opens that gap by itself, one
+    // day at a time, so this was happening without anyone touching a
+    // setting.
+    function seedGap() {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8,
+          account: { startingBalance: 12450 },
+          settings: {
+            startDate: "2026-11-24",
+            followToday: false, // pinned, so the fixture's window is fixed
+            horizonDays: 60,
+            minSafeBalance: 2000,
+            surplus: {},
+          },
+          rules: [
+            { id: "sal", name: "Salary", amount: 4200, isVariable: false,
+              schedule: { type: "monthly", day: 20 } },
+          ],
+          adhocTransactions: [],
+          overrides: {},
+          // Confirmed on the 18th; the salary landed on the 20th.
+          checkpoints: [
+            { id: "c", date: "2026-11-18", actual: 12450, modelled: 12450 },
+          ],
+        })
+      );
+    }
+
+    beforeEach(seedGap);
+
+    it("counts the salary paid between the check and today", () => {
+      render(<App />);
+      // 12,450 confirmed on the 18th + 4,200 paid on the 20th.
+      expect(screen.getAllByText("$16,650.00").length).toBeGreaterThan(0);
+      // The stale figure must not be presented as the balance.
+      expect(screen.queryByText("$12,450.00")).not.toBeInTheDocument();
+    });
+
+    it("says where the figure came from", () => {
+      // "as of 18 Nov" would now be a lie: the figure is not as of the
+      // 18th, it is rolled forward from it. The stamp says both.
+      render(<App />);
+      const stamp = screen.getAllByTestId("balance-age")[0];
+      expect(stamp).toHaveTextContent(/confirmed 18 Nov '26/i);
+      expect(stamp).toHaveTextContent(/4,200/);
+    });
+
+    it("agrees with itself between the metric and the ledger", () => {
+      // Rule 4 in CLAUDE.md: a figure shown twice comes from one source and
+      // reconciles on screen.
+      render(<App />);
+      const shown = screen
+        .getAllByTestId("balance-label")
+        .map((el) => el.closest("div")?.textContent ?? "");
+      expect(shown.length).toBeGreaterThan(1);
+      for (const text of shown) {
+        expect(text).toContain("$16,650.00");
+      }
+    });
+  });
+
   describe("the Settings page", () => {
     it("groups the settings by what they affect", () => {
       // Six fields in one undifferentiated grid: the balance, three
@@ -700,8 +768,12 @@ describe("App shell", () => {
       expect(screen.getByTestId("reality-age-cash").textContent).toMatch(
         /Confirmed .* ago/
       );
-      // ...and the age is attached to the figure it qualifies.
-      expect(screen.getByTestId("balance-age")).toHaveTextContent(/as of 1 Sep/);
+      // ...and the age is attached to the figure it qualifies. These rules
+      // are empty, so nothing happened between the check and today and the
+      // figure is still exactly the confirmed one — no "since" clause.
+      expect(screen.getByTestId("balance-age")).toHaveTextContent(
+        /confirmed 1 Sep '26$/
+      );
     });
 
     it("stamps today's date, quietly, when the balance really was just confirmed", () => {
@@ -721,7 +793,7 @@ describe("App shell", () => {
       );
       render(<App />);
       const stamp = screen.getAllByTestId("balance-age")[0];
-      expect(stamp).toHaveTextContent(/as of/);
+      expect(stamp).toHaveTextContent(/confirmed/);
       expect(stamp).not.toHaveStyle({ color: colors.amber });
     });
   });

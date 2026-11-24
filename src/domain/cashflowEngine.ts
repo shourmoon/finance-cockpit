@@ -19,6 +19,7 @@ BiweeklySchedule,
 
 import { addDays, toISODate, parseISODate, isValidISODate } from "./dateUtils";
 import { adjustToPreviousUSBusinessDay } from "./businessDayUS";
+import { latestCheckpoint } from "./reconciliation";
 
 // ------------------------
 // Helpers
@@ -262,6 +263,96 @@ export interface CashflowEngineResult {
   metrics: CashflowMetrics;
 }
 
+/**
+ * How far apart two valid ISO dates are, in whole days. Positive when `b`
+ * is the later of the two.
+ */
+function daysApart(a: ISODate, b: ISODate): number {
+  const ms = parseISODate(b).getTime() - parseISODate(a).getTime();
+  return Math.round(ms / 86_400_000);
+}
+
+/**
+ * A roll longer than this is refused rather than attempted.
+ *
+ * Storage is untrusted, and a checkpoint dated in year 0001 against a start
+ * date in 2026 asks for a 700,000-day event expansion — which does not
+ * produce a wrong number so much as hang the tab. Beyond a century the
+ * honest answer is that the figure cannot be rolled at all.
+ */
+const MAX_ROLL_DAYS = 36_500;
+
+/**
+ * The opening balance at `settings.startDate`.
+ *
+ * `account.startingBalance` is a figure confirmed against a bank statement on
+ * a particular day — the latest checkpoint's. `settings.startDate` is where
+ * the forecast window opens. They are two different dates, and the engine
+ * used to treat them as one: it seeded the running balance with the confirmed
+ * figure and started walking at startDate regardless of the gap.
+ *
+ * That meant moving the window forward did not roll the balance forward, it
+ * dropped everything in between — a salary paid after the last reality check
+ * but before the window opens was too late to be in the balance and too early
+ * to be an event, so it simply disappeared. And since `advanceStartDate`
+ * moves startDate to today on every load, the gap opened by itself, one day
+ * at a time, between one reality check and the next.
+ *
+ * So the confirmed figure is rolled across the gap. The convention, which the
+ * whole app shares: a balance is the opening balance **at the start of** its
+ * date, before that day's own events. That is what makes recording a check
+ * today a no-op on the figures — the common case, since the check is locked
+ * to today and startDate follows today — and it is what lets the first
+ * timeline point go on applying its own day's events, as it always has.
+ *
+ * With no checkpoint there is no date to roll from, so nothing is rolled.
+ * Inventing an anchor would be worse than the gap it closes.
+ */
+export function openingBalanceAtStart(state: AppState): Money {
+  const { account, settings, rules, overrides, checkpoints } = state;
+  if (!isValidISODate(settings.startDate)) return account.startingBalance;
+
+  // `latestCheckpoint` sanitizes as it goes, so a date it hands back has
+  // already passed `isValidISODate` — no second guard here, and no
+  // `checkpoints ?? []` either, since `AppState.checkpoints` is not
+  // optional. Defensive code that cannot be reached is worse than none: it
+  // reads as though it were protecting something.
+  const anchor = latestCheckpoint(checkpoints)?.date;
+  if (!anchor) return account.startingBalance;
+  if (anchor === settings.startDate) return account.startingBalance;
+
+  // Rolling backwards is as legitimate as forwards: pinning the window to a
+  // day before the last reality check asks what the balance was then, and
+  // the answer is the confirmed figure less what happened since.
+  const forward = anchor < settings.startDate;
+  const from = forward ? anchor : settings.startDate;
+  const to = forward ? settings.startDate : anchor;
+
+  const span = daysApart(from, to);
+  if (!Number.isFinite(span) || span <= 0 || span > MAX_ROLL_DAYS) {
+    return account.startingBalance;
+  }
+
+  // Same expansion the projection itself uses, over the gap instead of the
+  // horizon, so overrides and business-day adjustment apply identically. The
+  // window is half-open: `to`'s own events belong to the day the balance is
+  // being rolled TO, and are applied by whoever owns that day.
+  const bridge = buildFutureEvents(
+    rules,
+    { ...settings, startDate: from, horizonDays: span },
+    overrides,
+    state.adhocTransactions
+  );
+  let net = 0;
+  for (const evt of bridge) {
+    if (evt.date >= from && evt.date < to) net += evt.effectiveAmount;
+  }
+
+  return forward
+    ? account.startingBalance + net
+    : account.startingBalance - net;
+}
+
 export function runCashflowProjection(state: AppState): CashflowEngineResult {
   const { account, settings, rules, overrides } = state;
 
@@ -272,7 +363,7 @@ export function runCashflowProjection(state: AppState): CashflowEngineResult {
     state.adhocTransactions
   );
   const { timeline, metrics } = buildTimelineAndMetrics(
-    account,
+    { ...account, startingBalance: openingBalanceAtStart(state) },
     settings,
     events
   );

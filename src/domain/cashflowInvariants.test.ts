@@ -279,3 +279,211 @@ describe("cashflow invariants (property-based)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The balance has a date of its own, and the start date is not it.
+// ---------------------------------------------------------------------------
+//
+// `account.startingBalance` is a figure confirmed against a bank statement on
+// a particular day — the latest checkpoint's date. `settings.startDate` is
+// where the forecast window opens. The engine treated them as the same date:
+// it seeded the running balance with the confirmed figure and began walking
+// at startDate, whatever the gap between them.
+//
+// So moving the start date forward six days did not roll the balance forward
+// six days — it simply dropped every event in between. A $4,200 salary paid
+// on the 20th vanished from the forecast when the window opened on the 24th:
+// too early to be an event, too late to be in the balance. Since
+// `advanceStartDate` moves startDate to today on every load, that gap opens
+// by itself, a day at a time, between one reality check and the next.
+//
+// The law is the one a reader assumes without being told: what the app says
+// your balance will be on some future day cannot depend on which day you
+// happen to be looking from.
+describe("the start date is a window, not an anchor", () => {
+  /** Anchor a state's balance to a date, as recording a reality check does. */
+  function anchoredAt(state: AppState, date: string): AppState {
+    return {
+      ...state,
+      checkpoints: [
+        {
+          id: "anchor",
+          date,
+          actual: state.account.startingBalance,
+          modelled: state.account.startingBalance,
+        },
+      ],
+    };
+  }
+
+  function shift(date: string, days: number): string {
+    const d = new Date(`${date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  it("reports the same balance for a day however far back the window opens", () => {
+    // Two windows over one household, opening on different days, both
+    // ending on the same day, both anchored to the same confirmed balance.
+    // Every date they share must agree — to the cent.
+    let compared = 0;
+    for (const base of STATES.slice(0, 60)) {
+      const anchor = base.settings.startDate;
+      const gap = 1 + (base.settings.horizonDays % 40);
+      if (gap >= base.settings.horizonDays) continue;
+
+      const fromAnchor = anchoredAt(base, anchor);
+      const fromLater = anchoredAt(
+        {
+          ...base,
+          settings: {
+            ...base.settings,
+            startDate: shift(anchor, gap),
+            // End on the same day, so the two windows overlap exactly.
+            horizonDays: base.settings.horizonDays - gap,
+          },
+        },
+        anchor
+      );
+
+      const a = runCashflowProjection(fromAnchor);
+      const b = runCashflowProjection(fromLater);
+      const byDate = new Map(a.timeline.map((p) => [p.date, p.balance]));
+
+      for (const point of b.timeline) {
+        const expected = byDate.get(point.date);
+        if (expected === undefined) continue;
+        compared++;
+        expect(
+          Math.abs(expected - point.balance),
+          `balance on ${point.date} moved when the window opened ${gap} days later ` +
+            `(anchor ${anchor}): ${expected} vs ${point.balance}`
+        ).toBeLessThan(1e-6);
+      }
+    }
+    // Guard against a vacuous pass: if the windows never overlapped, the
+    // loop above would assert nothing at all and still go green.
+    expect(compared).toBeGreaterThan(1000);
+  });
+
+  it("rolls the confirmed balance forward by exactly the events in between", () => {
+    // Stated as arithmetic over the raw rules rather than by re-running the
+    // engine: the opening balance at the new start is the confirmed figure
+    // plus every event from the anchor up to (not including) that start.
+    for (const base of STATES.slice(0, 40)) {
+      const anchor = base.settings.startDate;
+      const gap = 1 + (base.settings.horizonDays % 30);
+      const later = shift(anchor, gap);
+
+      // What the engine says happens between the anchor and the new start,
+      // read off a projection that covers that stretch.
+      const bridge = runCashflowProjection(anchoredAt(base, anchor));
+      const inBetween = bridge.events
+        .filter((e) => e.date >= anchor && e.date < later)
+        .reduce((sum, e) => sum + e.effectiveAmount, 0);
+
+      const moved = runCashflowProjection(
+        anchoredAt(
+          { ...base, settings: { ...base.settings, startDate: later } },
+          anchor
+        )
+      );
+      // The first timeline point already has its own day's events applied,
+      // so back them out to recover the opening balance.
+      const firstPoint = moved.timeline[0];
+      if (!firstPoint) continue;
+      const opening =
+        firstPoint.balance - (firstPoint.inflow + firstPoint.outflow);
+
+      expect(
+        Math.abs(opening - (base.account.startingBalance + inBetween))
+      ).toBeLessThan(1e-6);
+    }
+  });
+
+  it("rolls backwards when the window is pinned before the check", () => {
+    // Looking at the projection from a day before the last reality check is
+    // a legitimate thing to do (that is what pinning is for), and the
+    // honest answer is the confirmed figure less whatever happened since.
+    const state = upgradeAppState({
+      version: 8,
+      account: { startingBalance: 10_000 },
+      settings: {
+        startDate: "2026-11-01",
+        followToday: false,
+        horizonDays: 40,
+        minSafeBalance: 0,
+      },
+      rules: [
+        { id: "rent", name: "Rent", amount: -2600, isVariable: false,
+          schedule: { type: "monthly", day: 1 } },
+        { id: "sal", name: "Salary", amount: 4200, isVariable: false,
+          schedule: { type: "monthly", day: 15 } },
+      ],
+      adhocTransactions: [],
+      overrides: {},
+      checkpoints: [
+        { id: "c", date: "2026-11-20", actual: 10_000, modelled: 10_000 },
+      ],
+    });
+
+    const first = runCashflowProjection(state).timeline[0];
+    // Between 1 Nov (inclusive) and 20 Nov: −2,600 then +4,200 = +1,600.
+    // So the balance at the start of 1 Nov was 10,000 − 1,600 = 8,400,
+    // and the first point then applies 1 Nov's own −2,600.
+    expect(first.date).toBe("2026-11-01");
+    expect(first.balance).toBeCloseTo(8_400 - 2_600, 6);
+  });
+
+  it("refuses a roll it cannot honestly make, rather than hanging on it", () => {
+    // Storage is untrusted. A checkpoint dated in year 1000 against a 2026
+    // window asks for a 375,000-day event expansion — which does not
+    // produce a wrong number so much as freeze the tab.
+    //
+    // Year 1000 and not year 0001 on purpose: `isValidISODate` rejects
+    // 0001-01-01 outright, so the checkpoint is dropped during the upgrade
+    // and this exercises the no-anchor path instead — passing without ever
+    // reaching the guard it is named for. Year 1000 is a real date that
+    // survives sanitising, which is what makes this test discriminating.
+    const state = upgradeAppState({
+      version: 8,
+      account: { startingBalance: 7_000 },
+      settings: {
+        startDate: "2026-11-24",
+        followToday: false,
+        horizonDays: 30,
+        minSafeBalance: 0,
+      },
+      rules: [
+        { id: "r", name: "Rent", amount: -1000, isVariable: false,
+          schedule: { type: "monthly", day: 1 } },
+      ],
+      adhocTransactions: [],
+      overrides: {},
+      checkpoints: [
+        { id: "c", date: "1000-01-01", actual: 7_000, modelled: 7_000 },
+      ],
+    });
+
+    const started = Date.now();
+    const first = runCashflowProjection(state).timeline[0];
+    expect(Date.now() - started).toBeLessThan(2_000);
+    // Unrolled: 7,000, with 24 Nov carrying no event of its own.
+    expect(first.balance).toBeCloseTo(7_000, 6);
+  });
+
+  it("rolls nothing when the balance has never been confirmed", () => {
+    // The positive control, and a real case: with no checkpoint there is no
+    // date to roll from, so the figure stays exactly where it is. A version
+    // that rolled regardless would pass both laws above and quietly invent
+    // an opening balance for every user who has not run a reality check.
+    for (const base of STATES.slice(0, 30)) {
+      const projection = runCashflowProjection({ ...base, checkpoints: [] });
+      const firstPoint = projection.timeline[0];
+      if (!firstPoint) continue;
+      const opening =
+        firstPoint.balance - (firstPoint.inflow + firstPoint.outflow);
+      expect(Math.abs(opening - base.account.startingBalance)).toBeLessThan(1e-6);
+    }
+  });
+});
