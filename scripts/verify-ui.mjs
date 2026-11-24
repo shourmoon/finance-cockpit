@@ -304,27 +304,30 @@ try {
     }
   }
 
-  // --- 6. with no "today", the app claims nothing rather than something ---
+  // --- 6. a blank Start date takes nothing down with it ---
   // Clearing the Start date is one keystroke away in Settings, and it leaves
-  // settings.startDate as "". Coverage used to build its window from that and
-  // collapse into a single fabricated month that read as clean, so the card
-  // announced "1 of 1 months on one salary" — evidence of coverage for a
-  // month that was never measured. Nothing may be claimed from no date.
+  // settings.startDate as "". The engine answers an empty projection; what
+  // this guards is that nothing downstream turns that into "NaN" or
+  // "Infinity" on screen, and that the page still stands.
+  //
+  // Coverage used to be blanked by this too, because its `asOf` WAS the
+  // start date — a year of recorded top-ups vanishing because of where the
+  // forecast was pointed. "Now" is the clock now, so coverage is unmoved,
+  // and the law that it must never fabricate a month from a non-date lives
+  // on computeCoverageMetrics in resilienceInvariants.test.ts, which is
+  // where a bad asOf could actually arrive.
   await page.getByText("Settings & Rules", { exact: false }).first().click();
   await page.waitForTimeout(300);
-  // The start date manages itself now, so there is no picker on screen until
-  // it is deliberately pinned — which is the only way a user can reach the
-  // blank-date state this check is about.
-  await page.getByLabel("Follow today's date").uncheck();
-  await page.waitForTimeout(200);
+  // The start date is a plain field the user owns, so the picker is simply
+  // there — no pinning step, and nothing moves it between runs.
   await page.getByLabel("Start date").fill("");
   await page.waitForTimeout(300);
   await page.getByText("Dashboard", { exact: false }).first().click();
   await page.waitForTimeout(500);
 
   const blankDateBody = await page.locator("body").innerText();
-  if (/months on one salary/.test(blankDateBody)) {
-    fail("coverage claims tracked months with no start date set");
+  if (!/months on one salary/.test(blankDateBody)) {
+    fail("coverage disappeared when the Start date was cleared");
   }
   for (const bad of ["NaN", "Infinity", "undefined"]) {
     if (blankDateBody.includes(bad)) {

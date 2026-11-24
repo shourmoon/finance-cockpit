@@ -283,7 +283,15 @@ function daysApart(a: ISODate, b: ISODate): number {
 const MAX_ROLL_DAYS = 36_500;
 
 /**
- * The opening balance at `settings.startDate`.
+ * The opening balance on any given day.
+ *
+ * Two callers ask two different questions of it, and they are different
+ * questions whenever the forecast window does not open today:
+ *   - the engine asks for `settings.startDate`, because that is where the
+ *     ledger's running totals have to start;
+ *   - the dashboard asks for today, because "Balance" means what is in the
+ *     account now.
+ * They coincide the moment the window opens today, which is the usual case.
  *
  * `account.startingBalance` is a figure confirmed against a bank statement on
  * a particular day — the latest checkpoint's. `settings.startDate` is where
@@ -308,9 +316,9 @@ const MAX_ROLL_DAYS = 36_500;
  * With no checkpoint there is no date to roll from, so nothing is rolled.
  * Inventing an anchor would be worse than the gap it closes.
  */
-export function openingBalanceAtStart(state: AppState): Money {
-  const { account, settings, rules, overrides, checkpoints } = state;
-  if (!isValidISODate(settings.startDate)) return account.startingBalance;
+export function balanceOn(state: AppState, target: ISODate): Money {
+  const { account, rules, overrides, checkpoints } = state;
+  if (!isValidISODate(target)) return account.startingBalance;
 
   // `latestCheckpoint` sanitizes as it goes, so a date it hands back has
   // already passed `isValidISODate` — no second guard here, and no
@@ -319,14 +327,14 @@ export function openingBalanceAtStart(state: AppState): Money {
   // reads as though it were protecting something.
   const anchor = latestCheckpoint(checkpoints)?.date;
   if (!anchor) return account.startingBalance;
-  if (anchor === settings.startDate) return account.startingBalance;
+  if (anchor === target) return account.startingBalance;
 
-  // Rolling backwards is as legitimate as forwards: pinning the window to a
-  // day before the last reality check asks what the balance was then, and
-  // the answer is the confirmed figure less what happened since.
-  const forward = anchor < settings.startDate;
-  const from = forward ? anchor : settings.startDate;
-  const to = forward ? settings.startDate : anchor;
+  // Rolling backwards is as legitimate as forwards: asking for a day before
+  // the last reality check asks what the balance was then, and the answer is
+  // the confirmed figure less what happened since.
+  const forward = anchor < target;
+  const from = forward ? anchor : target;
+  const to = forward ? target : anchor;
 
   const span = daysApart(from, to);
   if (!Number.isFinite(span) || span <= 0 || span > MAX_ROLL_DAYS) {
@@ -339,7 +347,7 @@ export function openingBalanceAtStart(state: AppState): Money {
   // being rolled TO, and are applied by whoever owns that day.
   const bridge = buildFutureEvents(
     rules,
-    { ...settings, startDate: from, horizonDays: span },
+    { ...state.settings, startDate: from, horizonDays: span },
     overrides,
     state.adhocTransactions
   );
@@ -363,7 +371,7 @@ export function runCashflowProjection(state: AppState): CashflowEngineResult {
     state.adhocTransactions
   );
   const { timeline, metrics } = buildTimelineAndMetrics(
-    { ...account, startingBalance: openingBalanceAtStart(state) },
+    { ...account, startingBalance: balanceOn(state, settings.startDate) },
     settings,
     events
   );

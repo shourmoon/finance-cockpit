@@ -3,11 +3,10 @@ import type { CSSProperties } from "react";
 import {
   createInitialAppState,
   sanitizeHorizonDays,
-  advanceStartDate,
 } from "./domain/appState";
 import { toISODate } from "./domain/dateUtils";
 import { loadAppState, saveAppState } from "./domain/persistence";
-import { openingBalanceAtStart, runCashflowProjection } from "./domain/cashflowEngine";
+import { balanceOn, runCashflowProjection } from "./domain/cashflowEngine";
 import {
   computeSafeToSpendFromEvents,
   computeTopUpHint,
@@ -67,15 +66,25 @@ function DateInputWithDisplay({
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => {
-    const loaded = loadAppState();
-    const base = loaded ?? createInitialAppState();
-    // The app's "now" is not the user's to maintain. It used to be stamped
-    // on the first install and left, so the projection drifted a day further
-    // into the past every day — and freshness, which ages the last checkpoint
-    // against this date, reported a months-old balance as confirmed today.
-    const settings = advanceStartDate(base.settings, todayIso());
-    return settings === base.settings ? base : { ...base, settings };
+    // The start date is left exactly where the user put it. Nothing moves
+    // it on load. It used to roll to today, which was a workaround for
+    // freshness ageing against it — see `today` below for the actual fix.
+    return loadAppState() ?? createInitialAppState();
   });
+
+  /**
+   * The clock. Read once per mount, at the App boundary, because nothing in
+   * `src/domain` may ask what day it is.
+   *
+   * This exists because three different dates were being treated as one:
+   * today, the day the balance was confirmed, and the day the forecast
+   * window opens. Anchoring the balance to the window gave the engine its
+   * worst bug; measuring staleness against the window made the one feature
+   * built to catch drift blind to it, which is why the window was made to
+   * roll. With "now" meaning the clock, the window is free to be the user's
+   * alone and staleness still works.
+   */
+  const today = useMemo(() => todayIso(), []);
 
   const [selectedEvent, setSelectedEvent] = useState<FutureEvent | null>(
     null
@@ -109,18 +118,31 @@ export default function App() {
   // places used the stored one and each was wrong by whatever had happened
   // since the check: safe-to-spend, the ledger's running total, and the
   // headline figure itself.
-  const balanceNow = useMemo(() => openingBalanceAtStart(state), [state]);
+  // What is in the account NOW — rolled to today, not to the window. These
+  // differ whenever the window does not open today, and they are different
+  // questions: "Balance" means what you have, while the ledger's opening row
+  // means where its running total starts. Rolling the headline to the window
+  // meant typing today's bank balance into a reality check and watching the
+  // page show a different number back.
+  const balanceNow = useMemo(() => balanceOn(state, today), [state, today]);
   const rolledSinceCheck = balanceNow - state.account.startingBalance;
+
+  // Where the ledger's running total starts. Same source, different day.
+  const balanceAtWindow = useMemo(
+    () => balanceOn(state, state.settings.startDate),
+    [state]
+  );
+  const windowIsToday = state.settings.startDate === today;
 
   // Derive safe-to-spend from the projection above instead of re-running it.
   const safe = useMemo(
     () =>
       computeSafeToSpendFromEvents(
-        balanceNow,
+        balanceAtWindow,
         state.settings.minSafeBalance ?? 0,
         events
       ),
-    [balanceNow, state.settings.minSafeBalance, events]
+    [balanceAtWindow, state.settings.minSafeBalance, events]
   );
 
   const topUp = useMemo(
@@ -140,27 +162,31 @@ export default function App() {
   // lands on that day's closing balance.
   const runningBalanceByEvent = useMemo(() => {
     const byEvent = new Map<string, number>();
-    let balance = balanceNow;
+    let balance = balanceAtWindow;
     for (const e of events) {
       balance += e.effectiveAmount;
       byEvent.set(e.id, balance);
     }
     return byEvent;
-  }, [events, balanceNow]);
+  }, [events, balanceAtWindow]);
 
 
-  // Coverage is measured against the app's notion of "now" (settings.startDate),
-  // the same reference the projection uses, so both halves of the card agree.
+  // Coverage asks whether one salary covered the household up to *now*, and
+  // now is the clock. It used to be `settings.startDate`, so moving the
+  // forecast window silently changed how many months of history the card
+  // claimed to have measured — and clearing that field blanked the card
+  // outright, as though a year of recorded top-ups depended on where you
+  // pointed the forecast.
   const coverage = useMemo(
     () =>
       computeCoverageMetrics(state.adhocTransactions, {
-        asOf: state.settings.startDate,
+        asOf: today,
         trackingSince: state.settings.trackingSince,
         secondSalaryMonthly: state.settings.secondSalaryMonthly,
       }),
     [
       state.adhocTransactions,
-      state.settings.startDate,
+      today,
       state.settings.trackingSince,
       state.settings.secondSalaryMonthly,
     ]
@@ -173,12 +199,8 @@ export default function App() {
   // with anything else about what day it is.
   const cashChecks = useMemo(
     () =>
-      summarizeCheckpoints(
-        state.checkpoints,
-        "cash",
-        state.settings.startDate
-      ),
-    [state.checkpoints, state.settings.startDate]
+      summarizeCheckpoints(state.checkpoints, "cash", today),
+    [state.checkpoints, today]
   );
   const [realityCheckOpen, setRealityCheckOpen] = useState(false);
 
@@ -254,18 +276,6 @@ export default function App() {
   useEffect(() => {
     saveAppState(state);
   }, [state]);
-
-  function setFollowToday(follow: boolean) {
-    setState((s) => {
-      if (!follow) {
-        // Pin it where it currently sits, so nothing moves under the user.
-        return { ...s, settings: { ...s.settings, followToday: false } };
-      }
-      const settings = { ...s.settings };
-      delete settings.followToday;
-      return { ...s, settings: advanceStartDate(settings, todayIso()) };
-    });
-  }
 
   function updateStartDate(val: string) {
     setState((s) => ({
@@ -488,36 +498,28 @@ export default function App() {
             <div data-testid="settings-group-forecast">
             <h4 style={styles.settingsGroupTitle}>Forecast</h4>
             <div style={styles.settingsGrid}>
-              {/* While it follows today there is nothing here to fill in,
-                  so nothing is shown to fill in. The picker appears only
-                  when the user deliberately pins the date to look at the
-                  projection from some other day. */}
+              {/* A plain date, set by hand and left alone. It used to roll
+                  to today on every load, which was a workaround for ageing
+                  the balance against it rather than against the clock. */}
               <div style={styles.field}>
                 <span style={ui.fieldLabel}>Forecasting from</span>
-                {state.settings.followToday === false ? (
-                  <DateInputWithDisplay
-                    value={state.settings.startDate}
-                    onChange={(val) => updateStartDate(val)}
-                    ariaLabel="Start date"
-                  />
-                ) : (
-                  <span style={styles.forecastFrom}>
-                    Today &middot; {formatDate(state.settings.startDate)}
+                <DateInputWithDisplay
+                  value={state.settings.startDate}
+                  onChange={(val) => updateStartDate(val)}
+                  ariaLabel="Start date"
+                />
+                <span style={styles.fieldHint}>
+                  The day the forecast window opens. Yours to set — nothing
+                  moves it. Your balance is counted from the day you last
+                  checked it against the bank, whichever day this is.
+                </span>
+                {state.settings.startDate !== today && (
+                  <span style={styles.windowNote} data-testid="window-note">
+                    {state.settings.startDate < today
+                      ? `Looking from the past — today is ${formatDate(today)}.`
+                      : `Looking ahead — today is ${formatDate(today)}.`}
                   </span>
                 )}
-                <span style={styles.fieldHint}>
-                  The day the forecast counts from. It keeps itself on today
-                  unless you pin it.
-                </span>
-                <label style={styles.followRow}>
-                  <input
-                    type="checkbox"
-                    aria-label="Follow today's date"
-                    checked={state.settings.followToday !== false}
-                    onChange={(e) => setFollowToday(e.target.checked)}
-                  />
-                  <span>Follow today&apos;s date</span>
-                </label>
               </div>
 
               <label style={styles.field}>
@@ -958,22 +960,34 @@ export default function App() {
               <>
                 <div style={styles.eventsHint}>Tap a row to override its amount</div>
 
-                {/* The same figure the card above shows, so it wears the
-                    same name and the same date. It used to be called
-                    "Starting balance" here and "Balance today" there, which
-                    read as two numbers that happened to agree. */}
+                {/* Where the running totals below start.
+                    
+                    Normally this IS the figure the card above shows — same
+                    name, same stamp — because the window opens today. When
+                    it does not, the two are different questions and are
+                    labelled as such: the card says what is in the account
+                    now, this row says what it was (or will be) on the day
+                    the ledger starts. Showing one number under both
+                    headings is how this card used to read as two numbers
+                    that happened to agree. */}
                 <div style={styles.openingRow}>
                   <span style={styles.openingLabel}>
-                    <span data-testid="balance-label">Balance</span>
-                    <span
-                      style={balanceStale ? styles.balanceAgeStale : styles.balanceAge}
-                      data-testid="balance-age"
-                    >
-                      {balanceStamp}
+                    <span data-testid="balance-label">
+                      {windowIsToday
+                        ? "Balance"
+                        : `Balance on ${formatDate(state.settings.startDate)}`}
                     </span>
+                    {windowIsToday && (
+                      <span
+                        style={balanceStale ? styles.balanceAgeStale : styles.balanceAge}
+                        data-testid="balance-age"
+                      >
+                        {balanceStamp}
+                      </span>
+                    )}
                   </span>
                   <span style={styles.openingValue}>
-                    {formatMoney(balanceNow)}
+                    {formatMoney(balanceAtWindow)}
                   </span>
                 </div>
 
@@ -1083,7 +1097,7 @@ export default function App() {
       <RealityCheckModal
         open={realityCheckOpen}
         target="cash"
-        defaultDate={state.settings.startDate}
+        defaultDate={today}
         // "Balance today" is the one hand-maintained cash figure, and the
         // one the whole projection is anchored on, so it is what a statement
         // is held against — not the timeline's first point, which already has
@@ -1118,7 +1132,7 @@ export default function App() {
       {/* QUICK-ADD ONE-TIME TRANSACTION (from Dashboard) */}
       <QuickAddTransactionModal
         open={quickAddOpen}
-        defaultDate={state.settings.startDate}
+        defaultDate={today}
         onAdd={(values) => {
           setState((s) => ({
             ...s,
@@ -1165,7 +1179,7 @@ export default function App() {
       {/* RULE EDITOR MODAL */}
       <RuleEditorModal
         rule={editingRule}
-        defaultStartDate={state.settings.startDate}
+        defaultStartDate={today}
         canDelete={!editingIsNew}
         onSave={(updatedRule) => {
           setState((s) => {
@@ -1584,6 +1598,12 @@ const styles: Record<string, CSSProperties> = {
   },
   metricKey: {
     ...ui.miniLabel,
+  },
+  windowNote: {
+    fontSize: 11,
+    color: colors.amber,
+    lineHeight: 1.4,
+    marginTop: 4,
   },
   settingsGroupTitle: {
     ...ui.miniLabel,

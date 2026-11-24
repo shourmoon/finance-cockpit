@@ -2,8 +2,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import App from "./App";
+import { formatDate } from "./utils/dates";
 import { upgradeAppState } from "./domain/appState";
-import { colors } from "./components/ui";
 
 /**
  * The household these tests assume. It used to arrive for free, because the
@@ -587,6 +587,28 @@ describe("App shell", () => {
   });
 
   describe("the balance has one name and one date", () => {
+    function seedAt(startDate: string, checkpointDate: string | null) {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 8,
+          account: { startingBalance: 3200 },
+          settings: {
+            startDate, horizonDays: 90,
+            minSafeBalance: 0, trackingSince: "2026-01-01", surplus: {},
+          },
+          rules: [
+            { id: "r", name: "Salary", amount: 4200, isVariable: false,
+              schedule: { type: "monthly", day: 15 } },
+          ],
+          adhocTransactions: [], overrides: {},
+          checkpoints: checkpointDate
+            ? [{ id: "c1", date: checkpointDate, actual: 3200, modelled: 3200 }]
+            : [],
+        })
+      );
+    }
+
     function seed(checkpointDate: string | null) {
       window.localStorage.setItem(
         "finance-cockpit-app-state-v1",
@@ -630,8 +652,10 @@ describe("App shell", () => {
 
     it("gives the ledger's opening figure the same name as the metric", () => {
       // Same number, three inches apart, under two different names was the
-      // other half of the confusion.
-      seed("2026-09-01");
+      // other half of the confusion. This holds whenever the two ARE one
+      // quantity — that is, whenever the window opens today.
+      const today = new Date().toISOString().slice(0, 10);
+      seedAt(today, today);
       render(<App />);
       const labels = screen.getAllByTestId("balance-label").map((e) => e.textContent);
       expect(labels.length).toBeGreaterThanOrEqual(2);
@@ -644,6 +668,21 @@ describe("App shell", () => {
       for (const stamp of stamps) {
         expect(stamp).toHaveStyle({ textTransform: "none" });
       }
+    });
+
+    it("names them apart when they are genuinely two figures", () => {
+      // With the window in the past they are different quantities: what is
+      // in the account now, and what the ledger's running total starts
+      // from. One name over two numbers would be the same defect wearing
+      // the opposite clothes, so each says which day it belongs to.
+      seedAt("2026-09-01", "2026-09-01");
+      render(<App />);
+      const labels = screen.getAllByTestId("balance-label").map((e) => e.textContent);
+      expect(labels).toContain("Balance");
+      // \s not " ": formatDate joins its parts with non-breaking spaces so a
+      // date never wraps mid-way, and a literal space fails to match them
+      // while looking identical in the diff.
+      expect(labels.some((l) => /Balance on 1\sSep\s'26/.test(l ?? ""))).toBe(true);
     });
 
     it("says plainly when the figure has never been checked", () => {
@@ -697,7 +736,10 @@ describe("App shell", () => {
       expect(saved.checkpoints).toHaveLength(1);
     });
 
-    it("hides the start-date picker while the date manages itself", () => {
+    it("shows the start-date picker, always, and says when it is not today", () => {
+      // The date is the user's to set, so the field is simply there. When
+      // the window does not open today the app says so rather than leaving
+      // the reader to work out why "today" figures look odd.
       window.localStorage.setItem(
         "finance-cockpit-app-state-v1",
         JSON.stringify({
@@ -708,95 +750,112 @@ describe("App shell", () => {
       );
       render(<App />);
       fireEvent.click(screen.getByText("Settings & Rules"));
-      // Following today: nothing to fill in.
-      expect(screen.queryByLabelText("Start date")).not.toBeInTheDocument();
-      // Pin it and the picker appears.
-      fireEvent.click(screen.getByLabelText("Follow today's date"));
-      expect(screen.getByLabelText("Start date")).toBeInTheDocument();
+      expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-01");
+      expect(screen.getByTestId("window-note")).toHaveTextContent(
+        /Looking from the past/
+      );
     });
   });
 
-  describe("the start date keeps itself current", () => {
-    const todayIso = () => new Date().toISOString().slice(0, 10);
+  describe("today is the clock, not the forecast window", () => {
+    // Three different dates, and the app kept treating them as one:
+    //
+    //   1. today                     — the real clock
+    //   2. the balance's date        — the latest reality check
+    //   3. settings.startDate        — where the forecast window opens
+    //
+    // Conflating (1) and (2) gave the engine the anchor bug. Conflating
+    // (1) and (3) is what made the start date roll in the first place:
+    // freshness ages the last check against `asOf`, and `asOf` WAS
+    // startDate, so a start date that did not move reported every balance
+    // as confirmed today, forever. Rolling the window was a workaround for
+    // that, not a fix — the fix is for "now" to mean the clock.
+    //
+    // These laws hold whatever the start date does, which is the point:
+    // the user owns that setting, and nothing about staleness, coverage or
+    // what day it is may depend on where they put it.
+    const realToday = () => new Date().toISOString().slice(0, 10);
 
-    function seedStale(extra: Record<string, unknown> = {}) {
-      window.localStorage.setItem(
-        "finance-cockpit-app-state-v1",
-        JSON.stringify({
-          version: 7,
-          account: { startingBalance: 3200 },
-          settings: {
-            startDate: "2026-09-01", horizonDays: 90, minSafeBalance: 0,
-            trackingSince: "2026-01-01", surplus: {}, ...extra,
-          },
-          rules: [], adhocTransactions: [], overrides: {},
-          checkpoints: [{ id: "c1", date: "2026-09-01", actual: 3200, modelled: 3400 }],
-        })
-      );
-    }
-    const stored = () =>
-      JSON.parse(window.localStorage.getItem("finance-cockpit-app-state-v1")!);
-
-    it("moves a months-old start date up to today on load", () => {
-      seedStale();
-      render(<App />);
-      expect(stored().settings.startDate).toBe(todayIso());
-    });
-
-    it("leaves it alone once it is pinned", () => {
-      seedStale({ followToday: false });
-      render(<App />);
-      expect(stored().settings.startDate).toBe("2026-09-01");
-    });
-
-    it("pinning from Settings stops it following today", () => {
-      seedStale();
-      render(<App />);
-      fireEvent.click(screen.getByText("Settings & Rules"));
-      fireEvent.click(screen.getByLabelText("Follow today's date"));
-      expect(stored().settings.followToday).toBe(false);
-    });
-
-    it("tells the truth about the balance's age once the date is current", () => {
-      // The whole point. With the start date frozen on the day the balance
-      // was confirmed, freshness ages it against that same frozen date and
-      // reports "Confirmed today" forever — the one feature built to catch
-      // drift, blind to the drift it was built for.
-      seedStale();
-      render(<App />);
-      expect(screen.queryByText(/Confirmed today/)).not.toBeInTheDocument();
-      expect(screen.getByTestId("reality-age-cash").textContent).toMatch(
-        /Confirmed .* ago/
-      );
-      // ...and the age is attached to the figure it qualifies. These rules
-      // are empty, so nothing happened between the check and today and the
-      // figure is still exactly the confirmed one — no "since" clause.
-      expect(screen.getByTestId("balance-age")).toHaveTextContent(
-        /confirmed 1 Sep '26$/
-      );
-    });
-
-    it("stamps today's date, quietly, when the balance really was just confirmed", () => {
-      // The stamp is always there — what changes is whether it is a warning.
+    function seedPinnedToThePast() {
       window.localStorage.setItem(
         "finance-cockpit-app-state-v1",
         JSON.stringify({
           version: 8,
           account: { startingBalance: 3200 },
           settings: {
-            startDate: todayIso(), horizonDays: 90, minSafeBalance: 0,
-            trackingSince: "2026-01-01", surplus: {},
+            // Deliberately months behind the clock, and left there.
+            startDate: "2026-09-01",
+            horizonDays: 90,
+            minSafeBalance: 0,
+            trackingSince: "2026-01-01",
+            surplus: {},
           },
           rules: [], adhocTransactions: [], overrides: {},
-          checkpoints: [{ id: "c1", date: todayIso(), actual: 3200, modelled: 3200 }],
+          checkpoints: [
+            { id: "c1", date: "2026-09-01", actual: 3200, modelled: 3400 },
+          ],
         })
       );
+    }
+
+    beforeEach(seedPinnedToThePast);
+
+    it("ages the balance against the clock, not against the window", () => {
+      // The blind spot: a staleness detector anchored to the very value
+      // that goes stale cannot see it. A balance confirmed on 1 Sep is
+      // months old no matter where the forecast window is pointed.
       render(<App />);
-      const stamp = screen.getAllByTestId("balance-age")[0];
-      expect(stamp).toHaveTextContent(/confirmed/);
-      expect(stamp).not.toHaveStyle({ color: colors.amber });
+      expect(screen.queryByText(/Confirmed today/)).not.toBeInTheDocument();
+      expect(screen.getByTestId("reality-age-cash").textContent).toMatch(
+        /Confirmed .* ago/
+      );
+      expect(screen.getByTestId("balance-age")).toHaveTextContent(
+        /confirmed 1 Sep '26/
+      );
+    });
+
+    it("leaves the start date exactly where it was put", () => {
+      // The user's instruction: this setting is theirs. Loading the app
+      // must not move it, and must not write a moved value back.
+      render(<App />);
+      const saved = JSON.parse(
+        window.localStorage.getItem("finance-cockpit-app-state-v1")!
+      );
+      expect(saved.settings.startDate).toBe("2026-09-01");
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-01");
+    });
+
+    it("offers no switch for following today", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("Settings & Rules"));
+      expect(
+        screen.queryByLabelText("Follow today's date")
+      ).not.toBeInTheDocument();
+    });
+
+    it("dates a reality check today, not at the window's start", () => {
+      // The check records "on this date, the statement said this". With the
+      // window pinned to September, it was stamping September onto a
+      // balance read off the bank today — a fabricated date on the one
+      // record that exists to be trustworthy.
+      render(<App />);
+      // The cash check is deliberately locked — it records what the bank
+      // says *now* — so the locked date IS the date that gets stored.
+      fireEvent.click(screen.getByText("Re-check"));
+      const norm = (t: string | null) => (t ?? "").replace(/\s+/g, " ").trim();
+      expect(norm(screen.getByTestId("reality-locked-date").textContent)).toBe(
+        norm(formatDate(realToday()))
+      );
+    });
+
+    it("dates a new one-off today, not at the window's start", () => {
+      render(<App />);
+      fireEvent.click(screen.getByText("+ One-time"));
+      expect(screen.getByLabelText(/Date/i)).toHaveValue(realToday());
     });
   });
+
 
   describe("the Start date field", () => {
     it("accepts a new date, and accepts being cleared", () => {
@@ -807,8 +866,6 @@ describe("App shell", () => {
       // rather than inventing a clean month.
       render(<App />);
       fireEvent.click(screen.getByText("Settings & Rules"));
-      // The picker only exists once the date is deliberately pinned.
-      fireEvent.click(screen.getByLabelText("Follow today's date"));
       const startDate = screen.getByLabelText("Start date");
 
       fireEvent.change(startDate, { target: { value: "2027-04-01" } });
@@ -823,10 +880,16 @@ describe("App shell", () => {
           .settings.startDate
       ).toBe("");
 
-      // And the app is still standing, claiming nothing about coverage.
+      // And the app is still standing. Coverage keeps working: it asks
+      // whether one salary covered the household up to *now*, and "now" is
+      // the clock, not the forecast window — clearing this field says
+      // nothing about the months already recorded. (The law that coverage
+      // must never fabricate a month from a non-date is unchanged; it lives
+      // on computeCoverageMetrics, in resilienceInvariants.test.ts, which is
+      // where a bad asOf could actually arrive.)
       fireEvent.click(screen.getByText("Dashboard"));
       expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
-      expect(screen.queryByText(/months on one salary/)).not.toBeInTheDocument();
+      expect(screen.getByText(/months on one salary/)).toBeInTheDocument();
     });
   });
 

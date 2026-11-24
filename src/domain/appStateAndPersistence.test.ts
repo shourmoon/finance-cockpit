@@ -14,11 +14,9 @@ import {
   DEFAULT_COMPARISON_YEARS,
   MAX_HORIZON_DAYS,
   DEFAULT_HORIZON_DAYS,
-  advanceStartDate,
-  sanitizeSurplusSettings,
 } from "./appState";
 import { saveAppState, loadAppState, clearAppState } from "./persistence";
-import type { AppState, CashflowSettings } from "./types";
+import type { AppState } from "./types";
 
 describe("appState & persistence", () => {
   beforeEach(() => {
@@ -255,72 +253,44 @@ describe("appState & persistence", () => {
     });
   });
 
-  describe("the start date follows today unless it is pinned", () => {
-    // The app's notion of "now" was stamped once, on the first install, and
-    // then never moved. Every day after that the whole dashboard projected
-    // from a date further in the past, and the one feature built to catch
-    // drift could not see it: freshness ages the last checkpoint against
-    // this very date, so a balance confirmed the day it was set read as
-    // "confirmed today" forever.
-    const settings = (over: Partial<CashflowSettings> = {}): CashflowSettings => ({
-      startDate: "2026-09-01",
-      horizonDays: 90,
-      minSafeBalance: 0,
-      surplus: sanitizeSurplusSettings(undefined),
-      ...over,
-    });
-
-    test("moves a stale start date up to today", () => {
-      const next = advanceStartDate(settings(), "2026-11-19");
-      expect(next.startDate).toBe("2026-11-19");
-    });
-
-    test("leaves a pinned date exactly where the user put it", () => {
-      const pinned = settings({ followToday: false });
-      expect(advanceStartDate(pinned, "2026-11-19").startDate).toBe("2026-09-01");
-    });
-
-    test("returns the very same object when there is nothing to do", () => {
-      // Called on every load, and the result is written to storage: a new
-      // object each time would be a pointless save and a pointless re-render.
-      const same = settings({ startDate: "2026-11-19" });
-      expect(advanceStartDate(same, "2026-11-19")).toBe(same);
-      const pinned = settings({ followToday: false });
-      expect(advanceStartDate(pinned, "2026-11-19")).toBe(pinned);
-    });
-
-    test("refuses to move to a date that is not a date", () => {
-      // The clock is read at the UI boundary; a caller that hands over
-      // nonsense must not be able to blank the projection.
-      for (const bad of ["", "not-a-date", "2026-02-30"]) {
-        expect(advanceStartDate(settings(), bad).startDate).toBe("2026-09-01");
+  describe("v8 -> v9: the start date stops rolling", () => {
+    // The flag is retired, and retiring it is the whole migration: a field
+    // that is still copied forward is one the app keeps writing back
+    // forever. Narrow like v6 — the stored startDate is left exactly where
+    // it is, because it is the user's and nothing may move it.
+    test("drops followToday and leaves the date alone", () => {
+      for (const flag of [true, false, undefined]) {
+        const raw: Record<string, unknown> = {
+          version: 8,
+          account: { startingBalance: 1000 },
+          settings: {
+            startDate: "2026-09-01",
+            horizonDays: 30,
+            minSafeBalance: 0,
+            ...(flag === undefined ? {} : { followToday: flag }),
+          },
+          rules: [], adhocTransactions: [], overrides: {}, checkpoints: [],
+        };
+        const upgraded = upgradeAppState(raw);
+        expect(upgraded.settings.startDate).toBe("2026-09-01");
+        expect("followToday" in upgraded.settings).toBe(false);
+        // And it does not come back on the next round trip.
+        const again = upgradeAppState(JSON.parse(JSON.stringify(upgraded)));
+        expect("followToday" in again.settings).toBe(false);
       }
     });
 
-    test("never moves a date backwards", () => {
-      // A device with a wrong clock, or a stale tab waking up, must not drag
-      // the projection into the past and hide everything already recorded.
-      expect(advanceStartDate(settings(), "2026-07-01").startDate).toBe("2026-09-01");
-    });
-
-    test("v7 -> v8: an upgraded state follows today, and a pin survives", () => {
-      const following = upgradeAppState({
-        version: 7, account: { startingBalance: 0 },
-        settings: { startDate: "2026-09-01", horizonDays: 90, minSafeBalance: 0 },
+    test("nothing in the module can move a start date any more", () => {
+      // The guard against quietly reintroducing the roll: no export here
+      // takes a date and hands back a different one.
+      const before = "2026-01-15";
+      const upgraded = upgradeAppState({
+        version: 9,
+        account: { startingBalance: 0 },
+        settings: { startDate: before, horizonDays: 30, minSafeBalance: 0 },
         rules: [], adhocTransactions: [], overrides: {}, checkpoints: [],
       });
-      // Not cleared — the engine still gets a real date — but no longer frozen.
-      expect(following.settings.startDate).toBe("2026-09-01");
-      expect(following.settings.followToday).not.toBe(false);
-      expect(advanceStartDate(following.settings, "2026-11-19").startDate).toBe("2026-11-19");
-
-      const pinned = upgradeAppState({
-        version: 8, account: { startingBalance: 0 },
-        settings: { startDate: "2026-09-01", horizonDays: 90, minSafeBalance: 0, followToday: false },
-        rules: [], adhocTransactions: [], overrides: {}, checkpoints: [],
-      });
-      expect(pinned.settings.followToday).toBe(false);
-      expect(advanceStartDate(pinned.settings, "2026-11-19").startDate).toBe("2026-09-01");
+      expect(upgraded.settings.startDate).toBe(before);
     });
   });
 

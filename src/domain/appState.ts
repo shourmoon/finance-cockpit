@@ -8,7 +8,6 @@ SurplusSettings,
 RecurringRule,
 RecurringSchedule,
 EventOverridesMap,
-ISODate,
 } from "./types";
 import { toISODate, isValidISODate } from "./dateUtils";
 // One definition of the override key, shared with the engine that reads it.
@@ -40,6 +39,13 @@ export { DEFAULT_RESERVE_MONTHS };
 // last confirmed, and stamping one would report a balance as fresh that
 // nobody has looked at. An older state arrives with an empty log and reads
 // as never confirmed, which is exactly what it is.
+// v8 -> v9: retired `settings.followToday` and the rolling start date with
+// it. The start date is the user's to set, so nothing moves it, and "today"
+// is read from the clock where it is actually needed (staleness, coverage,
+// the date a reality check records) rather than being impersonated by the
+// forecast window. Subtractive like v6 and just as narrow: the stored
+// `startDate` is left exactly where it is, and only the flag goes.
+//
 // v7 -> v8: added `settings.followToday`. Additive, and absent means true, so
 // every existing state starts following today without its stored startDate
 // being touched — the engine still receives a concrete date and no domain
@@ -70,7 +76,7 @@ export { DEFAULT_RESERVE_MONTHS };
 // goes, along with the lens that existed to filter on it. Nothing is
 // backfilled in the other direction: a draw recorded as a one-off shock is
 // still a draw, and coverage now counts it as one.
-export const APP_STATE_VERSION = 8;
+export const APP_STATE_VERSION = 9;
 
 /** Long-run pre-tax equity return. Conservative relative to historical. */
 export const DEFAULT_EXPECTED_RETURN = 0.07;
@@ -155,29 +161,6 @@ export function sanitizeSurplusSettings(raw: any): SurplusSettings {
   return surplus;
 }
 
-/**
- * Move the projection's "now" up to today, unless the user pinned it.
- *
- * Pure, and takes `today` rather than reading the clock: the clock belongs at
- * the UI boundary, and a domain function that asks what day it is cannot be
- * tested over a range of days. Returns the SAME object when nothing changes,
- * so a caller can persist the result unconditionally without writing storage
- * and re-rendering on every load.
- *
- * Never moves the date backwards. A device with a wrong clock, or a tab that
- * wakes up with a stale one, must not drag the projection into the past and
- * hide what has already been recorded.
- */
-export function advanceStartDate(
-  settings: CashflowSettings,
-  today: ISODate
-): CashflowSettings {
-  if (settings.followToday === false) return settings;
-  if (!isValidISODate(today)) return settings;
-  // `>` on ISO dates is a valid chronological comparison: the format sorts.
-  if (!(today > settings.startDate)) return settings;
-  return { ...settings, startDate: today };
-}
 
 /**
  * Bounds for the projection horizon. The engine walks one timeline point
@@ -400,10 +383,9 @@ export function upgradeAppState(raw: any): AppState {
     surplus: sanitizeSurplusSettings(raw.settings?.surplus),
   };
 
-  // Only an explicit `false` pins the date; anything else follows today.
-  // Stored as the exception rather than the rule so an older state, which
-  // has no opinion, gets the behaviour almost everyone wants.
-  if (raw.settings?.followToday === false) settings.followToday = false;
+  // `followToday` is not read. The start date no longer rolls, so the flag
+  // means nothing; a retired field that is still copied forward is one the
+  // app keeps writing back forever, so this simply stops looking at it.
 
   // Optional: omitted entirely when unset, which is what hides the
   // "second salary kept" metric rather than showing a placeholder.
