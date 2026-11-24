@@ -8,7 +8,6 @@ import { toISODate } from "./domain/dateUtils";
 import { loadAppState, saveAppState } from "./domain/persistence";
 import { balanceOn, runCashflowProjection } from "./domain/cashflowEngine";
 import {
-  computeSafeToSpendFromEvents,
   computeTopUpHint,
   computeTopUpSchedule,
   transferDepositToTransaction,
@@ -133,16 +132,20 @@ export default function App() {
   );
   const windowIsToday = state.settings.startDate === today;
 
-  // Derive safe-to-spend from the projection above instead of re-running it.
-  const safe = useMemo(
-    () =>
-      computeSafeToSpendFromEvents(
-        balanceAtWindow,
-        state.settings.minSafeBalance ?? 0,
-        events
-      ),
-    [balanceAtWindow, state.settings.minSafeBalance, events]
-  );
+  // What the horizon accumulates: where the ledger ends, less where it
+  // began. Derived from the same timeline the ledger renders, so the
+  // headline is literally the sum of the rows below it — a reader who adds
+  // them up must land on this number or one of the two is wrong.
+  //
+  // This replaced "Safe to Spend today", which read the LOWEST point of the
+  // horizon and subtracted the floor. That is a spending limit pinned by
+  // the single worst day, not an accumulation: on a household ending 90
+  // days up $3,460 it showed $2,480 because of a dip three days out. It
+  // answered a question nobody had asked.
+  const surplus = useMemo(() => {
+    const last = timeline[timeline.length - 1];
+    return last ? last.balance - balanceAtWindow : 0;
+  }, [timeline, balanceAtWindow]);
 
   const topUp = useMemo(
     () => computeTopUpHint(timeline, state.settings.minSafeBalance ?? 0),
@@ -564,8 +567,8 @@ export default function App() {
                   inputStyle={ui.input}
                 />
                 <span style={styles.fieldHint}>
-                  The cushion you never want to drop below. Safe to Spend and
-                  the top-up plan both keep you above it.
+                  The cushion you never want to drop below. The top-up plan
+                  keeps you above it.
                 </span>
               </label>
 
@@ -791,10 +794,22 @@ export default function App() {
       {activeTab === "dashboard" && !nothingToForecast && (
         <>
           <div style={styles.card}>
-            {/* Hero: the number the user opens the app for. */}
-            <div style={styles.heroLabel}>Safe to Spend today</div>
-            <div style={{ ...styles.heroValue, color: statusColor(metrics.status) }}>
-              {formatMoney(safe.safeToSpendToday)}
+            {/* Hero: how much better (or worse) off the horizon leaves you.
+                The number is coloured by its own sign — this is about
+                accumulation — while the badge below reports the separate
+                question of whether the path stays above the floor. */}
+            <div style={styles.heroLabel} data-testid="surplus-label">
+              Surplus over {state.settings.horizonDays} days
+            </div>
+            <div
+              style={{
+                ...styles.heroValue,
+                color: surplus < 0 ? colors.danger : colors.positive,
+              }}
+              data-testid="surplus-value"
+            >
+              {surplus < 0 ? "−" : "+"}
+              {formatMoney(Math.abs(surplus))}
             </div>
             <div style={styles.impactRow}>
               <span
@@ -808,10 +823,10 @@ export default function App() {
                 }}
               >
                 {metrics.status === "ok"
-                  ? "You have room to spend"
+                  ? "Stays above your floor"
                   : metrics.status === "warning"
                   ? "Right at your safety floor"
-                  : "Below safety floor"}
+                  : "Dips below your floor"}
               </span>
               <span>
                 Min balance over horizon is {formatMoney(metrics.minBalance)} on{" "}
@@ -1241,10 +1256,6 @@ function formatMoney(amount: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-}
-
-function statusColor(status: "ok" | "warning" | "alert"): string {
-  return status === "ok" ? colors.positive : status === "warning" ? colors.amber : colors.danger;
 }
 
 // Editable amount inputs in Settings borrow the dashboard's ledger colors:

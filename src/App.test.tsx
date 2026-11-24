@@ -88,9 +88,9 @@ function addOneOffViaDialog(
 }
 
 describe("App shell", () => {
-  it("renders the dashboard by default with the safe-to-spend hero", () => {
+  it("renders the dashboard by default, led by the surplus figure", () => {
     render(<App />);
-    expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+    expect(screen.getByTestId("surplus-label")).toBeInTheDocument();
     expect(screen.getAllByTestId("balance-label")[0]).toHaveTextContent("Balance");
     expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
     // Default rules produce upcoming events.
@@ -197,9 +197,18 @@ describe("App shell", () => {
 
     // Name, amount, and running balance should share one type size —
     // hierarchy comes from weight/colour, not mismatched sizes.
+    //
+    // This household has exactly one event, so the surplus headline carries
+    // the same "+$200.00" text as the row. Pick the cell by excluding the
+    // hero rather than by walking the DOM, which is brittle.
+    const cell = (text: string) =>
+      screen
+        .getAllByText(text)
+        .find((el) => el.getAttribute("data-testid") !== "surplus-value")!;
+
     expect(screen.getByText("Alpha")).toHaveStyle({ fontSize: "13px" });
-    expect(screen.getByText("+$200.00")).toHaveStyle({ fontSize: "13px" });
-    expect(screen.getByText("$1,200.00")).toHaveStyle({ fontSize: "13px" });
+    expect(cell("+$200.00")).toHaveStyle({ fontSize: "13px" });
+    expect(cell("$1,200.00")).toHaveStyle({ fontSize: "13px" });
   });
 
   it("shows a top-up hint when the projection dips below the safety floor", () => {
@@ -470,6 +479,94 @@ describe("App shell", () => {
     });
   });
 
+  describe("the headline is surplus, not a spending limit", () => {
+    // "Safe to Spend today" answered a question the user never asked. It
+    // reads the LOWEST point of the horizon and subtracts the floor, so it
+    // is a spending limit pinned by the worst single day — on a household
+    // ending 90 days up $3,460 it showed $2,480, because of a dip three
+    // days out. The actual requirement, stated plainly, was "to know across
+    // the horizon how much surplus I'm going to accumulate". That is the
+    // END point minus the start, and nothing on screen said it.
+
+    function seedAccumulating() {
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 9,
+          account: { startingBalance: 10_000 },
+          settings: {
+            startDate: "2026-11-24",
+            horizonDays: 90,
+            minSafeBalance: 2_000,
+            surplus: {},
+          },
+          // +1,000 on the 1st: lands 1 Dec, 1 Jan, 1 Feb inside a 90-day
+          // window opening 24 Nov. Three events, +3,000, ending 13,000.
+          rules: [
+            { id: "save", name: "Savings transfer", amount: 1_000,
+              isVariable: false, schedule: { type: "monthly", day: 1 } },
+          ],
+          adhocTransactions: [],
+          overrides: {},
+          checkpoints: [
+            { id: "c", date: "2026-11-24", actual: 10_000, modelled: 10_000 },
+          ],
+        })
+      );
+    }
+
+    beforeEach(seedAccumulating);
+
+    it("leads with what you accumulate over the horizon", () => {
+      render(<App />);
+      expect(screen.getByTestId("surplus-label")).toHaveTextContent(
+        /Surplus over 90 days/i
+      );
+      expect(screen.getByTestId("surplus-value")).toHaveTextContent("+$3,000.00");
+    });
+
+    it("no longer shows a spending limit", () => {
+      render(<App />);
+      expect(screen.queryByText("Safe to Spend today")).not.toBeInTheDocument();
+      expect(screen.queryByText(/room to spend/i)).not.toBeInTheDocument();
+    });
+
+    it("reconciles with the ledger, which is where the user checks it", () => {
+      // Rule 4: a figure shown in two places comes from one source and
+      // reconciles on screen. The surplus IS the ledger's last running
+      // balance minus its opening row — if a reader adds up the rows and
+      // gets a different answer, the headline is worthless.
+      render(<App />);
+      const body = document.body.textContent ?? "";
+      expect(body).toContain("$10,000.00"); // the ledger opens here
+      expect(body).toContain("$13,000.00"); // ...and closes here
+      // 13,000 − 10,000 = 3,000, which is the headline.
+      expect(screen.getByTestId("surplus-value")).toHaveTextContent("+$3,000.00");
+    });
+
+    it("says plainly when the horizon loses money rather than making it", () => {
+      // A negative surplus is the case worth getting right: "+" on a figure
+      // that is going down would be the kind of cheerful lie this app exists
+      // not to tell.
+      window.localStorage.setItem(
+        "finance-cockpit-app-state-v1",
+        JSON.stringify({
+          version: 9,
+          account: { startingBalance: 10_000 },
+          settings: { startDate: "2026-11-24", horizonDays: 90, minSafeBalance: 0, surplus: {} },
+          rules: [
+            { id: "rent", name: "Rent", amount: -1_000, isVariable: false,
+              schedule: { type: "monthly", day: 1 } },
+          ],
+          adhocTransactions: [], overrides: {},
+          checkpoints: [{ id: "c", date: "2026-11-24", actual: 10_000, modelled: 10_000 }],
+        })
+      );
+      render(<App />);
+      expect(screen.getByTestId("surplus-value")).toHaveTextContent("−$3,000.00");
+    });
+  });
+
   describe("the Settings page", () => {
     it("groups the settings by what they affect", () => {
       // Six fields in one undifferentiated grid: the balance, three
@@ -520,7 +617,7 @@ describe("App shell", () => {
       // exist. An empty app should ask, not assert.
       render(<App />);
       expect(screen.getByTestId("first-run")).toBeInTheDocument();
-      expect(screen.queryByText("Safe to Spend today")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("surplus-label")).not.toBeInTheDocument();
       expect(screen.queryByText(/Below safety floor/)).not.toBeInTheDocument();
       expect(screen.queryByText(/Top up \$/)).not.toBeInTheDocument();
     });
@@ -535,7 +632,7 @@ describe("App shell", () => {
       fireEvent.click(screen.getByText("Save"));
 
       fireEvent.click(screen.getByText("Dashboard"));
-      expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+      expect(screen.getByTestId("surplus-label")).toBeInTheDocument();
     });
 
     it("opens a dialog that matches the button that was pressed", () => {
@@ -572,7 +669,7 @@ describe("App shell", () => {
       render(<App />);
       // Balance confirmed, money in, money out: nothing left to ask.
       expect(screen.queryByTestId("first-run")).not.toBeInTheDocument();
-      expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+      expect(screen.getByTestId("surplus-label")).toBeInTheDocument();
     });
 
     it("leaves an existing user's data alone", () => {
@@ -896,7 +993,7 @@ describe("App shell", () => {
       // on computeCoverageMetrics, in resilienceInvariants.test.ts, which is
       // where a bad asOf could actually arrive.)
       fireEvent.click(screen.getByText("Dashboard"));
-      expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+      expect(screen.getByTestId("surplus-label")).toBeInTheDocument();
       expect(screen.getByText(/months on one salary/)).toBeInTheDocument();
     });
   });
@@ -1370,7 +1467,7 @@ describe("App shell", () => {
     expect(screen.getByTestId("mortgage-setup")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Dashboard"));
-    expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+    expect(screen.getByTestId("surplus-label")).toBeInTheDocument();
   });
 
   it("edits settings and persists them to localStorage", () => {
@@ -1416,7 +1513,7 @@ describe("App shell", () => {
 
     // The dashboard still renders its figures rather than blanking out.
     fireEvent.click(screen.getByText("Dashboard"));
-    expect(screen.getByText("Safe to Spend today")).toBeInTheDocument();
+    expect(screen.getByTestId("surplus-label")).toBeInTheDocument();
     expect(screen.getByText("Minimum balance")).toBeInTheDocument();
   });
 
